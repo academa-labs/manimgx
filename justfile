@@ -1,50 +1,205 @@
+# manimgx's tasks: `just` lists them. The GitHub workflows run these same recipes, so a task
+# does the same on your machine as in CI.
+
+# List the recipes
+[private]
+default:
+    @just --list
+
 # Development:
+
+# Make .venv and install the browser package's locked development tools
+[group('development')]
 sync:
-  uv sync --frozen --all-extras --reinstall-package manimgx
+    uv sync
+    cd browser && bun install --frozen-lockfile
 
+# Update uv.lock after a change to pyproject.toml's dependencies
+[group('development')]
 lock:
-  uv lock
+    uv lock
 
+# Upgrade the locked Python and Rust dependencies to the newest versions the manifests allow
+[group('development')]
+upgrade:
+    uv lock --upgrade
+    cargo update --manifest-path rust/Cargo.toml
+    uv run --frozen scripts/release/licenses.py
+
+# Write the wheels' third-party licenses (LICENSE-THIRD-PARTY), checking manimgx's `license`
+[group('development')]
+licenses:
+    uv run --frozen scripts/release/licenses.py
+
+# Format the code: ruff's fixes and formatter, and Prettier for the browser package
+[group('development')]
 format:
-  uv run --frozen --all-extras black src tests || true
-  uv run --frozen --all-extras ruff check --fix src tests || true
-  uv run --frozen --all-extras ruff format src tests
-  cargo fmt --manifest-path rust/Cargo.toml
+    uv run --frozen ruff check --fix
+    uv run --frozen ruff format
+    cd browser && bun install --frozen-lockfile && bun run format
 
+# Format one file or directory
+[group('development')]
 format-file target:
-  uv run --frozen --all-extras black {{target}} || true
-  uv run --frozen --all-extras ruff check --fix {{target}} || true
-  uv run --frozen --all-extras ruff format {{target}}
-  rustfmt {{target}}
+    uv run --frozen ruff check --fix {{ target }}
+    uv run --frozen ruff format {{ target }}
 
+# Run every pre-commit check: formatting, linting, type checking, licensing and the files' hygiene
+[group('development')]
 check:
-  uv run --frozen --all-extras ruff check src tests
-  uv run --frozen --all-extras pyright src tests
-  cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+    uv run --frozen prek run --all-files --show-diff-on-failure
+
+# Check the browser package's TypeScript and formatting with its locked tools
+[group('development')]
+check-typescript:
+    cd browser && bun install --frozen-lockfile && bun run check
 
 # Testing:
-test:
-  uv run --frozen --all-extras pytest
 
-update-testdata:
-  uv run --frozen --all-extras pytest --update-testdata
+# Run the tests in parallel; arguments go to pytest (`just test tests/docs -x`)
+[group('testing')]
+test *args:
+    uv run --frozen pytest -n auto {{ args }}
 
-test-coverage:
-  uv run --frozen --all-extras pytest --cov=src/rendercv --cov-report=term --cov-report=html --cov-report=markdown
+# Test the browser package, its compiled worker, and its public declarations
+[group('testing')]
+test-typescript:
+    cd browser && bun install --frozen-lockfile && bun run test
 
-review-manim-comparison:
-  uv run --frozen --all-extras fastapi dev tests/integration/review/app.py --port 8765
+# Run the tests and measure their coverage: a summary here, every line in htmlcov/
+[group('testing')]
+test-coverage *args:
+    uv run --frozen pytest -n auto --cov --cov-report=term --cov-report=html {{ args }}
 
-test-manim-comparison-reviewer:
-  uv run --frozen --all-extras pytest tests/integration/review/e2e -v --numprocesses=1 --headed
+# Combine the coverage of several test runs (their .coverage.* files) into htmlcov/ and a table
+[group('testing')]
+combine-coverage directory:
+    uvx coverage combine --quiet {{ directory }}
+    uvx coverage html --quiet
+    uvx coverage report --format=markdown
 
-# Utilities:
-count-lines:
-  wc -l `find src tests -name '*.py'`
+# Run the unit tests' properties on 2,000 examples each (the `thorough` Hypothesis profile)
+[group('testing')]
+test-thorough *args:
+    uv run --frozen pytest -n auto tests/unit --hypothesis-profile=thorough {{ args }}
 
-tree:
-    tree src/manimgx --gitignore
+# Time the benchmarks on this machine: this checkout against REF's manimgx, main unless named
+[group('testing')]
+bench ref="main" *args:
+    uv run --frozen pytest tests/benchmarks/test_speed.py -n 0 --timeout=3600 --bench={{ ref }} {{ args }}
 
-list-files:
-  uv run scripts/list_files.py
-  
+# (mutmut keeps its mutants in mutants/)
+# Run mutation testing on what `[tool.mutmut]` lists: the changes to the code the tests let through
+[group('testing')]
+mutate *args:
+    uv run --frozen --with mutmut mutmut run {{ args }}
+    uv run --frozen --with mutmut mutmut results
+
+# Render, compare and review the integration corpus (`just corpus --help`)
+[group('testing')]
+corpus *args:
+    uv run --frozen python -m tests.integration.corpus {{ args }}
+
+# Open the corpus's review panel at http://127.0.0.1:8000
+[group('testing')]
+review:
+    cd tests/integration/review/web && bun install --frozen-lockfile && bun run build
+    uv run --frozen fastapi run --host 127.0.0.1 --port 8000
+
+# Docs (their environment is the package and the docs tools; `python -m` puts the repository
+# root on the path, which the scripts, `scripts.docs`, and the site's formatter,
+# `docs.examples.fence`, are imported from):
+
+# Build the docs site into docs/site/: render its examples, write its reference, build its pages
+[group('docs')]
+build-docs:
+    uv run --frozen --no-default-groups --group docs python -m scripts.docs.gallery
+    uv run --frozen --no-default-groups --group docs python -m docs.examples
+    uv run --frozen --no-default-groups --group docs python -m scripts.docs.reference
+    uv run --frozen --no-default-groups --group docs python -m zensical build --strict \
+        --config-file docs/zensical.toml
+
+# (an example that fails to render is reported, and served without its film)
+# Serve the docs site at http://localhost:8000, rebuilt as its pages change
+[group('docs')]
+serve-docs:
+    uv run --frozen --no-default-groups --group docs python -m scripts.docs.gallery
+    -uv run --frozen --no-default-groups --group docs python -m docs.examples
+    uv run --frozen --no-default-groups --group docs python -m scripts.docs.reference
+    uv run --frozen --no-default-groups --group docs python -m zensical serve \
+        --config-file docs/zensical.toml
+
+# Release:
+
+# (cibuildwheel; `just build-wheel pyodide` builds the browser's)
+# Build this machine's wheel into dist/ and test it on every supported Python
+[group('release')]
+build-wheel platform="auto":
+    uvx cibuildwheel@4.2.1 --output-dir dist --platform {{ platform }}
+
+# (the player's element and the director's worker in one file, installing the manimgx of its version from PyPI;
+# with manimgx's license, which it carries)
+# Build the npm package into browser/dist/
+[group('release')]
+build-npm:
+    cd browser && bun install --frozen-lockfile
+    cd browser && bun pm pkg set version="$(uv version --short)"
+    cp LICENSE browser/LICENSE
+    cd browser && bun run build
+
+# Build manimgx's source distribution into dist/
+[group('release')]
+build-sdist:
+    uv build --sdist --out-dir dist
+
+# (the source distribution with every crate rust/Cargo.lock names and each archive the engine's
+# build fetches, and the cargo configuration that reads them: the source of all the wheels hold,
+# which builds them offline. A wheel is built from it, which reads the crates from it alone and
+# downloads the archives into it)
+# Build the wheels' complete source into dist/, from the source distribution
+[group('release')]
+build-source: build-sdist
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version="$(uv version --short)"
+    work="$(mktemp -d)"
+    trap 'rm -rf "${work}"' EXIT
+    tar -xzf "dist/manimgx-${version}.tar.gz" -C "${work}"
+    cd "${work}/manimgx-${version}"
+    mkdir .cargo
+    cargo vendor --locked --manifest-path rust/Cargo.toml vendor > .cargo/config.toml
+    printf '\n[net]\noffline = true\n\n[env]\nMANIMGX_SOURCES = { value = "sources", relative = true }\n' \
+        >> .cargo/config.toml
+    CARGO_TARGET_DIR="${work}/target" uv build --wheel --out-dir "${work}/wheel" .
+    tar -cf - -C "${work}" "manimgx-${version}" | xz -T0 -9 \
+        > "{{ justfile_directory() }}/dist/manimgx-${version}-source.tar.xz"
+
+# Build the font packages, their wheels and source distributions, into dist/
+[group('release')]
+build-fonts:
+    uv build --package manimgx-fonts --out-dir dist
+    uv build --package manimgx-fonts-cjk --out-dir dist
+
+# Build this machine's executable into dist/ from its wheel in dist/: one file, Python included
+[group('release')]
+create-executable:
+    uv run --no-project scripts/release/create_executable.py
+
+# Build the Docker image of a version published on PyPI
+[group('release')]
+build-docker-image version:
+    docker build --build-arg VERSION={{ version }} --tag ghcr.io/academa-labs/manimgx:{{ version }} \
+        docker
+
+# Print a version's section of the changelog: its release notes
+[group('release')]
+release-notes version:
+    awk '/^## / { if (found) exit } $0 == "## {{ version }}" { found = 1; next } found' \
+        docs/content/changelog.md
+
+# Tag manimgx's version and push the tag: the Release workflow publishes it
+[confirm("Tag manimgx's version and push the tag?")]
+[group('release')]
+release:
+    git tag --annotate "v$(uv version --short)" --message "manimgx $(uv version --short)"
+    git push origin "v$(uv version --short)"
