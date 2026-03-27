@@ -1,0 +1,26 @@
+from dataclasses import dataclass
+
+import numpy as np
+
+from manimgx.mobjects.bases.surface_mobject import Surface, SurfaceMobject
+
+
+@dataclass(kw_only=True, eq=False)
+class Cone(SurfaceMobject):
+    base_radius: float = 1.0
+    cone_height: float = 2.0
+    u_resolution: int = 32
+    v_resolution: int = 1
+
+    def _create_surface(self, surface: Surface) -> None:
+        base_radius = self.base_radius
+        cone_height = self.cone_height
+
+        def profile(v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return base_radius * (1.0 - v), v * cone_height - cone_height / 2
+
+        surface.revolve(
+            profile,
+            u_resolution=self.u_resolution,
+            v_resolution=self.v_resolution,
+        )

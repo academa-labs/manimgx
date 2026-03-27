@@ -1,0 +1,128 @@
+[project]
+name = "manimgx"
+version = "0.1.0"
+description = "A blazingly fast math animation engine"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Sina Atalay", email = "sina.atalay@academa.ai" }]
+dependencies = [
+  "numpy>=2.0",
+  "pillow>=11.0",
+  "typst>=0.14.8",
+]
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+# Virtual Environment Dependencies:
+[dependency-groups]
+dev = [
+  "black>=26.3.1",  # Format the code
+  "manim>=0.20.0",  # Manim Community Edition for benchmarking
+  "prek>=0.3.5",  # Run checks before committing (pre-commit alternative)
+  "pyright>=1.1.408",  # Type checking
+  "pytest>=9.0.2",  # Run tests
+  "pytest-cov>=7.0.0",  # Coverage plugin for pytest with xdist support
+  "pytest-xdist>=3.8.0",  # Run tests in parallel
+  "ruff>=0.15.6",  # Lint and format the code
+  "fastapi[standard]>=0.115.0",  # Review dashboard server
+  "playwright>=1.49.0",  # E2E browser testing
+  "pytest-playwright>=0.6.2",  # Playwright pytest fixtures
+]
+
+# Tool configurations:
+[tool.maturin]
+features = ["pyo3/extension-module"]
+manifest-path = "rust/Cargo.toml"
+module-name = "manimgx.engine"
+python-source = "src"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+extend-select = [
+  "B",
+  "I",
+  "ARG",
+  "C4",
+  "EM",
+  "ICN",
+  "ISC",
+  "G",
+  "PGH",
+  "PIE",
+  "PL",
+  "PT",
+  "PTH",
+  "RET",
+  "RUF",
+  "SIM",
+  "T20",
+  "UP",
+  "YTT",
+  "EXE",
+  "NPY",
+  "PD",
+]
+ignore = [
+  "PLR",  # Design-related pylint codes
+  "PLC0415",  # Allow deferred imports to break circular dependencies
+  "ISC001",  # Conflicts with formatter
+  "UP007",  # Allow Optional type
+  "PGH003",  # Prefer not to ignore this
+  "RUF001",  # Allow other characters for locale
+  "EM101",  # Allow
+]
+flake8-unused-arguments.ignore-variadic-names = true
+
+[tool.black]
+line-length = 88  # Maximum line length
+preview = true  # Enable preview features
+enable-unstable-feature = [
+  "string_processing",
+]  # Break strings into multiple lines
+
+[tool.pyright]
+typeCheckingMode = "standard"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = true
+reportIncompatibleVariableOverride = false
+reportIncompatibleMethodOverride = false
+reportMissingTypeStubs = false
+reportPrivateUsage = false
+
+[tool.coverage.run]
+source = ["src/manimgx"]
+concurrency = ["multiprocessing"]  # For watcher tests
+# Use relative paths for cross-platform coverage merging:
+relative_files = true
+
+[tool.coverage.report]
+# Exclude templates from coverage reports:
+omit = ["*.j2.*"]
+
+# tombi: lint.rules.deprecated.disabled = true
+# tombi: lint.rules.one-of-multiple-match.disabled = true
+[tool.pytest.ini_options]
+log_cli_level = "INFO"
+xfail_strict = true
+addopts = [
+  "-ra",  # Show extra test summary info
+  "-v",  # Increase verbosity
+  "--strict-markers",  # Disallow unknown markers
+  "--strict-config",  # Fail on unknown config options
+  "--numprocesses=auto",  # Number of processes in parallel
+]
+testpaths = ["tests"]
+norecursedirs = ["tests/integration/review/e2e"]
+
+[tool.codespell]
+skip = "*.md"
