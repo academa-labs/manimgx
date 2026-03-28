@@ -1,0 +1,9 @@
+[package]
+name = "manimgx-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = { workspace = true }
+bytemuck = { workspace = true }
+log = { workspace = true }
