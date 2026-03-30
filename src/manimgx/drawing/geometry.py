@@ -19,7 +19,8 @@ import math
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
+from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
@@ -161,6 +162,7 @@ def rotation_matrix(angle: float, axis: Vector3DLike = _OUT) -> MatrixMN:
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def rotation_about_z(angle: float) -> MatrixMN:
     """The matrix of a rotation about the z axis.
 
@@ -193,6 +195,7 @@ def rotate_vector(
     return rotation_matrix(angle, axis) @ v
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def z_to_vector(vector: Vector3DLike) -> MatrixMN:
     """A rotation that takes the z axis to a vector's direction.
 
@@ -262,6 +265,7 @@ def turn_between(v1: Vector3DLike, v2: Vector3DLike) -> tuple[float, Vector3D]:
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def get_unit_normal(v1: Vector3DLike, v2: Vector3DLike, tol: float = 1e-6) -> Vector3D:
     """A unit vector perpendicular to two vectors: their cross product, normalized.
 
@@ -297,6 +301,7 @@ def get_unit_normal(v1: Vector3DLike, v2: Vector3DLike, tol: float = 1e-6) -> Ve
     return cp / np.linalg.norm(cp)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def compass_directions(n: int = 4, start_vect: Vector3DLike = _RIGHT) -> Point3D_Array:
     """Vectors evenly spread around the z axis, counterclockwise from a first one.
 
@@ -317,6 +322,7 @@ def compass_directions(n: int = 4, start_vect: Vector3DLike = _RIGHT) -> Point3D
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def regular_vertices(
     n: int, *, radius: float = 1, start_angle: float | None = None
 ) -> tuple[Point3D_Array, float]:
@@ -363,6 +369,7 @@ def line_intersection(line1: Point3DLike_Array, line2: Point3DLike_Array) -> Poi
     return np.array([x / z, y / z, 0])
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def find_intersection(
     p0s: Point3DLike_Array,
     v0s: Point3DLike_Array,
@@ -447,6 +454,7 @@ def spherical_to_cartesian(spherical: np.ndarray) -> Vector3D:
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def shoelace(xy: np.ndarray) -> float:
     """The signed area of the polygon through points in turn, back to the first: the
     integral of y dx around it.
@@ -464,6 +472,7 @@ def shoelace(xy: np.ndarray) -> float:
     return float((np.roll(x, -1) - x) @ (np.roll(y, -1) + y) / 2)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def shoelace_direction(xy: np.ndarray) -> str:
     """Which way a polygon runs around: "CW" (clockwise) if its
     [shoelace][manimgx.shoelace] area is positive, "CCW" (counterclockwise) otherwise.
@@ -497,6 +506,7 @@ def perpendicular_bisector(
     return np.array([m + direction, m - direction])
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def cross2d(a: np.ndarray, b: np.ndarray) -> npt.NDArray[np.float64] | float:
     """The z of the cross product of vectors in the xy plane: `a.x·b.y − a.y·b.x`.
 
@@ -512,6 +522,7 @@ def cross2d(a: np.ndarray, b: np.ndarray) -> npt.NDArray[np.float64] | float:
     return a[0] * b[1] - b[0] * a[1]
 
 
+@deprecated("use numpy: np.mean(points, axis=0)", category=None)
 def center_of_mass(points: Point3D_Array) -> Point3D:
     """The average of points.
 
@@ -521,6 +532,7 @@ def center_of_mass(points: Point3D_Array) -> Point3D:
     return np.average(np.asarray(points), 0)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def angle_axis_from_quaternion(quaternion: np.ndarray) -> tuple[float, Vector3D]:
     """The angle and axis of a unit quaternion (w, x, y, z): the angle 2·arccos(w),
     taken from 2π when it is larger than π, and the axis (x, y, z), normalized.
@@ -538,6 +550,7 @@ def angle_axis_from_quaternion(quaternion: np.ndarray) -> tuple[float, Vector3D]
     return angle, axis
 
 
+@deprecated("use numpy: 1 / (1 + np.exp(-x))", category=None)
 def sigmoid(x: float) -> float:
     """The logistic function, 1 / (1 + e^(−x)): from 0 to 1, 1/2 at 0.
 
@@ -579,6 +592,7 @@ def complex_func_to_R3_func(
     return lambda p: complex_to_R3(complex_func(R3_to_complex(p)))
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def norm_squared(v: Vector3DLike) -> float:
     """A vector's length, squared.
 
@@ -592,6 +606,7 @@ def norm_squared(v: Vector3DLike) -> float:
     return float(np.dot(v, v))
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def rotation_matrix_transpose(angle: float, axis: Vector3DLike) -> MatrixMN:
     """The transpose of [rotation_matrix][manimgx.rotation_matrix]: the rotation by
     `-angle`.
@@ -606,6 +621,7 @@ def rotation_matrix_transpose(angle: float, axis: Vector3DLike) -> MatrixMN:
     return rotation_matrix(angle, axis).T
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def rotation_matrix_from_quaternion(quat: np.ndarray) -> MatrixMN:
     """The matrix of the rotation by a unit quaternion.
 
@@ -625,6 +641,7 @@ def rotation_matrix_from_quaternion(quat: np.ndarray) -> MatrixMN:
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def get_winding_number(points: Point3DLike_Array) -> float:
     """How many times the closed polygon through points winds counterclockwise around
     the origin, in the xy plane.
@@ -646,6 +663,7 @@ def get_winding_number(points: Point3DLike_Array) -> float:
     return total / (2 * np.pi)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def quaternion_mult(*quats: Sequence[float] | npt.NDArray[np.float64]) -> list[float]:
     """The product of quaternions (w, x, y, z), in order: the first times the second,
     and so on.
@@ -668,10 +686,13 @@ def quaternion_mult(*quats: Sequence[float] | npt.NDArray[np.float64]) -> list[f
     return result
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def quaternion_from_angle_axis(
     angle: float, axis: np.ndarray, axis_normalized: bool = False
 ) -> list[float]:
     """The unit quaternion (w, x, y, z) of a rotation about an axis.
+
+    Raises ValueError for a zero axis: a turn about no axis is no turn at all.
 
     Args:
         angle: The angle, in radians.
@@ -681,12 +702,13 @@ def quaternion_from_angle_axis(
     Returns:
         The quaternion, cos(angle/2) followed by the axis times sin(angle/2).
     """
-    return [
-        np.cos(angle / 2),
-        *np.sin(angle / 2) * (axis if axis_normalized else normalize(axis)),
-    ]
+    unit = axis if axis_normalized else normalize(axis)
+    if not np.any(unit):
+        raise ValueError(f"a rotation's axis must not be zero, not {axis}")
+    return [np.cos(angle / 2), *np.sin(angle / 2) * unit]
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def quaternion_conjugate(
     quaternion: Sequence[float] | npt.NDArray[np.float64],
 ) -> Vec:
@@ -700,6 +722,7 @@ def quaternion_conjugate(
     return result
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     """The transpose of the matrix of the rotation by a unit quaternion: its rows are
     where the x, y and z axes go.
@@ -717,6 +740,7 @@ def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     ]
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def thick_diagonal(dim: int, thickness: int = 2) -> npt.NDArray[np.uint8]:
     """A square matrix of ones in a band along its diagonal, and zeros elsewhere.
 
@@ -731,6 +755,7 @@ def thick_diagonal(dim: int, thickness: int = 2) -> npt.NDArray[np.uint8]:
     return (np.abs(rows - rows.T) < thickness).astype("uint8")
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def normalize_along_axis(array: np.ndarray, axis: int) -> npt.NDArray[np.float64]:
     """Divide the vectors along an array's last axis by their lengths, in place (zero
     vectors are left as they are).
@@ -749,6 +774,7 @@ def normalize_along_axis(array: np.ndarray, axis: int) -> npt.NDArray[np.float64
     return array
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def earclip_triangulation(
     verts: Point3DLike_Array, ring_ends: Sequence[int]
 ) -> list[int]:
@@ -1014,6 +1040,10 @@ class Horizon:
         self.boundary: list[SubFacet] = []
 
 
+@deprecated(
+    "Manim CE's machinery for ConvexHull: use ConvexHull, or ConvexHull3D",
+    category=None,
+)
 class QuickHull:
     """The convex hull of points, in two dimensions or more, by the Quickhull algorithm.
 
@@ -1071,9 +1101,9 @@ class QuickHull:
         them the farthest, the next point to add; [build][manimgx.QuickHull.build] calls
         it for each facet it makes.
         """
-        assert (
-            self.unclaimed is not None
-        ), "Call .initialize() before using .classify()."
+        assert self.unclaimed is not None, (
+            "Call .initialize() before using .classify()."
+        )
 
         if not self.unclaimed.size:
             self.outside[facet] = (None, None)
@@ -1187,9 +1217,7 @@ def interpolate[T](start: T, end: T, alpha: float | np.ndarray) -> T:
     Returns:
         The value between.
     """
-    return (
-        1 - alpha
-    ) * start + alpha * end  # pyright: ignore[reportOperatorIssue]  # ty: ignore[unsupported-operator]  # T: numbers, arrays
+    return (1 - alpha) * start + alpha * end  # pyright: ignore[reportOperatorIssue]  # ty: ignore[unsupported-operator]  # T: numbers, arrays
 
 
 def integer_interpolate(start: float, end: float, alpha: float) -> tuple[int, float]:
@@ -1600,8 +1628,8 @@ class Path:
         angle: The angle an "arc" or "spiral" path turns through, in radians,
             counterclockwise about `axis`.
         axis: The axis the path turns about.
-        steps: The steps of a "motion" path, taken in order (see
-            [carried][manimgx.carried]).
+        steps: The steps of a "motion" path, taken in order: each a move (a vector), a
+            move along a curve, or a turn about a pivot.
     """
 
     kind: Literal["motion", "arc", "spiral"] = "motion"
@@ -1610,6 +1638,7 @@ class Path:
     steps: tuple[Step, ...] = ()
     _end: list[Floats] = field(default_factory=list, init=False, repr=False)  # G(1)
 
+    @deprecated("manimgx's machinery: a transform calls it", category=None)
     def coefficients(self, alpha: float) -> Coefficients:
         """The path's rule at a moment: each point goes to Lₛ·start + Lₑ·end + k.
 
@@ -1645,6 +1674,7 @@ class Path:
             cs, ce = 0.5 * _EYE - k, 0.5 * _EYE + k
         return (_EYE - rot) @ cs + rot - along, (_EYE - rot) @ ce + along, _ZERO
 
+    @deprecated("manimgx's machinery: a transform calls it", category=None)
     def motion(self, alpha: float) -> Floats:
         """The motion the path's steps have carried the shape by at a moment.
 
@@ -1663,6 +1693,7 @@ class Path:
         return start @ ls.T + end @ le.T + k
 
 
+@deprecated("manimgx's machinery: a transform calls it", category=None)
 def carried(steps: Iterable[tuple[Step, float]]) -> Floats:
     """The motion of steps taken in order, each as far as its own fraction.
 
@@ -1813,13 +1844,13 @@ class Shape:
 
     def box(self, curves: bool) -> Floats:
         """(2, 3): the box of what the points make — for a path (`curves`), its curves' tight box
-        (`curve_box`). Kept, as the shape never changes."""
+        (`curve_box`). Kept, as the shape never changes, and read-only: a value."""
         boxes = self._boxes
         if boxes is None:
             boxes = self._boxes = {}
         box = boxes.get(curves)
         if box is None:
-            box = boxes[curves] = extent(self.array, curves)
+            box = boxes[curves] = _frozen(extent(self.array, curves))
         return box
 
     def extended(self, rows: Floats) -> Shape:
@@ -1967,6 +1998,12 @@ SEGMENT: Final = Shape(
 )
 
 
+def _frozen(array: Floats) -> Floats:
+    """`array`, read-only: what is cached is handed out as a value."""
+    array.setflags(write=False)  # (cheaper than `flags.writeable`: no flags object)
+    return array
+
+
 def curve_box(points: Floats) -> Floats:
     """(2, D): the tight box of cubic Bézier curves (control points in fours). The anchors lie on
     the curves, and each curve lies in its control points' hull, so the anchors' box is tight
@@ -2041,13 +2078,13 @@ class Blend:
     def box(self, curves: bool) -> Floats:
         """(2, 3): the box of what the points make — for a path (`curves`), its curves' tight box:
         not its anchors' (a curve bulges between them), not its handles' (they overshoot).
-        Cached: a blend never changes."""
+        Cached, as a blend never changes, and read-only: a value."""
         boxes = self._boxes
         if boxes is None:
             boxes = self._boxes = {}
         box = boxes.get(curves)
         if box is None:
-            box = boxes[curves] = (
+            box = boxes[curves] = _frozen(
                 placed_box(*self.terms[0], curves)  # one shape placed
                 if len(self.terms) == 1
                 else extent(self.points(), curves)
@@ -2099,7 +2136,7 @@ class Blend:
         moved[:, 3] += vector
         blend = Blend(((moved, shape), *rest), self.n)
         if self._boxes:
-            blend._boxes = {k: box + vector for k, box in self._boxes.items()}
+            blend._boxes = {k: _frozen(box + vector) for k, box in self._boxes.items()}
         return blend
 
     def scaled(self, factor: float, about: Floats) -> Blend:
@@ -2114,7 +2151,7 @@ class Blend:
             blend._boxes = {}
             for k, box in self._boxes.items():
                 ends = (box - about) * factor + about
-                blend._boxes[k] = ends if factor >= 0 else ends[::-1].copy()
+                blend._boxes[k] = _frozen(ends if factor >= 0 else ends[::-1].copy())
         return blend
 
     def transformed(self, m: Matrix) -> Blend:
@@ -2130,7 +2167,9 @@ class Blend:
                 blend._boxes = {}
                 for k, box in self._boxes.items():
                     ends = box * d + m[:, 3]
-                    blend._boxes[k] = np.array([ends.min(axis=0), ends.max(axis=0)])
+                    blend._boxes[k] = _frozen(
+                        np.array([ends.min(axis=0), ends.max(axis=0)])
+                    )
         return blend
 
     @staticmethod
@@ -2221,3 +2260,32 @@ def grid_triangles(u: int, v: int) -> np.ndarray:
     triangles = np.stack([a, b, c, a, c, d], axis=-1).reshape(-1, 3)
     triangles.flags.writeable = False
     return triangles
+
+
+class Lattice(NamedTuple):
+    """A sampled surface's topology: its samples a (u + 1) by (v + 1) grid, its faces the
+    u by v cells between them in u-major order, of which it draws `first` to `end`: all,
+    or a part's (the faces a reveal over the part's stretch shows)."""
+
+    u: int
+    v: int
+    first: int
+    end: int
+
+    @classmethod
+    def of(cls, u: int, v: int) -> Lattice:
+        """All the faces of a u by v lattice."""
+        return cls(u, v, 0, u * v)
+
+    def triangles(self) -> np.ndarray:
+        """The faces it draws, two triangles each: indices into its samples, read-only,
+        and one array for equal lattices."""
+        return _lattice_triangles(*self)
+
+
+@forgets
+@functools.cache
+def _lattice_triangles(u: int, v: int, first: int, end: int) -> np.ndarray:
+    """A lattice's drawn faces' triangles: the whole grid's array when it draws them all."""
+    every = grid_triangles(u, v)
+    return every if (first, end) == (0, u * v) else every[2 * first : 2 * end]
