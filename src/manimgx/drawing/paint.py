@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Academa, Inc.
+# SPDX-FileCopyrightText: 2024 the Manim Community Developers
+# SPDX-FileCopyrightText: 2018 3Blue1Brown LLC
+# SPDX-License-Identifier: MIT
+
 """Colors and immutable paint shared by paths, points and meshes.
 
 Colors retain exact RGBA beside their string form. Paint owns the brushes and
@@ -12,6 +17,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Final, Self, TypedDict, TypeIs, cast, overload
+from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
@@ -161,6 +167,7 @@ _LMS_INV: Floats = np.linalg.inv(_LMS)
 _LAB_INV: Floats = np.linalg.inv(_LAB)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def to_oklab(rgb: Floats) -> Floats:
     """Convert sRGB colors to OKLab, the color space colors are mixed in.
 
@@ -178,6 +185,7 @@ def to_oklab(rgb: Floats) -> Floats:
     return np.cbrt(linear @ _LMS.T) @ _LAB.T
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def from_oklab(lab: Floats) -> Floats:
     """Convert OKLab colors to sRGB, clipped to the colors a screen shows.
 
@@ -208,6 +216,7 @@ def _lab(rgba: Floats) -> Floats:
     return known[1]
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def mix_rgba(a: Floats, b: Floats, t: float | Floats) -> Floats:
     """Mix colors given as rows of red, green, blue and opacity: `a` at 0, `b` at 1.
 
@@ -324,6 +333,7 @@ class ManimColor(str):
         alpha: float = 1.0,
     ) -> list[Self]: ...
     @classmethod
+    @deprecated("use ManimColor(...)", category=None)
     def parse(
         cls,
         value: "ParsableManimColor | Sequence[ParsableManimColor] | None",
@@ -365,6 +375,7 @@ class ManimColor(str):
         """
         return self._rgba
 
+    @deprecated("use to_rgba", category=None)
     def to_rgba_with_alpha(self, alpha: float) -> np.ndarray:
         """The color's red, green and blue, with another opacity.
 
@@ -390,7 +401,8 @@ class ManimColor(str):
 
     def interpolate(self, other: "ManimColor", alpha: float) -> "ManimColor":
         """The color a fraction of the way from this one to another, mixed as every
-        blend of colors is (see [mix_rgba][manimgx.mix_rgba]).
+        blend of colors is: in OKLab, where the colors between two are those the eye sees
+        between them.
 
         Args:
             other: The color at 1.
@@ -516,6 +528,7 @@ class ManimColor(str):
         """
         return np.array(colorsys.rgb_to_hsv(*self.to_rgb()))
 
+    @deprecated("use HSV(...)", category=None)
     def into[C: "ManimColor"](self, cls: type[C]) -> C:
         """This color as an instance of another color class, such as
         [HSV][manimgx.HSV].
@@ -637,6 +650,7 @@ def _parse(value: "ParsableManimColor | None", alpha: float) -> np.ndarray:
     raise ValueError(f"ManimColor accepts length 3 or 4 sequences, not {len(arr)}")
 
 
+@deprecated("color_to_rgb(color) is ManimColor(color).to_rgb(): use it", category=None)
 def color_to_rgb(color: ParsableManimColor) -> np.ndarray:
     """The red, green and blue of a color.
 
@@ -649,6 +663,7 @@ def color_to_rgb(color: ParsableManimColor) -> np.ndarray:
     return ManimColor(color).to_rgb()
 
 
+@deprecated("rgb_to_color(rgb) is ManimColor.from_rgb(rgb): use it", category=None)
 def rgb_to_color(rgb: Sequence[float] | np.ndarray) -> ManimColor:
     """The color of a red, green and blue.
 
@@ -676,8 +691,8 @@ def invert_color(color: ParsableManimColor) -> ManimColor:
 def interpolate_color(a: ManimColor, b: ManimColor, alpha: float) -> ManimColor:
     """The color a fraction of the way from one color to another.
 
-    The two mix as every blend of colors does (see [mix_rgba][manimgx.mix_rgba]): in
-    OKLab, where the colors between two are those the eye sees between them.
+    The two mix as every blend of colors does: in OKLab, where the colors between two
+    are those the eye sees between them.
 
     Args:
         a: The color at 0.
@@ -765,9 +780,9 @@ def average_color(*colors: ParsableManimColor) -> ManimColor:
     return ManimColor(tuple(from_oklab(lab)))
 
 
-type Colorscale = Sequence[ParsableManimColor] | Sequence[
-    tuple[ParsableManimColor, float]
-]
+type Colorscale = (
+    Sequence[ParsableManimColor] | Sequence[tuple[ParsableManimColor, float]]
+)
 """Colors for a range of values: colors spread evenly over the range, or (color, value)
 pairs, each color at its value (see [colors_by_value][manimgx.colors_by_value])."""
 
@@ -778,8 +793,8 @@ def colors_by_value(
     """The color of each value on a colorscale: mixed between the colors on either side
     of it, and held beyond the colorscale's ends.
 
-    The colors mix as every blend of colors does (see [mix_rgba][manimgx.mix_rgba]);
-    [rgbas_by_value][manimgx.rgbas_by_value] gives the same colors as rows of numbers.
+    The colors mix as every blend of colors does: in OKLab, where the colors between
+    two are those the eye sees between them.
 
     Args:
         colorscale: Colors spread evenly from `low` to `high`, or (color, value) pairs,
@@ -795,6 +810,7 @@ def colors_by_value(
     return [ManimColor(tuple(row)) for row in rows]
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def rgbas_by_value(
     colorscale: Colorscale, values: npt.ArrayLike, low: float, high: float
 ) -> Floats:
@@ -867,6 +883,7 @@ def _numbers(value: object) -> TypeIs[Sequence[float] | np.ndarray]:
     )
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def parse_colors(
     value: ParsableManimColor | Iterable[ParsableManimColor] | None,
 ) -> list[ManimColor]:
@@ -1114,11 +1131,15 @@ class Material:
         class MaterialExample(m.ThreeDScene):
             def construct(self) -> None:
                 self.set_camera_orientation(phi=70 * m.DEGREES, theta=-45 * m.DEGREES)
-                self.add(m.SunLight(5 * m.UP + 3 * m.OUT), m.AmbientLight(intensity=0.2))
+                self.add(
+                    m.SunLight(5 * m.UP + 3 * m.OUT), m.AmbientLight(intensity=0.2)
+                )
                 for i, roughness in enumerate([0.2, 0.5, 0.9]):
                     sphere = m.Sphere(radius=0.8, resolution=(48, 48))
                     sphere.set_color(m.GOLD).shift(2 * (i - 1) * m.RIGHT)
-                    self.add(sphere.set_material(m.Material(metallic=1, roughness=roughness)))
+                    self.add(
+                        sphere.set_material(m.Material(metallic=1, roughness=roughness))
+                    )
         ```
     """
 
@@ -1126,6 +1147,7 @@ class Material:
     roughness: float = 0.5
     reflectance: float = 0.5
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def mixed(self, other: "Material", alpha: float) -> "Material":
         """This material's numbers moved `alpha` of the way to `other`'s."""
         return Material(
@@ -1348,13 +1370,18 @@ def stretch_array(array: np.ndarray, n: int) -> np.ndarray:
     Returns:
         The array itself if it has `n` items; else a new one.
     """
-    # CE's `stretch_array_to_length`
     cur = len(array)
     if cur == n:
         return array
     if cur > n:
         raise ValueError("Can't stretch array to a shorter length")
     return array[(np.arange(n) * cur // n).astype(int)]
+
+
+@deprecated("stretch_array_to_length is stretch_array: use it", category=None)
+def stretch_array_to_length(array: np.ndarray, n: int) -> np.ndarray:
+    """Manim CE's name for [stretch_array][manimgx.stretch_array]."""
+    return stretch_array(array, n)
 
 
 def frozen(values: npt.ArrayLike, held: object = None) -> np.ndarray:
@@ -1480,6 +1507,7 @@ class Paint:
     def _but(self, changes: dict[str, object]) -> "Paint":
         fields = self.__dict__.copy()
         changed = False
+        numbers: list[tuple[object, object]] = []  # given anew: equal to those held?
         for name, value in changes.items():
             slot = _SLOTS.get(name, name)
             held = getattr(self, slot, None)
@@ -1491,9 +1519,13 @@ class Paint:
                 and unchanged(value, held)
             ):
                 value = held
+            elif name in _NUMERIC and value is not held:
+                numbers.append((value, held))  # (compared only if nothing else changes)
+                fields[slot] = value
+                continue
             changed = changed or value is not held
             fields[slot] = value
-        if not changed:
+        if not changed and all(_same_number(*pair) for pair in numbers):
             return self
         fields["_derived"] = {}
         if fields.get("mix") is not None and all(
@@ -1504,10 +1536,12 @@ class Paint:
         object.__setattr__(new, "__dict__", fields)
         return new
 
-    def window(self, curves: int) -> tuple[float, float]:
-        """The reveal window over the curve parameter u ∈ [0, curves] — what the player draws."""
+    def window(self, steps: int) -> tuple[float, float]:
+        """The reveal window over u ∈ [0, steps] — what the player draws. u counts a shape's
+        steps: a path's curves (its parameter, paced by `pace`), a cloud's points, a mesh's
+        triangles, a surface's faces; a step the window reaches into shows, with all it draws."""
         if self.pace is None:
-            return float(self.trim[0]) * curves, float(self.trim[1]) * curves
+            return float(self.trim[0]) * steps, float(self.trim[1]) * steps
         s, u = self.pace
         lo, hi = np.interp(self.trim, s, u)
         return float(lo), float(hi)
@@ -1655,8 +1689,30 @@ def _kept(name: str, value: object) -> object:
 
 
 _BRUSHES = ("fill", "stroke", "background")
+
+
+# numbers as concrete classes: `isinstance` on an ABC (`numbers.Real`) is slow
+_NUMBERS = (int, float, np.number)
+
+
+def _same_number(value: object, held: object) -> bool:
+    """Whether `value` is a number, or a tuple of numbers (a dash), equal to the one held: a
+    change to it is none (an equal width of another type, or another object, keeps the
+    paint)."""
+    if isinstance(value, _NUMBERS):  # (as floats: a numpy scalar's == is a ufunc's)
+        return isinstance(held, _NUMBERS) and float(value) == float(held)
+    return (
+        isinstance(value, tuple)
+        and isinstance(held, tuple)
+        and len(value) == len(held) > 0
+        and isinstance(value[0], _NUMBERS)
+        and all(map(_same_number, value, held))
+    )
+
+
 _SLOTS = {"fill": "_fill", "stroke": "_stroke", "background": "_background"}
 _ARRAYS = ("_fill", "_stroke", "_background", "sheen_direction", "trim")
+_NUMERIC = frozenset({"stroke_width", "background_width", "sheen_factor", "dash"})
 
 
 class PaintAttribute[G, S = G]:
