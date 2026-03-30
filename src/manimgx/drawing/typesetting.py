@@ -36,8 +36,9 @@ Typst: its message is Typst's (or mitex's), each error with the bytes of the sou
 is at, counted from the start of the whole document typeset — a page setup and the
 preamble come before the code."""
 
-# a row's columns (see rust/engine/src/typeset.rs): a glyph's origin is its source node
-# (start, end) and the bytes of the node's text its cluster draws (start, end)
+# a row's columns (see rust/engine/src/typeset.rs): an item's origin is its source node (start,
+# end; its own, else the innermost element around it from the source) and the bytes of the
+# node's text a glyph's cluster draws (start, end)
 KIND, KEY, PLACEMENT, FILL, STROKE, WIDTH, ADVANCE, NODE, DRAWN = (
     0,
     1,
