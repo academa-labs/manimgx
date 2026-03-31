@@ -152,23 +152,16 @@ class SurroundingRectangle(RoundedRectangle):
         else:
             buff_x = buff_y = buff
         box = _family_box(_family(mobjects))
-        width = (0.0 if box is None else float(box[1, 0] - box[0, 0])) + 2 * buff_x
-        box = _family_box(_family(mobjects))
-        height = (0.0 if box is None else float(box[1, 1] - box[0, 1])) + 2 * buff_y
+        if box is None:
+            box = np.zeros((2, 3))
         super().__init__(
-            width=width,
-            height=height,
+            width=float(box[1, 0] - box[0, 0]) + 2 * buff_x,
+            height=float(box[1, 1] - box[0, 1]) + 2 * buff_y,
             corner_radius=corner_radius,
             **kwargs,
         )
         self.buff = buff
-        box = _family_box(_family(mobjects))
-        center = (
-            np.zeros(3)
-            if box is None
-            else np.array([(low + high) / 2 for low, high in zip(*box.tolist())])
-        )
-        self.move_to(center)
+        self.move_to((box[0] + box[1]) / 2)
 
 
 class BackgroundRectangle(SurroundingRectangle):
@@ -305,7 +298,7 @@ class Label(VGroup):
     Args:
         label: The label: a string, typeset as math, or a text or math mobject.
         label_config: [MathTex
-            keywords][manimgx.mobjects.text.MathTexOptions] for a string
+            keywords][manimgx.MathTex] for a string
             label, over white at font size 48.
         box_config: [Surrounding rectangle
             keywords][manimgx.mobjects.annotations.FrameOptions] for the
@@ -380,7 +373,7 @@ class LabeledLine(Line):
         label_position: Where the label goes, as a proportion of the way from the
             line's start (0) to its end (1).
         label_config: [MathTex
-            keywords][manimgx.mobjects.text.MathTexOptions] for a string
+            keywords][manimgx.MathTex] for a string
             label (see [Label][manimgx.Label]).
         box_config: [Surrounding rectangle
             keywords][manimgx.mobjects.annotations.FrameOptions] for the
@@ -443,7 +436,7 @@ class LabeledArrow(LabeledLine, Arrow):
         label_position: Where the label goes, as a proportion of the way from the
             arrow's start (0) to its tip's point (1).
         label_config: [MathTex
-            keywords][manimgx.mobjects.text.MathTexOptions] for a string
+            keywords][manimgx.MathTex] for a string
             label (see [Label][manimgx.Label]).
         box_config: [Surrounding rectangle
             keywords][manimgx.mobjects.annotations.FrameOptions] for the
@@ -453,7 +446,7 @@ class LabeledArrow(LabeledLine, Arrow):
             label's frame.
         start: Where the arrow starts: a point, or a mobject (see [Line][manimgx.Line]).
         end: Where it points to: a point, or a mobject.
-        **kwargs: [Line keywords][manimgx.mobjects.shapes.LineOptions].
+        **kwargs: [Line keywords][manimgx.Line].
 
     Examples:
         ```python
@@ -492,7 +485,7 @@ class LabeledPolygram(Polygram):
         precision: Allowed error in the largest distance from the polygon's edges,
             in scene units. Several label positions can meet this radius tolerance.
         label_config: [MathTex
-            keywords][manimgx.mobjects.text.MathTexOptions] for a string
+            keywords][manimgx.MathTex] for a string
             label (see [Label][manimgx.Label]).
         box_config: [Surrounding rectangle
             keywords][manimgx.mobjects.annotations.FrameOptions] for the
@@ -759,7 +752,7 @@ class BraceLabelOptions(Style, total=False):
     buff: float
     """The gap between the mobject and the brace, in scene units (default 0.2)."""
     brace_config: BraceOptions | None
-    """[Brace keywords][manimgx.mobjects.annotations.BraceOptions], over `buff` (default
+    """[Brace keywords][manimgx.Brace], over `buff` (default
     None)."""
 
 
@@ -778,7 +771,7 @@ class BraceLabel(VMobject):
         label_constructor: The label's class: MathTex, or another text class.
         font_size: The label's font size.
         buff: The gap between the mobject and the brace, in scene units.
-        brace_config: [Brace keywords][manimgx.mobjects.annotations.BraceOptions], over
+        brace_config: [Brace keywords][manimgx.Brace], over
             `buff`.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style] of the group itself, and
             of the label when `text` is several strings.
