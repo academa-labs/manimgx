@@ -14,6 +14,7 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, Unpack
+from warnings import deprecated
 from xml.etree import ElementTree as ET
 
 import numpy as np
@@ -45,8 +46,7 @@ def _point(point: se.Point | None) -> np.ndarray:
 
 class PathOptions(Style, total=False):
     """How an SVG path becomes curves: an [SVGMobject][manimgx.SVGMobject]'s
-    `path_string_config`, the keywords of each
-    [VMobjectFromSVGPath][manimgx.VMobjectFromSVGPath] it makes.
+    `path_string_config`, the keywords of each path it reads.
 
     Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
     """
@@ -146,6 +146,7 @@ class SVGMobject(VMobject):
         )
         self.move_into_position()
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def init_svg_mobject(self, use_svg_cache: bool) -> Self:
         """Build the drawing, reusing parsed parts when caching is enabled."""
         self.use_svg_cache = use_svg_cache
@@ -153,6 +154,7 @@ class SVGMobject(VMobject):
         return self
 
     @property
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def hash_seed(self) -> tuple[object, ...]:
         """The class and path settings that interpret the SVG content. Subclasses can
         extend this tuple with other inputs their conversion uses."""
@@ -161,6 +163,7 @@ class SVGMobject(VMobject):
             key_of(sorted(self.path_string_config.items())),
         )
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def generate_mobject(self) -> Self:
         """Read the file and add its shapes as parts, flipped so that y points up (SVG's
         points down). Existing geometry turns with the newly read shapes.
@@ -195,6 +198,7 @@ class SVGMobject(VMobject):
         self.id_to_vgroup_dict = mobject_dict
         return self
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def get_file_path(self) -> Path:
         """Find the SVG file; a mobject made without one raises ValueError.
 
@@ -205,6 +209,7 @@ class SVGMobject(VMobject):
             raise ValueError("Must specify file for SVGMobject")
         return self.file_name
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def modify_xml_tree(
         self, element_tree: ET.ElementTree[ET.Element]
     ) -> ET.ElementTree[ET.Element]:
@@ -232,6 +237,7 @@ class SVGMobject(VMobject):
         ET.SubElement(config_style, "g", root_style).extend(root)
         return ET.ElementTree(new_root)
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def generate_config_style_dict(self) -> dict[str, str]:
         """The SVG attributes `svg_default` sets: `fill`, `fill-opacity`, `stroke`,
         `stroke-opacity` and `stroke-width`.
@@ -254,6 +260,7 @@ class SVGMobject(VMobject):
                     result[svg_key] = str(value)
         return result
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def get_mobjects_from(
         self, svg: se.SVG
     ) -> tuple[list[VMobject], dict[str, VGroup]]:
@@ -307,6 +314,7 @@ class SVGMobject(VMobject):
                 logger.error(f"Exception occurred in 'get_mobjects_from'. Details: {e}")
         return (result, vgroups)
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def get_mob_from_shape_element(self, shape: se.SVGElement) -> VMobject | None:
         """Make a part of a shape of the drawing, painted and transformed as the file
         says.
@@ -349,6 +357,7 @@ class SVGMobject(VMobject):
         return mob
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def handle_transform(mob: VMobject, matrix: se.Matrix) -> VMobject:
         """Apply an SVG transform to a part: its matrix, then its translation.
 
@@ -366,6 +375,7 @@ class SVGMobject(VMobject):
         return mob
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def apply_style_to_mobject(mob: VMobject, shape: se.GraphicObject) -> VMobject:
         """Paint a part as the file paints its shape: its fill, its stroke, their
         opacities and the stroke's width.
@@ -387,6 +397,7 @@ class SVGMobject(VMobject):
         )
         return mob
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def path_to_mobject(self, path: se.Path) -> VMobjectFromSVGPath:
         """Make a part of a path, with `path_string_config`.
 
@@ -399,6 +410,7 @@ class SVGMobject(VMobject):
         return VMobjectFromSVGPath(path, **self.path_string_config)
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def line_to_mobject(line: se.SimpleLine) -> Line:
         """Make a part of a line.
 
@@ -412,6 +424,7 @@ class SVGMobject(VMobject):
         return Line(start=np.array([x1, y1, 0.0]), end=np.array([x2, y2, 0.0]))
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def rect_to_mobject(rect: se.Rect) -> Rectangle:
         """Make a part of a rectangle, its corners rounded if the file rounds them.
 
@@ -437,6 +450,7 @@ class SVGMobject(VMobject):
         return mob
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def ellipse_to_mobject(ellipse: se.Ellipse | se.Circle) -> Circle:
         """Make a part of a circle or an ellipse.
 
@@ -456,6 +470,7 @@ class SVGMobject(VMobject):
         return mob
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def polygon_to_mobject(polygon: se.Polygon) -> Polygon:
         """Make a part of a polygon.
 
@@ -467,6 +482,7 @@ class SVGMobject(VMobject):
         """
         return Polygon(*(np.array([x, y, 0.0]) for x, y in polygon))
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def polyline_to_mobject(self, polyline: se.Polyline) -> VMobject:
         """Make a part of a polyline: an open path through its points.
 
@@ -479,6 +495,7 @@ class SVGMobject(VMobject):
         return VMobject().set_points_as_corners([[x, y, 0.0] for x, y in polyline])
 
     @staticmethod
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def text_to_mobject(text: se.Text) -> VMobject | None:
         """Skip a text element: SVG text is not supported, and a warning is logged.
 
@@ -491,6 +508,7 @@ class SVGMobject(VMobject):
         logger.warning(f"Unsupported element type: {type(text)}")
         return None
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def move_into_position(self) -> Self:
         """Center the drawing and scale it to `height` and `width`, as the constructor
         was asked to.
@@ -504,6 +522,7 @@ class SVGMobject(VMobject):
         return self
 
 
+@deprecated("Manim CE's machinery for SVGMobject: use SVGMobject", category=None)
 class VMobjectFromSVGPath(VMobject):
     """A path of an SVG drawing, as a mobject: its lines, quadratic and cubic curves,
     and arcs (approximated by quadratic curves), all made cubic curves.

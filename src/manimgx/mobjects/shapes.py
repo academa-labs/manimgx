@@ -13,6 +13,7 @@ from collections.abc import Iterator, Sequence
 from functools import reduce
 from math import ceil
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, Unpack, cast
+from warnings import deprecated
 
 import numpy as np
 
@@ -248,9 +249,7 @@ class TipableVMobject(VMobject):
         tip_length: The length of the tips [add_tip][manimgx.TipableVMobject.add_tip]
             makes, in scene units (default 0.35).
         normal_vector: The normal of the plane the path lies in. Accepted for Manim
-            compatibility; ignored and not retained as an instance attribute. An
-            [Arrow.reset_normal_vector][manimgx.Arrow.reset_normal_vector] call can
-            explicitly record its tip's current normal.
+            compatibility; ignored.
         tip_style: Style keywords for the tips the path makes; a tip's `fill_color` and
             `stroke_color` are the path's color unless given here.
     """
@@ -296,7 +295,7 @@ class TipableVMobject(VMobject):
                 subclass; None for
                 [ArrowTriangleFilledTip][manimgx.ArrowTriangleFilledTip].
             tip_length: The length of the tip to make, in scene units; None for the
-                path's [default][manimgx.TipableVMobject.get_default_tip_length].
+                path's `tip_length`.
             tip_width: The width of the tip to make, if it is the default filled
                 triangle, in scene units; None for the default length. Other shapes take
                 no width: they are made at `tip_length` alone.
@@ -327,6 +326,7 @@ class TipableVMobject(VMobject):
         self.add(tip)
         return self
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def create_tip(
         self,
         tip_shape: type[ArrowTip] | None = None,
@@ -353,6 +353,7 @@ class TipableVMobject(VMobject):
         self.position_tip(tip, at_start)
         return tip
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def get_unpositioned_tip(
         self,
         tip_shape: type[ArrowTip] | None = None,
@@ -397,6 +398,7 @@ class TipableVMobject(VMobject):
         unit = ArrowTriangleFilledTip(length=1.0, width=width / length, **style)
         return unit.scale(length)
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def position_tip(self, tip: ArrowTip, at_start: bool = False) -> ArrowTip:
         """Turn and move a tip onto the path's end, or its start: pointing along the
         path there, its point on the end.
@@ -429,6 +431,7 @@ class TipableVMobject(VMobject):
         tip._rotate_direction_state(turn)
         return tip
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def reset_endpoints_based_on_tip(self, tip: ArrowTip, at_start: bool) -> Self:
         """Fit the path to stop at a tip's base: scale and turn it about its other end,
         which stays.
@@ -455,6 +458,7 @@ class TipableVMobject(VMobject):
         self._rotate_direction_state(turn)
         return self
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def assign_tip_attr(self, tip: ArrowTip, at_start: bool) -> Self:
         """Name a tip as the path's [tip][manimgx.TipableVMobject.tip], or its
         [start_tip][manimgx.TipableVMobject.start_tip]; the tip is not added.
@@ -536,6 +540,7 @@ class TipableVMobject(VMobject):
             raise Exception("tip not found")
         return tips[0]
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def get_default_tip_length(self) -> float:
         """The length of the tips the path makes unless given one: its `tip_length`.
 
@@ -544,6 +549,7 @@ class TipableVMobject(VMobject):
         """
         return self.tip_length
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def get_first_handle(self) -> Point3D:
         """The path's first handle: the control point after its first point, toward
         which it leaves its start.
@@ -566,6 +572,7 @@ class TipableVMobject(VMobject):
                 return point
         return curve[1]
 
+    @deprecated("Manim CE's machinery: add_tip calls it", category=None)
     def get_last_handle(self) -> Point3D:
         """The path's last handle: the control point before its last point, from which
         it comes into its end.
@@ -822,7 +829,7 @@ class CurvedArrow(ArcBetweenPoints):
         tip_shape: The class of its tip; None for
             [ArrowTriangleFilledTip][manimgx.ArrowTriangleFilledTip].
         **kwargs:
-            [ArcBetweenPoints keywords][manimgx.mobjects.shapes.ArcBetweenOptions]:
+            [ArcBetweenPoints keywords][manimgx.ArcBetweenPoints]:
             its angle (a quarter turn unless given) or its radius, style and tips.
 
     Examples:
@@ -870,7 +877,7 @@ class CurvedDoubleArrow(CurvedArrow):
         tip_shape_end: The class of the tip at its end; None for
             [ArrowTriangleFilledTip][manimgx.ArrowTriangleFilledTip].
         **kwargs:
-            [ArcBetweenPoints keywords][manimgx.mobjects.shapes.ArcBetweenOptions]:
+            [ArcBetweenPoints keywords][manimgx.ArcBetweenPoints]:
             its angle (a quarter turn unless given) or its radius, style and tips.
 
     Examples:
@@ -1351,7 +1358,7 @@ class ArcPolygon(VMobject):
         radius: The radius of every arc, in scene units, in place of `angle`, unless
             `arc_config` is given; None (or 0) to use `angle`.
         arc_config: The arcs' [ArcBetweenPoints
-            keywords][manimgx.mobjects.shapes.ArcBetweenOptions], in place of
+            keywords][manimgx.ArcBetweenPoints], in place of
             `angle` and `radius`: one set for every arc, or a list of one per side, the
             first vertex's side first.
 
@@ -1471,9 +1478,8 @@ class Polygram(VMobject):
     fill counts how many times its paths wind around each point: a group inside another
     that runs the other way around is a hole.
 
-    Vertices are copied before the corner hook runs. `add_points_as_corners` receives
-    one owned array per group, including the closing vertex; edits to the input vertices
-    do not change the finished shape.
+    The vertices are taken as they are given: changing their arrays afterwards changes
+    no shape.
 
     Args:
         *vertex_groups: The groups of vertices, each in order around its path.
@@ -2689,6 +2695,7 @@ class Line(TipableVMobject):
         )
         return self
 
+    @deprecated("use put_start_and_end_on", category=None)
     def set_points_by_ends(
         self,
         start: Point3DLike | Mobject,
@@ -3078,8 +3085,9 @@ class DashedLine(Line):
     The dashes are the line's stroke drawn in pieces: a whole number of them, at least
     two, spread evenly from end to end, each about `dash_length` long, each ended as
     the line's `cap_style` says. It stays one path, placed, bent and tipped as a
-    [Line][manimgx.Line] is: its start, end and handles are the line's. Its dashes are
-    counted when it is made, and scale with it.
+    [Line][manimgx.Line] is, and starts and ends where the line does; its handles are
+    its dashes', the first dash's and the last's. Its dashes are counted when it is
+    made, and scale with it.
 
     Args:
         start: Where the line starts: a point, or a mobject (see [Line][manimgx.Line]).
@@ -3132,6 +3140,41 @@ class DashedLine(Line):
         return max(
             2, int(np.ceil(self.get_length() / self.dash_length * self.dashed_ratio))
         )
+
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    def get_first_handle(self) -> Point3D:
+        """The line's first handle: its first dash's, the control point after the
+        line's start toward which that dash leaves it (a third of the way into the
+        dash, on a straight line).
+
+        Returns:
+            The point, in scene coordinates.
+        """
+        start, handle = self.points[:2]
+        return start + self._dash_cut() * (handle - start)
+
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    def get_last_handle(self) -> Point3D:
+        """The line's last handle: its last dash's, the control point before the
+        line's end from which that dash comes into it (a third of the way back into
+        the dash, on a straight line).
+
+        Returns:
+            The point, in scene coordinates.
+        """
+        handle, end = self.points[-2:]
+        return end + self._dash_cut() * (handle - end)
+
+    def _dash_cut(self) -> float:
+        """How far into the curve at each end of the line the dash there reaches, in
+        that curve's parameter from the end: the dash is the curve cut there, which
+        keeps the end and brings its handle in by as much (de Casteljau). The first
+        dash starts the line and the last ends it, each period × duty of its parameter;
+        drawn solid, the line is one piece, each end curve whole."""
+        if self.paint.dash is None:
+            return 1.0
+        period, duty, _ = self.paint.dash
+        return min(1.0, period * duty * self.get_num_curves())
 
 
 class TangentLine(Line):
@@ -3346,6 +3389,7 @@ class Arrow(Line):
         self.submobjects.sort(key=lambda m: place.get(id(m), len(order)))
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_normal_vector(self) -> Vector3D:
         """The normal of the plane the arrow's tip lies in, from its first three
         anchors.
@@ -3356,6 +3400,7 @@ class Arrow(Line):
         p0, p1, p2 = self.tip.get_start_anchors()[:3]
         return normalize(np.cross(p2 - p1, p1 - p0))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def reset_normal_vector(self) -> Self:
         """Set the arrow's `normal_vector` to its
         [tip's normal][manimgx.Arrow.get_normal_vector].
@@ -3365,6 +3410,7 @@ class Arrow(Line):
         self.normal_vector = self.get_normal_vector()
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_default_tip_length(self) -> float:
         """The length of the tips the arrow makes unless given one: its `tip_length`,
         or `max_tip_length_to_length_ratio` times its length if that is shorter.
@@ -3824,6 +3870,7 @@ class RightAngle(Angle):
         super().__init__(line1, line2, radius=length, elbow=True, **kwargs)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def adjacent_n_tuples[T](objects: Sequence[T], n: int) -> Iterator[tuple[T, ...]]:
     """Each run of `n` items in a row, wrapping around at the end: for `[a, b, c]` and
     2, `(a, b)`, `(b, c)` and `(c, a)`.
@@ -3838,6 +3885,7 @@ def adjacent_n_tuples[T](objects: Sequence[T], n: int) -> Iterator[tuple[T, ...]
     return zip(*(list(objects[k:]) + list(objects[:k]) for k in range(n)), strict=True)
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def adjacent_pairs[T](objects: Sequence[T]) -> Iterator[tuple[T, ...]]:
     """Each item with the next, wrapping around at the end (see
     [adjacent_n_tuples][manimgx.adjacent_n_tuples]).
