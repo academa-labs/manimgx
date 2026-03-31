@@ -13,11 +13,13 @@ color is cut at its carets. A key is a slice "[a:b]" or each occurrence of a str
 occurs nowhere picks nothing.
 
 CE's LaTeX classes, typeset by Typst: LaTeX converted by mitex, so `MathTex("a", "=", "b")[i]`
-is part i. A MathTex's parts are one formula; Tex's are set one after another, each labelled.
+is part i. A MathTex's strings are one formula, a Tex's one text: joined, and typeset once.
 
 """
 
 from __future__ import annotations
+
+from warnings import deprecated
 
 __all__ = [
     "BulletedList",
@@ -39,7 +41,7 @@ __all__ = [
 import bisect
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Literal, Self, Unpack
 
@@ -92,9 +94,6 @@ from manimgx.drawing.typesetting import (
 )
 from manimgx.mobject import Mobject, Pivot, VGroup, VMobject, _append_path, prototype
 from manimgx.typing import Vector3DLike
-
-_MANIMGRP_PREAMBLE = "#let manimgrp(lbl, body) = [#box(body) #label(lbl)]"
-
 
 _HEX: Memo[tuple[float, ...], str] = Memo(1 << 12)
 
@@ -161,11 +160,12 @@ class TypstGlyph(VMobject):
     _carets: bytes = b""
 
     node: int
-    """Where the source node the glyph came from starts in the Typst code, in bytes; -1
-    if it came from elsewhere (a package's code)."""
+    """Where the source node the glyph came from starts in the Typst code, in bytes. A
+    glyph a package's code drew (a radical a package's function sets) came from the
+    innermost element of the code around it (its equation); -1 if none is."""
     drawn: tuple[int, int]
     """The bytes of that node's text the glyph's cluster draws, from and to: of a string
-    literal, the bytes of its value."""
+    literal, the bytes of its value; -1, -1 if the node is an element around it."""
     key: int
     """The provenance key of its outline and font carets, the same in every process.
     Assigning a key does not change the live glyph's outline or carets."""
@@ -333,8 +333,9 @@ class Typst(VMobject):
                 ink = extent(place, True)[:, :2]
             places.append(place)
             if len(ink):
-                low, high = np.minimum(low, ink.min(axis=0)), np.maximum(
-                    high, ink.max(axis=0)
+                low, high = (
+                    np.minimum(low, ink.min(axis=0)),
+                    np.maximum(high, ink.max(axis=0)),
                 )
         height = float(high[1] - low[1]) if high[1] >= low[1] else 0.0
         if scale is not None and height > 0:
@@ -1100,7 +1101,8 @@ _IMPORT = (
 
 
 def _standalone(tex: str) -> str:
-    """CE's `_modify_special_strings`: make a lone LaTeX fragment typeset on its own."""
+    """CE's `_modify_special_strings`: make a lone fragment of a formula typeset on its own.
+    Its mends are math's (a trailing `dot` is `\\dot`'s); text is converted as written."""
     tex = tex.strip()
     if tex in ("\\over", "\\overline", "\\sqrt", "\\sqrt{") or tex.endswith(
         ("_", "^", "dot")
@@ -1125,11 +1127,12 @@ _BRACES = re.compile("{{(.*?)}}")
 _HOLE = 0xE000  # private-use characters: mitex passes them through as they are
 
 
-def _isolate_braces(strings: list[str]) -> list[str]:
-    """CE's double braces: `{{…}}` sets what it holds apart as a part of its own; once they
-    split anything, every part is stripped."""
+def _isolate_braces(strings: list[str], math: bool) -> list[str]:
+    """CE's double braces: `{{…}}` sets what it holds apart as a part of its own. In math,
+    where spaces mean nothing, once they split anything every part is stripped; text keeps
+    its spaces, so its strings still join into the text as written."""
     pieces = [p for s in strings for p in _BRACES.split(s)]
-    if len(pieces) > len(strings):
+    if math and len(pieces) > len(strings):
         pieces = [p.strip() for p in pieces]
     return [p for p in pieces if p]
 
@@ -1150,37 +1153,61 @@ def _balanced(tex: str) -> bool:
     return depth == 0
 
 
-def _one_formula(pieces: list[str], separator: str) -> tuple[str, str, set[int]]:
-    """The pieces as one formula: the Typst math code of their joined LaTeX; the same code
-    with each piece that stands on its own (a `hole`) boxed and labelled `p{i}`, to tell its
-    glyphs apart; and those pieces. The holes are converted on their own, in the joined
-    LaTeX's skeleton, so the formula's code is checked to be what the whole converts to:
-    telling the pieces apart never changes the formula."""
-    whole = _engine.mitex_math(separator.join(pieces))
+def _one_formula(
+    pieces: list[str], separator: str, convert: Callable[[str], str]
+) -> tuple[str, str, dict[int, str]]:
+    """The pieces as one formula, or one text: the Typst code of their joined LaTeX
+    (`convert`: mitex's conversion of LaTeX math, or of LaTeX text); its skeleton, the same
+    code with each piece that stands on its own (a `hole`) a private-use character; and each
+    hole's code. The holes are converted on their own, in the joined LaTeX's skeleton, and the
+    skeleton with their code in place is checked to be what the whole converts to: telling
+    the pieces apart never changes the code."""
+    whole = convert(separator.join(pieces))
     holes: dict[int, str] = {}
     for i, piece in enumerate(pieces):
         if not _balanced(piece) or piece.lstrip()[:1] in ("^", "_", "'", ""):
             continue  # a fragment, or an attachment to what comes before
         try:
-            holes[i] = _engine.mitex_math(piece)
+            holes[i] = convert(piece)
         except TypstError:
             continue
-    skeleton = _engine.mitex_math(
-        separator.join(
-            chr(_HOLE + i) if i in holes else p for i, p in enumerate(pieces)
+    apart = ValueError(f"cannot tell these parts apart: {pieces}")
+    try:
+        skeleton = convert(
+            separator.join(
+                chr(_HOLE + i) if i in holes else p for i, p in enumerate(pieces)
+            )
         )
-    )
+    except TypstError as error:  # a hole within what converts only whole (math in text)
+        raise apart from error
     found = [ord(c) - _HOLE for c in skeleton if _HOLE <= ord(c) < _HOLE + len(pieces)]
-    plain = boxed = skeleton
-    for i, code in holes.items():
-        plain = plain.replace(chr(_HOLE + i), code)
-        boxed = boxed.replace(chr(_HOLE + i), f'#manimgrp("p{i}", ${code}$)')
+    plain = _fill(skeleton, holes)
     if found != sorted(holes) or "".join(plain.split()) != "".join(whole.split()):
-        raise ValueError(f"MathTex cannot tell these parts apart: {pieces}")
-    return plain, boxed, set(holes)
+        raise apart
+    return whole, skeleton, holes
+
+
+def _fill(skeleton: str, holes: Mapping[int, str]) -> str:
+    """The skeleton with each hole's code (or what stands for it) in its place."""
+    for i, code in holes.items():
+        skeleton = skeleton.replace(chr(_HOLE + i), code)
+    return skeleton
+
+
+def _in_place(skeleton: str, holes: Mapping[int, str]) -> dict[int, str]:
+    """Each hole's markup as it reads in the whole. Typst reads a line's first characters
+    apart (`- `, `+ `, `= ` and `/ ` begin a list's item, an enumeration's, a heading, a
+    term), so a hole that goes on with a line is read after an empty expression, which
+    keeps it on the line."""
+    read = {}
+    for i, code in holes.items():
+        before = _fill(skeleton[: skeleton.index(chr(_HOLE + i))], holes)
+        read[i] = f"#none;{code}" if before.rsplit("\n", 1)[-1].strip() else code
+    return read
 
 
 _MITEX = 'mode: "math", scope: mitex-scope'
+_MARKUP = 'mode: "markup", scope: mitex-scope'
 
 
 def _math(latex: str) -> str:
@@ -1189,10 +1216,41 @@ def _math(latex: str) -> str:
 
 
 def _text(latex: str) -> str:
-    converted = typst_string(_engine.mitex_text(latex))
-    return f'eval({converted}, mode: "markup", scope: mitex-scope)'
+    return _markup(_engine.mitex_text(latex))
 
 
+def _markup(code: str, scope: str = "") -> str:
+    """Typst markup (mitex's conversion of LaTeX text) as an expression of its content, in
+    mitex's scope and, after it, the bindings `scope` lists ("name: value, ")."""
+    within = f"mitex-scope + ({scope})" if scope else "mitex-scope"
+    return f'eval({typst_string(code)}, mode: "markup", scope: {within})'
+
+
+def _bindings(codes: Mapping[int, str]) -> tuple[str, dict[int, int]]:
+    """Typst code binding each string's content (its markup, evaluated) to its name, `p{i}`;
+    and where in that code each string's markup starts, in bytes, which every glyph the
+    markup draws comes from."""
+    out, starts, at = [], {}, 0
+    for i, code in codes.items():
+        head = f"#let p{i} = eval("
+        starts[at + len(head.encode())] = i
+        binding = f"{head}{typst_string(code)}, {_MARKUP});"
+        out.append(binding)
+        at += len(binding.encode())
+    return "".join(out), starts
+
+
+def _same(a: Layout, b: Layout) -> bool:
+    """Whether two layouts draw the same: the same items, placed and painted alike, wherever
+    in the code they came from."""
+    return (
+        np.array_equal(a.rows[:, : NODE.start], b.rows[:, : NODE.start])
+        and len(a.shapes) == len(b.shapes)
+        and all(np.array_equal(p, q) for p, q in zip(a.shapes, b.shapes))
+    )
+
+
+@deprecated("use MathTex", category=None)
 class SingleStringMathTex(Typst):
     r"""One LaTeX formula, typeset in the engine, whose parts are its glyphs: white
     unless styled.
@@ -1266,8 +1324,8 @@ class MathTexOptions(TypstOptions, total=False):
     """
 
     arg_separator: str
-    """What joins the strings into `tex_string`, the formula a MathTex is typeset as
-    (default " "; "" for a Tex, whose strings are typeset one after another)."""
+    """What joins the strings into `tex_string`, the formula a MathTex is typeset as,
+    or the text a Tex is (default " "; "" for a Tex)."""
     substrings_to_isolate: Iterable[str] | None
     """Substrings to make parts of their own: each string is split around every
     occurrence of each (default None)."""
@@ -1310,13 +1368,13 @@ class MathTex(Typst):
     [get_part_by_tex][manimgx.MathTex.get_part_by_tex] find parts by their LaTeX, and
     [TransformMatchingTex][manimgx.TransformMatchingTex] moves each part to the part
     written the same way in another formula. Read as text (see [Tex][manimgx.Tex]), the
-    strings are typeset one after another instead.
+    strings are one text in the same way, spaces and all.
 
     Args:
         *tex_strings: The formula, in LaTeX: a string per part (a number is written as
             a string), and a part per `{{…}}` within one.
-        arg_separator: What joins the strings into `tex_string`, the formula they are
-            typeset as.
+        arg_separator: What joins the strings into `tex_string`, the formula (or text)
+            they are typeset as.
         substrings_to_isolate: Substrings to make parts of their own: each string is
             split around every occurrence of each.
         tex_to_color_map: A color for each substring, which is made a part of its own
@@ -1368,71 +1426,136 @@ class MathTex(Typst):
     ) -> None:
         self.tex_to_color_map = dict(tex_to_color_map or {})
         isolate = list(substrings_to_isolate or []) + list(self.tex_to_color_map)
-        strings = _isolate_braces([str(s) for s in tex_strings])
+        math = bool(tex_environment and "align" in tex_environment)
+        strings = _isolate_braces([str(s) for s in tex_strings], math)
         self.tex_strings = (
-            [p for s in strings for p in _split(s, isolate)] if isolate else strings
+            [p for s in strings for p in _split(s, isolate, math)]
+            if isolate
+            else strings
         )
         """The strings, a part's each: the arguments, split at `{{…}}` and around the
         isolated substrings."""
         self.arg_separator = arg_separator
         self.tex_string = arg_separator.join(self.tex_strings)
-        """The LaTeX of the whole formula: the strings, joined by `arg_separator`."""
+        """The LaTeX of the whole formula, or text: the strings, joined by
+        `arg_separator`."""
         self.tex_environment = tex_environment
-        fn = _math if tex_environment and "align" in tex_environment else _text
-        preamble = f"{_IMPORT}{_MANIMGRP_PREAMBLE}\n"
-
-        def body(strings: list[str]) -> str:
-            if fn is _math:  # a part's box would drop to text style; keep display style
-                parts = " ".join(
-                    f'#manimgrp("p{i}", $display(#{_math(_standalone(s))})$)'
-                    for i, s in enumerate(strings)
-                )
-                return f"$ {parts} $"
-            return self._set(
-                [
-                    f'manimgrp("p{i}", {_text(_standalone(s))})'
-                    for i, s in enumerate(strings)
-                ]
-            )
-
-        formula = None
-        if (
-            fn is _math and len(self.tex_strings) > 1
-        ):  # one formula, its parts told apart
-            formula = _one_formula(self.tex_strings, arg_separator)
-            source = f"$ #eval({typst_string(formula[0])}, {_MITEX}) $"
-        else:
-            try:
-                source = body(self.tex_strings)
-                if len(self.tex_strings) != 1:  # a lone part's fallback is itself
-                    typeset(source, preamble)
-            except (
-                TypstError
-            ):  # the parts are not LaTeX on their own (e.g. a split environment)
-                source = body([self.tex_string])
+        preamble = f"{_IMPORT}{_MANIMGRP}\n" if math else _IMPORT
         kwargs["typst_preamble"] = preamble + kwargs.get("typst_preamble", "")
-        super().__init__(source, **kwargs)
-        if formula is None:
-            self._regroup_by_labels()
-        else:
-            self._regroup_by_twin(
-                f"$ #eval({typst_string(formula[1])}, {_MITEX} + (manimgrp:"
-                " manimgrp)) $",
-                formula[2],
+
+        def layout(source: str) -> Layout:
+            return typeset(
+                source,
                 kwargs["typst_preamble"],
-                kwargs.get("font_paths"),
-                kwargs.get("package_path"),
+                font_paths=kwargs.get("font_paths"),
+                package_path=kwargs.get("package_path"),
             )
+
+        if not math:
+            body, starts, whole = self._compose(self.tex_strings, arg_separator)
+            owners: dict[int, int] = {}
+            if len(self.tex_strings) > 1 and starts:  # which string drew each item
+                apart = ValueError(f"cannot tell these parts apart: {self.tex_strings}")
+                reference = None if whole is None else layout(whole)
+                try:
+                    drawn = layout(body)
+                except TypstError as error:  # the text is fine, its parting is not
+                    if reference is None:
+                        raise
+                    raise apart from error
+                if reference is not None and not _same(drawn, reference):
+                    raise apart
+                owners = self._owners(drawn, starts)
+            super().__init__(body, **kwargs)
+            self._regroup(owners, set(starts.values()))
+        elif len(self.tex_strings) > 1:  # one formula, its parts told apart
+            _, skeleton, holes = _one_formula(
+                self.tex_strings, arg_separator, _engine.mitex_math
+            )
+            plain = typst_string(_fill(skeleton, holes))
+            super().__init__(f"$ #eval({plain}, {_MITEX}) $", **kwargs)
+            boxed = _fill(
+                skeleton,
+                {i: f'#manimgrp("p{i}", ${code}$)' for i, code in holes.items()},
+            )
+            self._regroup_by_twin(
+                layout(
+                    f"$ #eval({typst_string(boxed)}, {_MITEX} + (manimgrp: manimgrp)) $"
+                ),
+                set(holes),
+            )
+        else:  # a part's box would drop to text style; keep display style
+            parts = " ".join(
+                f'#manimgrp("p{i}", $display(#{_math(_standalone(s))})$)'
+                for i, s in enumerate(self.tex_strings)
+            )
+            super().__init__(f"$ {parts} $", **kwargs)
+            self._regroup_by_labels()
         for tex, c in self.tex_to_color_map.items():
             self.set_color_by_tex(tex, c)
 
-    def _set(self, parts: list[str]) -> str:
-        """The text parts (Typst expressions, each a labelled group) as the document sets them:
-        one run of text, centered in the "center" environment."""
-        joined = " ".join(f"#{part}" for part in parts)
-        return (
-            f"#align(center)[{joined}]" if self.tex_environment == "center" else joined
-        )
+    def _compose(
+        self, strings: list[str], separator: str
+    ) -> tuple[str, dict[int, int], str | None]:
+        """The strings as one text, joined by `separator`, set as the document sets it (see
+        `_set`): the document's body; where in it the code of each string that stands on its
+        own (a hole, see `_one_formula`) starts, and the string's index; and the whole as one
+        text, which the body must draw exactly (None if no string is told apart).
+
+        Each hole's code is evaluated on its own and bound to a name, which the code of the
+        joined text calls in the hole's place, so every glyph comes from the code of the
+        string that drew it, and Typst shapes the text across them as it shapes the whole.
+        """
+        if len(strings) < 2:  # nothing to tell apart
+            return self._set(_text(separator.join(strings))), {}, None
+        whole, skeleton, holes = _one_formula(strings, separator, _engine.mitex_text)
+        if not holes:
+            return self._set(_markup(whole)), {}, None
+        bindings, starts = _bindings(_in_place(skeleton, holes))
+        called = _fill(skeleton, {i: f"#p{i};" for i in holes})
+        text = _markup(called, "".join(f"p{i}: p{i}, " for i in holes))
+        return bindings + self._set(text), starts, self._set(_markup(whole))
+
+    def _set(self, text: str) -> str:
+        """The text (a Typst expression of its content) as the document sets it: centered
+        in the "center" environment."""
+        if self.tex_environment == "center":
+            return f"#align(center)[#{text}]"
+        return f"#{text}"
+
+    def _owners(self, layout: Layout, starts: Mapping[int, int]) -> dict[int, int]:
+        """The string each item of the layout came from, if it came from a string's code
+        (where it starts in the body, `starts`): a glyph or shape the code drew, or one
+        drawn within an element of it (a radical within an equation)."""
+        nodes = (layout.rows[:, NODE.start].astype(np.int64) - layout.body).tolist()
+        return {k: starts[node] for k, node in enumerate(nodes) if node in starts}
+
+    def _regroup(self, owners: Mapping[int, int], holes: Collection[int]) -> None:
+        """The parts: each string's own items (`owners`, the item's index to the string's),
+        and every other item to the first string that is not a hole between the strings
+        whose items are around it; else to the one before (the first, before any)."""
+        count, leaves = len(self.tex_strings), list(self.submobjects)
+        if not count:
+            return
+        groups: list[list[Mobject]] = [[] for _ in range(count)]
+        start, before = 0, -1
+        for k in range(len(leaves) + 1):
+            owner = count if k == len(leaves) else owners.get(k)
+            if owner is None:
+                continue
+            if start < k:  # this run lies between the same two strings' items
+                fragment = next(
+                    (i for i in range(before + 1, owner) if i not in holes),
+                    max(before, 0),
+                )
+                groups[fragment].extend(leaves[start:k])
+            if k < len(leaves):
+                groups[owner].append(leaves[k])
+            start, before = k + 1, owner
+        self.submobjects = [
+            MathTexPart(s, *members)
+            for s, members in zip(self.tex_strings, groups, strict=True)
+        ]
 
     def _regroup_by_labels(self) -> None:
         groups: list[Mobject] = []
@@ -1442,55 +1565,23 @@ class MathTex(Typst):
         if any(len(g) for g in groups):
             self.submobjects = groups
 
-    def _regroup_by_twin(
-        self,
-        twin: str,
-        holes: set[int],
-        preamble: str,
-        font_paths: list[str | Path] | None,
-        package_path: str | Path | None,
-    ) -> None:
+    def _regroup_by_twin(self, twin: Layout, holes: set[int]) -> None:
         """Parts from the formula's boxed twin, which draws what the formula draws in the same
         order: a hole's glyphs and shapes are labelled; the rest belong to the piece between
         the holes around them (the first, if several are)."""
-        other = typeset(
-            twin, preamble, font_paths=font_paths, package_path=package_path
-        )
-        rows = other.rows
-        leaves = list(self.submobjects)
+        rows, leaves = twin.rows, self.submobjects
         if len(rows) != len(leaves) or any(
             (row[KIND] == GLYPH) != isinstance(leaf, TypstGlyph)
             for row, leaf in zip(rows, leaves, strict=True)
         ):
-            raise ValueError(
-                f"MathTex cannot tell these parts apart: {self.tex_strings}"
-            )
-        hole_of = {
+            raise ValueError(f"cannot tell these parts apart: {self.tex_strings}")
+        labelled = {
             row: int(label[1:])
-            for label, members in other.labels
+            for label, members in twin.labels
             if label.startswith("p") and label[1:].isdigit()
             for row in members
         }
-        count = len(self.tex_strings)
-        groups: list[list[Mobject]] = [[] for _ in range(count)]
-        start, before = 0, -1
-        for k in range(len(leaves) + 1):
-            hole = count if k == len(leaves) else hole_of.get(k)
-            if hole is None:
-                continue
-            if start < k:  # this unlabelled run lies between the same two holes
-                piece = next(
-                    (i for i in range(before + 1, hole) if i not in holes),
-                    max(before, 0),
-                )
-                groups[piece].extend(leaves[start:k])
-            if k < len(leaves):
-                groups[hole].append(leaves[k])
-            start, before = k + 1, hole
-        self.submobjects = [
-            MathTexPart(s, *members)
-            for s, members in zip(self.tex_strings, groups, strict=True)
-        ]
+        self._regroup(labelled, holes)
 
     def get_parts_by_tex(
         self, tex: str, substring: bool = True, case_sensitive: bool = True
@@ -1617,7 +1708,9 @@ class MathTex(Typst):
         return self
 
 
-def _split(s: str, isolate: list[str]) -> list[str]:
+def _split(s: str, isolate: list[str], math: bool) -> list[str]:
+    """The string split around each isolated substring; in math, where spaces mean
+    nothing, without the parts that are only spaces."""
     parts = [s]
     for sub in sorted(isolate, key=len, reverse=True):
         out: list[str] = []
@@ -1632,7 +1725,7 @@ def _split(s: str, isolate: list[str]) -> list[str]:
                 if k < len(pieces) - 1:
                     out.append(sub)
         parts = out
-    return [p for p in parts if p.strip()]
+    return [p for p in parts if (p.strip() if math else p)]
 
 
 class Tex(MathTex):
@@ -1642,13 +1735,15 @@ class Tex(MathTex):
     It is a [MathTex][manimgx.MathTex] that reads its strings as LaTeX text: bold
     (`\textbf`), italics (`\emph`, `\textit`), line breaks (`\\`) and inline math
     convert. The text is set in New Computer Modern, as LaTeX sets it, the math in New
-    Computer Modern Math; white unless styled. The strings are typeset one after
-    another, each on its own, a space apart; if one doesn't typeset on its own, the
-    text is typeset whole, and its glyphs are the first part's.
+    Computer Modern Math; white unless styled. The strings are one text, joined by
+    `arg_separator` (nothing, by default) and typeset whole, as a MathTex's are one
+    formula: `Tex("Fade", "In")` reads "FadeIn", and parting a text moves none of its
+    glyphs. Its parts are told apart as a formula's are; a ligature two strings share is
+    the first's.
 
     Args:
         *tex_strings: The text, in LaTeX: a string per part.
-        **kwargs: [MathTex keywords][manimgx.mobjects.text.MathTexOptions]:
+        **kwargs: [MathTex keywords][manimgx.MathTex]:
             the strings are joined by "" and read in a "center" environment unless
             `arg_separator` and `tex_environment` say otherwise.
 
@@ -1729,13 +1824,25 @@ class BulletedList(Tex):
         )
         kwargs.setdefault("tex_environment", None)
         super().__init__(*items, **kwargs)
-        # the bullets, one glyph each, in their items' order
-        bullets = self.labels.get(_BULLET, VGroup())
-        for part, bullet in zip(self.submobjects, bullets.submobjects, strict=True):
-            part.add_to_back(bullet)
 
-    def _set(self, parts: list[str]) -> str:
-        return f"#list({', '.join(parts)})"
+    def _compose(
+        self, strings: list[str], separator: str
+    ) -> tuple[str, dict[int, int], str | None]:
+        """The items as a Typst list, each item's code bound to its name, as a Tex binds a
+        string's (see `MathTex._compose`): every glyph comes from its item's code."""
+        codes = {i: _engine.mitex_text(s) for i, s in enumerate(strings)}
+        bindings, starts = _bindings(codes)
+        items = ", ".join(f"p{i}" for i in codes)
+        return f"{bindings}#list({items})", starts, None
+
+    def _owners(self, layout: Layout, starts: Mapping[int, int]) -> dict[int, int]:
+        """Each item's glyphs, and its bullet: one glyph, in its own labelled box, the
+        items' bullets in their order."""
+        owners = super()._owners(layout, starts)
+        bullets = (rows for label, rows in layout.labels if label == _BULLET)
+        for item, rows in enumerate(bullets):
+            owners |= dict.fromkeys(rows, item)
+        return owners
 
     def fade_all_but(self, index: int, opacity: float = 0.5) -> Self:
         """Fade every item but one: the others' fill to `opacity`, the one's to 1.
