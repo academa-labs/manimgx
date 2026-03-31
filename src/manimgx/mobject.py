@@ -1,3 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Academa, Inc.
+# SPDX-FileCopyrightText: 2024 the Manim Community Developers
+# SPDX-FileCopyrightText: 2018 3Blue1Brown LLC
+# SPDX-License-Identifier: MIT
+
 "Mutable scene objects: one family graph, shared geometry and paint, and path, point and mesh leaf rules."
 
 import copy
@@ -26,6 +31,7 @@ from typing import (
     cast,
     overload,
 )
+from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
@@ -57,12 +63,12 @@ from manimgx.drawing.geometry import (
     _NPPCC,
     EMPTY,
     Blend,
+    Lattice,
     Path,
     _pathops,
     bezier,
     bezier_remap,
     get_smooth_cubic_bezier_handle_points,
-    grid_triangles,
     integer_interpolate,
     interpolate,
     linear_about,
@@ -607,6 +613,7 @@ def style_defaults(cls: "type[Mobject]") -> Style:
     return cached
 
 
+@deprecated("use list(dict.fromkeys(items))", category=None)
 def remove_list_redundancies[T](items: Sequence[T]) -> list[T]:
     """The items without repeats: each one once, where it last occurs.
 
@@ -653,8 +660,8 @@ def _family(roots: Iterable["Mobject"]) -> list["Mobject"]:
 
 def _family_box(family: Iterable["Mobject"]) -> np.ndarray | None:
     """Combine the selected family's own geometry boxes without constructing a group."""
-    # A member's box belongs to its geometry; paths use their curves' tight bounds.
-    boxes = [m._geometry.box(m._curves) for m in family if m._geometry.n]
+    # A member's box is what it draws (`_box`); paths use their curves' tight bounds.
+    boxes = [b for m in family if m._geometry.n and (b := m._box()) is not None]
     if len(boxes) < 2:
         return boxes[0] if boxes else None
     stacked = np.array(boxes)
@@ -665,7 +672,8 @@ class Mobject:
     """The object everything in a scene is made of: shapes, text, groups, trackers.
 
     A mobject has points in scene coordinates (x to the right, y up, z out of the
-    screen; the frame is 8 units tall and about 14.2 wide, centered on the origin);
+    screen; the frame is 8 units on its short side, about 14.2 × 8 at 16:9, centered
+    on the origin);
     submobjects, a tree drawn and moved with it; a style: its fill, its stroke and their
     colors; updaters, which change it as time passes; and a z-index, its place in the
     drawing order. You make one through its subclasses — [`Circle`][manimgx.Circle],
@@ -687,9 +695,8 @@ class Mobject:
     animation_overrides: ClassVar[
         dict[type["Animation"], Callable[..., "Animation"]]
     ] = {}
-    """The animations the class plays another in place of: each animation class, with
-    the function that makes the one played instead (see
-    [override_animation][manimgx.override_animation])."""
+    # The animations the class plays another in place of: each animation class, with the
+    # function that makes the one played instead (see `override_animation`).
     defaults: ClassVar[Style] = {}
     """The style keywords whose defaults the class changes: a subclass lists only what
     it changes (`defaults = {"color": BLUE}`), and takes the rest from its parents (see
@@ -786,6 +793,7 @@ class Mobject:
         self.init_colors()
 
     # ── kind hooks ─────────────────────────────────────────────────────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def generate_points(self) -> Self:
         """Build the mobject's points: its shape.
 
@@ -794,6 +802,7 @@ class Mobject:
         """
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def init_points(self) -> Self:
         """Build the mobject's points: the same as
         [generate_points][manimgx.Mobject.generate_points], by another name.
@@ -802,6 +811,7 @@ class Mobject:
         self.generate_points()
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def init_colors(self, propagate_colors: bool = True) -> Self:
         """Paint the mobject with its style.
 
@@ -886,6 +896,7 @@ class Mobject:
     # its points are cubic curves' control points (a path): its box is its curves' tight box
     _curves: ClassVar[bool] = False
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_points_defining_boundary(self) -> Point3D_Array:
         """The points [get_boundary_point][manimgx.Mobject.get_boundary_point] chooses
         among: every point of the mobject's family — or, for a path, its members'
@@ -906,6 +917,7 @@ class Mobject:
         ]
         return np.concatenate(arrays) if arrays else np.zeros((0, 3))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def align_points_with_larger(self, larger: "Mobject") -> Self:
         """Give the mobject as many points as `larger`, its shape unchanged, so the two
         can be blended point by point.
@@ -919,6 +931,7 @@ class Mobject:
         """
         raise NotImplementedError(f"{type(self).__name__} cannot align points")
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_point_mobject(self, center: Point3DLike | None = None) -> "Mobject":
         """The mobject shrunk to a point: what it grows from, or shrinks to, when a
         transform makes it appear or disappear.
@@ -935,9 +948,12 @@ class Mobject:
         c = self.get_center() if center is None else center
         return Group(*(m.get_point_mobject(c) for m in self.submobjects))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def pointwise_become_partial(self, mobject: "Mobject", a: float, b: float) -> Self:
         """Become a part of another mobject: its points from proportion `a` of the way
-        along it to proportion `b` (a path's, by its curves).
+        along it to proportion `b`, as a reveal over that stretch shows it: a path's
+        curves, cut where `a` and `b` fall; a cloud's points, a mesh's triangles and a
+        surface's faces whole, every one the stretch reaches into.
 
         [get_pieces][manimgx.Mobject.get_pieces] calls it. Each kind implements it; a
         mobject of no kind stays as it is.
@@ -949,6 +965,7 @@ class Mobject:
         """
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def reveal_pace(self) -> tuple[np.ndarray, np.ndarray] | None:
         """How a reveal ([Create][manimgx.Create], [Write][manimgx.Write], …) moves
         through the mobject: evenly by its parts, or, for a path, by arc length, so it
@@ -957,8 +974,9 @@ class Mobject:
         The reveal animations read it for each drawn member.
 
         Returns:
-            None for evenly by part (points in order, triangles in order); for a path,
-            fractions of its length and the curve parameters where they are reached.
+            None for evenly by step (points, triangles, or a surface's faces, in order,
+            each whole with all it draws); for a path, fractions of its length and the
+            curve parameters where they are reached.
         """
         return None
 
@@ -1015,6 +1033,7 @@ class Mobject:
         self.points = np.array(points, dtype=float)
         return self
 
+    @deprecated("get_points() is points: use it", category=None)
     def get_points(self) -> Point3D_Array:
         """The mobject's own [points][manimgx.Mobject.points].
 
@@ -1027,10 +1046,12 @@ class Mobject:
         """Whether the mobject has points of its own (a group has none: its members do)."""
         return self._geometry.n > 0
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def has_no_points(self) -> bool:
         """Whether the mobject has no points of its own."""
         return self._geometry.n == 0
 
+    @deprecated("use len(mobject.points)", category=None)
     def get_num_points(self) -> int:
         """How many points of its own the mobject has.
 
@@ -1039,6 +1060,7 @@ class Mobject:
         """
         return self._geometry.n
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_all_points(self) -> Point3D_Array:
         """Every point of the mobject's family, member after member.
 
@@ -1070,6 +1092,7 @@ class Mobject:
         self._require_points()
         return np.array(self.points[-1])
 
+    @deprecated("use get_start() and get_end()", category=None)
     def get_start_and_end(self) -> tuple[Point3D, Point3D]:
         """The mobject's first and last points.
 
@@ -1179,6 +1202,7 @@ class Mobject:
         """
         return [m for m in self.get_family() if m.has_points()]
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def split(self) -> list["Mobject"]:
         """The mobject's parts: itself, if it has points of its own, then its
         submobjects.
@@ -1191,6 +1215,7 @@ class Mobject:
         """
         return list(self)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_group_class(self) -> type["Group"]:
         """The class of the groups the mobject's parts are gathered in: slicing it
         (`mobject[1:3]`) makes one.
@@ -1312,8 +1337,7 @@ class Mobject:
         """Run each of the mobject's updaters once, now; nothing runs while its updating
         is suspended.
 
-        The scene brings updaters forward itself (see
-        [advance][manimgx.Mobject.advance]): this runs them by hand.
+        The scene runs updaters itself, at every frame: this runs them by hand, now.
 
         Args:
             dt: The seconds handed to its time-based updaters.
@@ -1337,6 +1361,7 @@ class Mobject:
                 sub.update(dt, recursive)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def advance(
         self,
         t: Fraction,
@@ -1527,14 +1552,20 @@ class Mobject:
                 sub.clear_updaters()
         return self
 
-    def get_updaters(self) -> list[Updater[Self]]:
+    def get_updaters(self) -> tuple[Updater[Self], ...]:
         """The mobject's own updaters, in the order they run.
 
-        Returns:
-            The list itself, so changing it changes the mobject's updaters.
-        """
-        return self.updaters
+        Change them with [add_updater][manimgx.Mobject.add_updater],
+        [remove_updater][manimgx.Mobject.remove_updater] and
+        [clear_updaters][manimgx.Mobject.clear_updaters], which keep their clocks with
+        them.
 
+        Returns:
+            A snapshot of them.
+        """
+        return tuple(self.updaters)
+
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_family_updaters(self) -> list[Updater[Never]]:  # each of its own kind
         """Every updater of the mobject's family: its own, then its descendants', in
         family order.
@@ -1544,10 +1575,12 @@ class Mobject:
         """
         return [u for m in self.get_family() for u in m.updaters]
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def has_time_based_updater(self) -> bool:
         """Whether any of the mobject's own updaters is time-based: it takes `dt`."""
         return not all(_per_frame(u) for u in self.updaters)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_time_based_updaters(self) -> list[Updater[Self]]:
         """The mobject's own time-based updaters: those that take `dt`.
 
@@ -1586,6 +1619,7 @@ class Mobject:
 
         return Always(self)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def match_updaters(self, mobject: "Mobject") -> Self:
         """Give the mobject another's updaters in place of its own, and clear its
         submobjects'.
@@ -1604,15 +1638,18 @@ class Mobject:
         return self
 
     def suspend_updating(self, recursive: bool = True) -> Self:
-        """Stop the mobject's updaters from running, until
-        [resume_updating][manimgx.Mobject.resume_updating].
+        """Stop the mobject's updaters from running, and its family's beneath it, until
+        [resume_updating][manimgx.Mobject.resume_updating]: nothing updated through a
+        suspended mobject runs.
 
         An animation suspends the updating of the mobject it plays while it plays, and
         runs the updaters beneath it instead (see
         [add_updater][manimgx.Mobject.add_updater]).
 
         Args:
-            recursive: Whether its whole family's updaters stop too.
+            recursive: Whether each member of its family is suspended too, so that it stays
+                stopped where it is updated apart from the mobject (a member the scene
+                also holds by itself), and when the mobject alone resumes.
         """
         self.updating_suspended = True
         if recursive:
@@ -1629,7 +1666,9 @@ class Mobject:
         else at the next one, such as the next frame.
 
         Args:
-            recursive: Whether its whole family's updaters resume too.
+            recursive: Whether its whole family's updaters resume too: resumed alone, the
+                mobject runs again, and the members beneath it that are not suspended
+                themselves.
         """
         # not run here as well: the instant's own pass runs them, and a per-frame
         # updater would run twice at one instant
@@ -1641,6 +1680,7 @@ class Mobject:
         return self
 
     # ── the one transform primitive ────────────────────────────────────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def apply_points_function_about_point(
         self,
         func: PointsFunc,
@@ -1832,9 +1872,13 @@ class Mobject:
         for mob in self.get_family():
             mob.paint = mob.paint.but(sheen_direction=rot @ mob.paint.sheen_direction)
 
+    @deprecated(
+        "rotate_about_origin(angle, axis) is rotate(angle, axis, about_point=ORIGIN)",
+        category=None,
+    )
     def rotate_about_origin(self, angle: float, axis: Vector3DLike = OUT) -> Self:
         """Rotate the mobject and its whole family by an angle, about an axis through
-        the origin.
+        the origin: `rotate(angle, axis, about_point=ORIGIN)`.
 
         Args:
             angle: The angle, in radians: counterclockwise as seen from where `axis`
@@ -1879,6 +1923,10 @@ class Mobject:
             TAU / 2, axis, about_point=about_point, about_edge=about_edge
         )
 
+    @deprecated(
+        "stretch_about_point(factor, dim, point) is stretch(factor, dim, about_point=point): use it",
+        category=None,
+    )
     def stretch_about_point(self, factor: float, dim: int, point: Point3DLike) -> Self:
         """Stretch the mobject and its whole family along one axis, keeping a point
         fixed (see [stretch][manimgx.Mobject.stretch]).
@@ -2070,6 +2118,7 @@ class Mobject:
 
         return self.apply_function(r3, **kwargs)
 
+    @deprecated("use move_to(function(mobject.get_center()))", category=None)
     def apply_function_to_position(
         self, function: Callable[[Point3D], Point3D]
     ) -> Self:
@@ -2082,6 +2131,7 @@ class Mobject:
         """
         return self.move_to(function(self.get_center()))
 
+    @deprecated("use move_to(function(mobject.get_center()))", category=None)
     def apply_function_to_submobject_positions(
         self, function: Callable[[Point3D], Point3D]
     ) -> Self:
@@ -2096,6 +2146,7 @@ class Mobject:
             sub.apply_function_to_position(function)
         return self
 
+    @deprecated("use reverse_direction", category=None)
     def reverse_points(self) -> Self:
         """Reverse the order of the points of each drawn member of the family: a path
         then runs the other way, from its end to its start.
@@ -2105,6 +2156,7 @@ class Mobject:
         return self
 
     # ── bounds: one box, what the family draws ───────────────────────────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def length_over_dim(self, dim: int) -> float:
         """The mobject's extent along one axis, in scene units: its
         [bounding box][manimgx.Mobject.boundary_box]'s, from its lowest coordinate to
@@ -2120,6 +2172,7 @@ class Mobject:
         box = self.boundary_box()
         return 0 if box is None else float(box[1, dim] - box[0, dim])
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_extremum_along_dim(
         self, points: Point3D_Array | None = None, dim: int = 0, key: float = 0
     ) -> float:
@@ -2141,6 +2194,11 @@ class Mobject:
         else:
             lo, hi = np.min(points[:, dim]), np.max(points[:, dim])
         return float(lo if key < 0 else hi if key > 0 else (lo + hi) / 2)
+
+    def _box(self) -> np.ndarray | None:
+        """The (2, 3) box of what this member draws, alone: its geometry's (a path's,
+        its curves' tight box); None when it draws nothing."""
+        return self._geometry.box(self._curves)
 
     def boundary_box(self) -> np.ndarray | None:
         """The mobject's bounding box: the smallest box, aligned with the axes, around
@@ -2188,10 +2246,16 @@ class Mobject:
             ]
         )
 
-    get_edge_center = get_critical_point
-    """The middle of an edge of the mobject's bounding box, named by a direction
-    (`get_edge_center(UP)`): another name for
-    [get_critical_point][manimgx.Mobject.get_critical_point]."""
+    @deprecated(
+        "get_edge_center is get_critical_point: use it, or get_top, get_bottom,"
+        " get_left and get_right",
+        category=None,
+    )
+    def get_edge_center(self, direction: Vector3DLike) -> Point3D:
+        """The middle of an edge of the mobject's bounding box, named by a direction:
+        [get_critical_point][manimgx.Mobject.get_critical_point], by another name."""
+        return self.get_critical_point(direction)
+
     get_corner = get_critical_point
     """A corner of the mobject's bounding box, named by a direction (`get_corner(UR)`):
     another name for [get_critical_point][manimgx.Mobject.get_critical_point]."""
@@ -2204,6 +2268,7 @@ class Mobject:
         """
         return self.get_critical_point(np.zeros(self.dim))
 
+    @deprecated("use get_center", category=None)
     def get_center_of_mass(self) -> Point3D:
         """The mean of all the points of the mobject's family: every control point of a
         path, its handles too.
@@ -2214,9 +2279,8 @@ class Mobject:
         return np.mean(self.get_all_points(), axis=0)
 
     def get_boundary_point(self, direction: Vector3DLike) -> Point3D:
-        """The point of the mobject farthest in a direction: of its
-        [boundary points][manimgx.Mobject.get_points_defining_boundary], the one
-        farthest along `direction`.
+        """The point of the mobject farthest in a direction: of the points it is drawn
+        through, the one farthest along `direction`.
 
         Unlike [get_critical_point][manimgx.Mobject.get_critical_point], it is one of
         those points (for a path, an end of one of its curves), not a point of the
@@ -2234,7 +2298,7 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(UP)
+        return self.get_critical_point(UP)
 
     def get_bottom(self) -> Point3D:
         """The middle of the bottom edge of the mobject's bounding box.
@@ -2242,7 +2306,7 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(DOWN)
+        return self.get_critical_point(DOWN)
 
     def get_right(self) -> Point3D:
         """The middle of the right edge of the mobject's bounding box.
@@ -2250,7 +2314,7 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(RIGHT)
+        return self.get_critical_point(RIGHT)
 
     def get_left(self) -> Point3D:
         """The middle of the left edge of the mobject's bounding box.
@@ -2258,8 +2322,9 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(LEFT)
+        return self.get_critical_point(LEFT)
 
+    @deprecated("use get_critical_point(OUT), or get_critical_point(IN)", category=None)
     def get_zenith(self) -> Point3D:
         """The middle of the face of the mobject's bounding box farthest out of the
         screen (toward OUT: its highest z).
@@ -2267,8 +2332,9 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(OUT)
+        return self.get_critical_point(OUT)
 
+    @deprecated("use get_critical_point(OUT), or get_critical_point(IN)", category=None)
     def get_nadir(self) -> Point3D:
         """The middle of the face of the mobject's bounding box farthest into the screen
         (toward IN: its lowest z).
@@ -2276,8 +2342,9 @@ class Mobject:
         Returns:
             The point, in scene coordinates.
         """
-        return self.get_edge_center(IN)
+        return self.get_critical_point(IN)
 
+    @deprecated("use get_x, get_y or get_z", category=None)
     def get_coord(self, dim: int, direction: Vector3DLike = ORIGIN) -> float:
         """One coordinate of a point of the mobject's bounding box: along axis `dim`,
         its lowest, middle or highest, as `direction`'s coordinate there is negative, 0
@@ -2365,6 +2432,7 @@ class Mobject:
     def height(self, value: float) -> None:
         self.scale_to_fit_height(value)
 
+    @deprecated("get_width() is width: use it", category=None)
     def get_width(self) -> float:
         """The mobject's [width][manimgx.Mobject.width].
 
@@ -2470,8 +2538,9 @@ class Mobject:
                     self.add(square, right, up, down, dot)
             ```
         """
-        d, edge = np.asarray(direction, dtype=float), np.asarray(
-            aligned_edge, dtype=float
+        d, edge = (
+            np.asarray(direction, dtype=float),
+            np.asarray(aligned_edge, dtype=float),
         )
         if isinstance(mobject_or_point, Mobject):
             target_aligner = (
@@ -2491,6 +2560,7 @@ class Mobject:
         point_to_align = aligner.get_critical_point(edge - d)
         return self.shift((target - point_to_align + buff * d) * np.asarray(coor_mask))
 
+    @deprecated("use to_edge or to_corner", category=None)
     def align_on_border(
         self, direction: Vector3DLike, buff: float = DEFAULT_MOBJECT_TO_EDGE_BUFFER
     ) -> Self:
@@ -2595,7 +2665,7 @@ class Mobject:
         radii = (config.frame_x_radius, config.frame_y_radius)
         for vect in (UP, DOWN, LEFT, RIGHT):
             dim = int(np.argmax(np.abs(vect)))
-            if np.dot(self.get_edge_center(vect), vect) > radii[dim] - buff:
+            if np.dot(self.get_critical_point(vect), vect) > radii[dim] - buff:
                 self.to_edge(vect, buff=buff)
         return self
 
@@ -2688,6 +2758,7 @@ class Mobject:
                 self.set_coord(point[dim], dim, direction)
         return self
 
+    @deprecated("use set_x, set_y or set_z", category=None)
     def set_coord(
         self, value: float, dim: int, direction: Vector3DLike = ORIGIN
     ) -> Self:
@@ -2738,6 +2809,7 @@ class Mobject:
         """
         return self.set_coord(z, 2, direction)
 
+    @deprecated("use scale_to_fit_width or scale_to_fit_height", category=None)
     def rescale_to_fit(
         self, length: float, dim: int, stretch: bool = False, **kwargs: Unpack[Pivot]
     ) -> Self:
@@ -2804,6 +2876,7 @@ class Mobject:
         """
         return self.rescale_to_fit(height, 1, stretch=True, **kwargs)
 
+    @deprecated("use match_width or match_height", category=None)
     def match_dim_size(
         self, mobject: "Mobject", dim: int, **kwargs: Unpack[Pivot]
     ) -> Self:
@@ -2837,6 +2910,7 @@ class Mobject:
         """
         return self.match_dim_size(mobject, 1, **kwargs)
 
+    @deprecated("use scale", category=None)
     def match_depth(self, mobject: "Mobject", **kwargs: Unpack[Pivot]) -> Self:
         """Scale the mobject in proportion to another's depth, its extent along z.
 
@@ -2847,6 +2921,7 @@ class Mobject:
         """
         return self.match_dim_size(mobject, 2, **kwargs)
 
+    @deprecated("use match_x, match_y or match_z", category=None)
     def match_coord(
         self, mobject: "Mobject", dim: int, direction: Vector3DLike = ORIGIN
     ) -> Self:
@@ -2975,8 +3050,16 @@ class Mobject:
             m2.next_to(m1, direction, buff, **kwargs)
         return self.center() if center else self
 
-    arrange_submobjects = arrange
-    """Another name for [arrange][manimgx.Mobject.arrange]."""
+    @deprecated("arrange_submobjects is arrange: use it", category=None)
+    def arrange_submobjects(
+        self,
+        direction: Vector3DLike = RIGHT,
+        buff: float = DEFAULT_MOBJECT_TO_MOBJECT_BUFFER,
+        center: bool = True,
+        **kwargs: Unpack[Beside],
+    ) -> Self:
+        """[arrange][manimgx.Mobject.arrange], by another name."""
+        return self.arrange(direction, buff, center, **kwargs)
 
     def arrange_in_grid(
         self,
@@ -3053,12 +3136,16 @@ class Mobject:
         cols = cols or (
             len(col_alignments)
             if col_alignments
-            else len(widths_in) if widths_in else None
+            else len(widths_in)
+            if widths_in
+            else None
         )
         rows = rows or (
             len(row_alignments)
             if row_alignments
-            else len(heights_in) if heights_in else None
+            else len(heights_in)
+            if heights_in
+            else None
         )
         if rows is None:
             cols = math.ceil(math.sqrt(len(mobs))) if cols is None else cols
@@ -3107,8 +3194,9 @@ class Mobject:
             x = 0.0
             for c in range(cols):
                 if grid[r][c] is not placeholder:
-                    lo, hi = np.array([x, y, 0.0]), np.array(
-                        [x + widths[c], y + heights[r], 0.0]
+                    lo, hi = (
+                        np.array([x, y, 0.0]),
+                        np.array([x + widths[c], y + heights[r], 0.0]),
                     )
                     align = rdirs[r] + cdirs[c]
                     corner = np.where(
@@ -3166,6 +3254,7 @@ class Mobject:
         self.submobjects.reverse()
         return self
 
+    @deprecated("use arrange, with buff", category=None)
     def space_out_submobjects(
         self, factor: float = 1.5, **kwargs: Unpack[Pivot]
     ) -> Self:
@@ -3376,11 +3465,20 @@ class Mobject:
 
             class MobjectSetMaterialExample(m.ThreeDScene):
                 def construct(self) -> None:
-                    self.set_camera_orientation(phi=65 * m.DEGREES, theta=-50 * m.DEGREES)
-                    self.add(m.SunLight(4 * m.LEFT + 6 * m.OUT), m.AmbientLight(intensity=0.15))
+                    self.set_camera_orientation(
+                        phi=65 * m.DEGREES, theta=-50 * m.DEGREES
+                    )
+                    self.add(
+                        m.SunLight(4 * m.LEFT + 6 * m.OUT),
+                        m.AmbientLight(intensity=0.15),
+                    )
                     torus = m.Torus(resolution=(48, 24)).set_color(m.TEAL)
                     self.add(torus.set_material(m.Material(roughness=0.25)))
-                    self.play(torus.animate.set_material(m.Material(metallic=1, roughness=0.6)))
+                    self.play(
+                        torus.animate.set_material(
+                            m.Material(metallic=1, roughness=0.6)
+                        )
+                    )
             ```
         """
         for mob in self.get_family() if family else [self]:
@@ -3508,6 +3606,7 @@ class Mobject:
             mob.paint = mob.paint.but(sheen_direction=direction)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_stroke_rgbas(self, background: bool = False) -> np.ndarray:
         """The mobject's own stroke colors, one row per gradient stop.
 
@@ -3519,10 +3618,12 @@ class Mobject:
         """
         return self.paint.background if background else self.paint.stroke
 
+    @deprecated("get_fill_color() is fill_color: use it", category=None)
     def get_fill_color(self) -> ManimColor:
         """The mobject's own fill color (for a gradient, its first)."""
         return ManimColor(self.paint.fill[0, :3])
 
+    @deprecated("get_fill_opacity() is fill_opacity: use it", category=None)
     def get_fill_opacity(self) -> float:
         """The opacity of the mobject's own fill (for a gradient, its first color's).
 
@@ -3531,6 +3632,7 @@ class Mobject:
         """
         return float(self.paint.fill[0, 3])
 
+    @deprecated("get_stroke_color() is stroke_color: use it", category=None)
     def get_stroke_color(self, background: bool = False) -> ManimColor:
         """The mobject's own stroke color (for a gradient, its first).
 
@@ -3539,6 +3641,7 @@ class Mobject:
         """
         return ManimColor(self.get_stroke_rgbas(background)[0, :3])
 
+    @deprecated("get_stroke_width() is stroke_width: use it", category=None)
     def get_stroke_width(self, background: bool = False) -> float:
         """The width of the mobject's own stroke.
 
@@ -3552,6 +3655,7 @@ class Mobject:
             0.0, self.paint.background_width if background else self.paint.stroke_width
         )
 
+    @deprecated("get_stroke_opacity() is stroke_opacity: use it", category=None)
     def get_stroke_opacity(self, background: bool = False) -> float:
         """The opacity of the mobject's own stroke (for a gradient, its first color's).
 
@@ -3563,6 +3667,7 @@ class Mobject:
         """
         return float(self.get_stroke_rgbas(background)[0, 3])
 
+    @deprecated("get_color() is color: use it", category=None)
     def get_color(self) -> ManimColor:
         """The mobject's own color: its fill's, or its stroke's if it has no fill (its
         fill wholly transparent).
@@ -3620,8 +3725,8 @@ class Mobject:
         return self
 
     def match_color(self, mobject: "Mobject") -> Self:
-        """Color the mobject and its whole family with another's color (see
-        [get_color][manimgx.Mobject.get_color]).
+        """Color the mobject and its whole family with another's
+        [color][manimgx.Mobject.color].
 
         Args:
             mobject: The mobject whose color to take.
@@ -3680,6 +3785,7 @@ class Mobject:
             )
         return self
 
+    @deprecated("sort_submobjects is sort: use it", category=None)
     def sort_submobjects(
         self,
         point_to_num_func: Callable[[Point3D], float] = lambda p: p[0],
@@ -3695,10 +3801,12 @@ class Mobject:
         """
         return self.sort(point_to_num_func, submob_func)
 
+    @deprecated("use set_color(mobject.color)", category=None)
     def to_original_color(self) -> Self:
         """Color the whole family with the mobject's own [color][manimgx.Mobject.color]."""
         return self.set_color(self.color)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def apply_to_family(self, func: Callable[["Mobject"], object]) -> None:
         """Call a function on each drawn member of the family, in family order.
 
@@ -3708,6 +3816,10 @@ class Mobject:
         for mob in self.family_members_with_points():
             func(mob)
 
+    @deprecated(
+        "set_submobject_colors_by_gradient is set_color_by_gradient: use it",
+        category=None,
+    )
     def set_submobject_colors_by_gradient(self, *colors: ParsableManimColor) -> Self:
         """Color the drawn members of the family along a gradient: the same as
         [set_color_by_gradient][manimgx.Mobject.set_color_by_gradient].
@@ -3773,6 +3885,7 @@ class Mobject:
         return self
 
     # ── structural alignment + interpolation (the Transform engine) ─────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def align_data(
         self, mobject: "Mobject", skip_point_alignment: bool = False
     ) -> Self:
@@ -3797,6 +3910,7 @@ class Mobject:
             m1.align_data(m2, skip_point_alignment)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def align_points(self, mobject: "Mobject") -> Self:
         """Give this mobject and another the same number of points of their own, and of
         color rows: the one with fewer is refined, its shape and look unchanged (see
@@ -3813,6 +3927,7 @@ class Mobject:
             mobject.align_points_with_larger(self)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def align_submobjects(self, mobject: "Mobject") -> Self:
         """Give this mobject and another the same number of submobjects.
 
@@ -3835,6 +3950,7 @@ class Mobject:
                 )
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def null_point_align(self, mobject: "Mobject") -> Self:
         """If one of this mobject and another has no points of its own and the other
         has, move the other's points into a submobject of its own, so the two families
@@ -3849,6 +3965,7 @@ class Mobject:
                 m2.push_self_into_submobjects()
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def push_self_into_submobjects(self) -> Self:
         """Move the mobject's own points into a new submobject, added last: a copy of it
         without submobjects. The mobject keeps its submobjects, and has no points of its
@@ -3859,6 +3976,7 @@ class Mobject:
         self.reset_points()
         return self.add(clone)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def add_n_more_submobjects(self, n: int) -> Self:
         """Add `n` submobjects, for a transform that splits parts: a mobject with none
         gets `n` points of itself, at its center (see
@@ -3888,6 +4006,7 @@ class Mobject:
         self.submobjects = new
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def interpolate(
         self,
         mobject1: "Mobject",
@@ -3919,6 +4038,7 @@ class Mobject:
         self.paint = self.paint.mixed(mobject1.paint, mobject2.paint, alpha)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def interpolate_color(
         self, mobject1: "Mobject", mobject2: "Mobject", alpha: float
     ) -> Self:
@@ -3945,8 +4065,7 @@ class Mobject:
         """Make the mobject look like another, at once, while staying itself: the same
         object in the scene, with its updaters.
 
-        The two families are first given the same structure (see
-        [align_data][manimgx.Mobject.align_data]); then each member takes its
+        The two families are first given the same structure; then each member takes its
         counterpart's points and its colors, opacities, stroke widths, sheen and
         texture (its joint and cap styles and 3D shading stay its own, unless they are
         the same). With a `match_*` flag or `stretch`, a copy of `mobject` is first
@@ -4020,6 +4139,7 @@ class Mobject:
         shape is more than points — a mesh's triangles — takes that too)."""
 
     @classmethod
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def add_animation_override(
         cls,
         animation_class: type["Animation"],
@@ -4058,25 +4178,30 @@ class Mobject:
         mobjects keep their state; later construction reads the current defaults.
 
         Repeated calls replace this class's keyword defaults. Reset restores its
-        original constructor descriptor, or normal inheritance if it had no
-        constructor of its own. A new override uses the current inherited defaults.
+        original constructor, or normal inheritance if it had no constructor of its own.
+        The defaults are applied when a mobject is made, to the constructor then in
+        force: the class's own, or the next one in the made mobject's class's order (so a
+        parent's later defaults reach a configured child, and a configured mixin calls the
+        class after it in a subclass's order).
 
         Args:
             **kwargs: Keywords of the class's constructor, with their new defaults.
         """
-        # The constructor checks the keywords when it runs: a partial
-        # application of a signature has no static type
-        from functools import partialmethod
-
         if kwargs:
-            configured = "_original__init__" in cls.__dict__
             original = cls.__dict__.get(
                 "_original__init__", cls.__dict__.get("__init__")
             )
-            init = original
-            if original is None and (configured or "__init__" not in cls.__dict__):
-                init = super(cls, cls).__init__
-            init = partialmethod(init, **kwargs)
+            defaults = dict(kwargs)
+
+            # The constructor checks the keywords when it runs: defaults applied to a
+            # signature have no static type
+            def init(self: Mobject, *args: object, **given: object) -> None:
+                merged = defaults | given
+                if original is not None:
+                    original(self, *args, **merged)
+                else:
+                    super(cls, self).__init__(*args, **merged)
+
             setattr(cls, "_original__init__", original)  # noqa: B010
             setattr(cls, "__init__", init)  # noqa: B010
         elif "_original__init__" in cls.__dict__:
@@ -4088,6 +4213,7 @@ class Mobject:
                 setattr(cls, "__init__", original)  # noqa: B010
         caches.clear()
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_pieces(self, n_pieces: int) -> "Group":
         """Split the mobject into pieces: copies of it, each an equal part of it in
         turn, from its start to its end (a path's, by its curves).
@@ -4125,17 +4251,15 @@ class Mobject:
         square turns about its center where the shift left it. When the animation
         finishes, the calls are carried out on the mobject itself.
 
-        The motion follows the calls: a turn among them (`rotate`, `flip`,
-        `rotate_about_origin`) turns the mobject rigidly about its pivot, through its
-        whole angle (`rotate(TAU)` is a full turn); every other call moves its center
+        The motion follows the calls: a turn among them (`rotate`, `flip`) turns the
+        mobject rigidly about its pivot, through its whole angle (`rotate(TAU)` is a full turn); every other call moves its center
         straight; and the rest of the change (a size, a color, a new shape) blends along
         the way. Call `animate` with options before any method —
         `square.animate(run_time=2, rate_func=linear).shift(UP)` — to set the
         animation's [Transform options][manimgx.animation.transform.TransformOptions]; a
         `path_arc` or a `path_func` among them replaces the motion. Call it with a
         function — `square.animate(lambda s: s.shift(UP))` — to record that function as
-        a call. A method decorated with [override_animate][manimgx.override_animate]
-        plays the animation it makes instead, and cannot be chained.
+        a call.
 
         Examples:
             ```python
@@ -4156,6 +4280,7 @@ class Mobject:
         return Animate(self)
 
     @classmethod
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def animation_override_for(
         cls, animation_class: type["Animation"]
     ) -> Callable[..., "Animation"] | None:
@@ -4208,8 +4333,7 @@ class Group[T: Mobject = Mobject](Mobject):
 
     A group has no points of its own: its members are its submobjects, and whatever is
     done to the group — moving, scaling, styling, animating — is done to them all.
-    [VGroup][manimgx.VGroup] and [PGroup][manimgx.PGroup] are other names for it. A
-    group can be indexed (`group[0]`), sliced (`group[1:3]` is a new group of those
+    [VGroup][manimgx.VGroup] is another name for it. A group can be indexed (`group[0]`), sliced (`group[1:3]` is a new group of those
     members) and iterated over, and `group + mobject`, `group - mobject`, `+=` and `-=`
     add and remove members.
 
@@ -4305,6 +4429,10 @@ class Group[T: Mobject = Mobject](Mobject):
         return cast("Group[T]", Group(*members))
 
 
+@deprecated(
+    "Manim CE's way to change the animation a class plays: manimgx doesn't document it",
+    category=None,
+)
 def override_animate[F: Callable[..., "Animation"]](
     method: Callable[..., object],
 ) -> Callable[[F], F]:
@@ -4356,6 +4484,10 @@ def override_animate[F: Callable[..., "Animation"]](
     return decorator
 
 
+@deprecated(
+    "Manim CE's way to change the animation a class plays: manimgx doesn't document it",
+    category=None,
+)
 def override_animation[F: Callable[..., "Animation"]](
     animation_class: type["Animation"],
 ) -> Callable[[F], F]:
@@ -4444,9 +4576,7 @@ class ValueTracker[V: (float, complex) = float](Mobject):
 
     def get_value(self) -> V:
         """The number the tracker holds."""
-        return float(
-            self.points[0, 0]
-        )  # pyright: ignore[reportReturnType]  # V is float here
+        return float(self.points[0, 0])  # pyright: ignore[reportReturnType]  # V is float here
 
     def set_value(self, value: V) -> Self:
         """Set the number the tracker holds; through
@@ -4625,7 +4755,7 @@ class VMobject(Mobject):
         Args:
             value: Whether the light shades them.
             z_index_as_group: Whether each member of the family also takes the path as
-                its [z_index_group][manimgx.Mobject.z_index_group], which is kept for
+                its z-index group, which is kept for
                 Manim compatibility (the renderer draws a three-dimensional scene by
                 depth).
         """
@@ -4635,6 +4765,7 @@ class VMobject(Mobject):
                 mob.z_index_group = self
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_sheen_direction(self) -> np.ndarray:
         """The direction the path's own colors lighten toward, which its gradients run
         along too (see [set_sheen][manimgx.Mobject.set_sheen]).
@@ -4648,6 +4779,7 @@ class VMobject(Mobject):
     """The mobject whose bounding box the path's color gradients span; None for the
     path's own. Parts that share one show a single gradient across them all."""
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_gradient_start_and_end_points(self) -> tuple[Point3D, Point3D]:
         """Where the path's color gradients start and end: a gradient spans its
         [bounding box][manimgx.Mobject.boundary_box], along its sheen direction.
@@ -4670,6 +4802,7 @@ class VMobject(Mobject):
         return center - offset, center + offset
 
     # ── path building ─────────────────────────────────────────────────────
+    @deprecated("use add_cubic_bezier_curve, and get_anchors", category=None)
     def set_anchors_and_handles(
         self,
         anchors1: Point3D_Array,
@@ -4696,6 +4829,7 @@ class VMobject(Mobject):
         self.points = points
         return self
 
+    @deprecated("clear_points is reset_points: use it", category=None)
     def clear_points(self) -> Self:
         """Remove the path's own points: the same as
         [reset_points][manimgx.Mobject.reset_points].
@@ -4862,8 +4996,8 @@ class VMobject(Mobject):
                     stairs = m.VMobject(color=m.BLUE, stroke_width=8)
                     stairs.start_new_path([-5, -3, 0])
                     for _ in range(5):
-                        stairs.add_line_to(stairs.get_last_point() + 1.2 * m.UP)
-                        stairs.add_line_to(stairs.get_last_point() + 2 * m.RIGHT)
+                        stairs.add_line_to(stairs.get_end() + 1.2 * m.UP)
+                        stairs.add_line_to(stairs.get_end() + 2 * m.RIGHT)
                     self.play(m.Create(stairs, run_time=3))
             ```
         """
@@ -4919,6 +5053,7 @@ class VMobject(Mobject):
             handle2 = new_anchor + tangent - 2 * (tangent @ chord) * chord
         return self.append_points([last_a2, handle1, handle2, new_anchor])
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def has_new_path_started(self) -> bool:
         """Whether the path ends in a subpath just started: a point that begins no curve
         yet, where the next curve added starts.
@@ -4929,6 +5064,7 @@ class VMobject(Mobject):
         """
         return self._geometry.n % _NPPCC == 1
 
+    @deprecated("use get_end", category=None)
     def get_last_point(self) -> Point3D:
         """The path's last point: where it ends, and where the next curve added begins.
 
@@ -4939,9 +5075,7 @@ class VMobject(Mobject):
 
     def is_closed(self) -> bool:
         """Whether the path ends where it starts: its first and last points coincide,
-        within its
-        [tolerance_for_point_equality][manimgx.VMobject.tolerance_for_point_equality].
-        """
+        within a millionth of a unit."""
         return self.consider_points_equals(
             self._geometry.point(0), self._geometry.point(-1)
         )
@@ -5081,6 +5215,7 @@ class VMobject(Mobject):
         self.set_points_as_corners(points)
         return self.make_smooth()
 
+    @deprecated("use make_smooth or make_jagged", category=None)
     def change_anchor_mode(self, mode: Literal["jagged", "smooth"]) -> Self:
         """Set anew the handles of every subpath in the family, for a smooth curve
         through its anchors or straight lines between them; the anchors stay.
@@ -5099,8 +5234,9 @@ class VMobject(Mobject):
                 if mode == "smooth":
                     h1, h2 = get_smooth_cubic_bezier_handle_points(anchors)
                 else:
-                    h1, h2 = interpolate(anchors[:-1], anchors[1:], 1 / 3), interpolate(
-                        anchors[:-1], anchors[1:], 2 / 3
+                    h1, h2 = (
+                        interpolate(anchors[:-1], anchors[1:], 1 / 3),
+                        interpolate(anchors[:-1], anchors[1:], 2 / 3),
                     )
                 new = np.array(subpath)
                 new[1::_NPPCC], new[2::_NPPCC] = h1, h2
@@ -5200,6 +5336,7 @@ class VMobject(Mobject):
         if self.make_smooth_after_applying_functions:
             self.make_smooth()
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def scale_handle_to_anchor_distances(self, factor: float) -> Self:
         """Move the handles of every path in the family toward their anchors, or away
         from them, scaling their distances by a factor.
@@ -5221,6 +5358,7 @@ class VMobject(Mobject):
         return self
 
     # ── curves and subpaths ───────────────────────────────────────────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def consider_points_equals(self, p0: Point3DLike, p1: Point3DLike) -> bool:
         """Whether two points count as one: equal within
         [tolerance_for_point_equality][manimgx.VMobject.tolerance_for_point_equality].
@@ -5231,6 +5369,7 @@ class VMobject(Mobject):
         """
         return bool(np.allclose(p0, p1, atol=self.tolerance_for_point_equality))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_cubic_bezier_tuples_from_points(self, points: Point3D_Array) -> np.ndarray:
         """Split control points into curves, four points each; an unfinished last curve
         is left out.
@@ -5246,6 +5385,7 @@ class VMobject(Mobject):
             -1, _NPPCC, points.shape[1] if len(points) else 3
         )
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_cubic_bezier_tuples(self) -> np.ndarray:
         """The path's curves, by their control points.
 
@@ -5255,6 +5395,7 @@ class VMobject(Mobject):
         """
         return self.get_cubic_bezier_tuples_from_points(self.points)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_subpaths_from_points(self, points: Point3D_Array) -> list[Point3D_Array]:
         """Split control points into subpaths: a subpath starts wherever a curve does
         not begin where the one before it ends.
@@ -5270,6 +5411,7 @@ class VMobject(Mobject):
             for a, b, _ in subpath_ranges(points, self.tolerance_for_point_equality)
         ]
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def consider_points_equals_2d(self, p0: Point3DLike, p1: Point3DLike) -> bool:
         """Whether two points count as one seen along the z axis: their x and y
         coordinates equal within
@@ -5287,6 +5429,7 @@ class VMobject(Mobject):
             )
         )
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def gen_cubic_bezier_tuples_from_points(
         self, points: Point3D_Array
     ) -> tuple[Point3D_Array, ...]:
@@ -5302,6 +5445,7 @@ class VMobject(Mobject):
         n = len(points) - len(points) % _NPPCC
         return tuple(points[i : i + _NPPCC] for i in range(0, n, _NPPCC))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def gen_subpaths_from_points_2d(
         self, points: Point3D_Array
     ) -> Iterator[Point3D_Array]:
@@ -5330,6 +5474,7 @@ class VMobject(Mobject):
         """
         return self.get_subpaths_from_points(self.points)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_nth_curve_points(self, n: int) -> Point3D_Array:
         """The control points of one of the path's curves.
 
@@ -5341,6 +5486,7 @@ class VMobject(Mobject):
         """
         return self.points[_NPPCC * n : _NPPCC * (n + 1)]
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_nth_curve_function(self, n: int) -> Callable[[float], Point3D]:
         """One of the path's curves, as a function from 0, its start, to 1, its end.
 
@@ -5352,6 +5498,7 @@ class VMobject(Mobject):
         """
         return bezier(self.get_nth_curve_points(n))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_nth_curve_length_pieces(
         self, n: int, sample_points: int | None = None
     ) -> np.ndarray:
@@ -5372,6 +5519,7 @@ class VMobject(Mobject):
         pts = np.array([curve(a) for a in np.linspace(0, 1, sample_points)])
         return np.linalg.norm(np.diff(pts, axis=0), axis=1)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_nth_curve_length(self, n: int, sample_points: int | None = None) -> float:
         """The length of one of the path's curves, measured along straight pieces
         between points on it.
@@ -5394,6 +5542,7 @@ class VMobject(Mobject):
         """
         return self._geometry.n // _NPPCC
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_curve_functions_with_lengths(
         self, sample_points: int | None = None
     ) -> Iterator[tuple[Callable[[float], Point3D], float]]:
@@ -5409,8 +5558,9 @@ class VMobject(Mobject):
                 units.
         """
         for n in range(self.get_num_curves()):
-            yield self.get_nth_curve_function(n), self.get_nth_curve_length(
-                n, sample_points
+            yield (
+                self.get_nth_curve_function(n),
+                self.get_nth_curve_length(n, sample_points),
             )
 
     def point_from_proportion(self, alpha: float) -> Point3D:
@@ -5477,6 +5627,7 @@ class VMobject(Mobject):
             )
         )
 
+    @deprecated("use add_cubic_bezier_curve, and get_anchors", category=None)
     def get_anchors_and_handles(self) -> list[Point3D_Array]:
         """The path's control points, kind by kind: its curves' first anchors, first
         handles, second handles and second anchors.
@@ -5488,6 +5639,7 @@ class VMobject(Mobject):
         """
         return [self.points[i::_NPPCC] for i in range(_NPPCC)]
 
+    @deprecated("use add_cubic_bezier_curve, and get_anchors", category=None)
     def get_start_anchors(self) -> Point3D_Array:
         """Where each of the path's curves starts.
 
@@ -5496,6 +5648,7 @@ class VMobject(Mobject):
         """
         return self.points[::_NPPCC]
 
+    @deprecated("use add_cubic_bezier_curve, and get_anchors", category=None)
     def get_end_anchors(self) -> Point3D_Array:
         """Where each of the path's curves ends.
 
@@ -5591,6 +5744,7 @@ class VMobject(Mobject):
             self.append_points([new_path_point])
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def insert_n_curves_to_point_list(
         self, n: int, points: Point3D_Array
     ) -> Point3D_Array:
@@ -5674,7 +5828,7 @@ class VMobject(Mobject):
 
     def get_direction(self) -> str:
         """Which way the path turns: "CW" (clockwise) or "CCW" (counterclockwise), by
-        the sign of [shoelace][manimgx.shoelace] over its curves' start anchors.
+        the sign of the area its curves' start anchors enclose.
 
         Returns:
             "CW" or "CCW".
@@ -5685,9 +5839,8 @@ class VMobject(Mobject):
         """Reverse the order of the path's own points, so it runs the other way: from
         its end to its start.
 
-        Its submobjects stay as they are (see
-        [reverse_points][manimgx.Mobject.reverse_points] for the whole family). A
-        drawing animation then draws it the other way, and a subpath inside another cuts
+        Its submobjects stay as they are. A drawing animation then draws it the other
+        way, and a subpath inside another cuts
         a hole in the fill only if the two run opposite ways.
 
         Examples:
@@ -5725,6 +5878,7 @@ class VMobject(Mobject):
     def get_style(self, simple: Literal[True]) -> SimpleStyle: ...
     @overload
     def get_style(self, simple: Literal[False] = False) -> StyleSnapshot: ...
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_style(self, simple: bool = False) -> SimpleStyle | StyleSnapshot:
         """The path's own style, as keywords: `set_style(**style)` gives it back.
 
@@ -5760,6 +5914,7 @@ class VMobject(Mobject):
         )
 
     @staticmethod
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_mobject_type_class() -> type[Mobject]:
         """The class of the paths' kind: `VMobject`, whatever a path's own class.
 
@@ -5884,6 +6039,7 @@ class VectorizedPoint(VMobject):
     def height(self, value: float) -> None:
         self.artificial_height = value
 
+    @deprecated("use get_center", category=None)
     def get_location(self) -> Point3D:
         """Where the point is.
 
@@ -5892,6 +6048,7 @@ class VectorizedPoint(VMobject):
         """
         return np.array(self.points[0])
 
+    @deprecated("use move_to", category=None)
     def set_location(self, new_loc: Point3DLike) -> Self:
         """Move the point.
 
@@ -5974,8 +6131,7 @@ class VDict[T: Mobject = Mobject](Mobject):
     ) -> Self:
         """Add members by key, after the group's.
 
-        Each is added as [add_key_value_pair][manimgx.VDict.add_key_value_pair] adds it,
-        labeled with its key if the group shows its keys. A key the group has already
+        Each is labeled with its key if the group shows its keys. A key the group has already
         is given the new mobject, but the old one stays in the group: to replace a
         member, set it (`vdict[key] = mobject`).
 
@@ -6000,9 +6156,7 @@ class VDict[T: Mobject = Mobject](Mobject):
         super().remove(self.submob_dict.pop(key))
         return self
 
-    def __getitem__(
-        self, key: Hashable
-    ) -> T:  # ty: ignore[invalid-method-override]  # CE's: by key
+    def __getitem__(self, key: Hashable) -> T:  # ty: ignore[invalid-method-override]  # CE's: by key
         return self.submob_dict[key]
 
     def __setitem__(self, key: Hashable, value: T) -> None:
@@ -6010,6 +6164,7 @@ class VDict[T: Mobject = Mobject](Mobject):
             self.remove(key)
         self.add([(key, value)])
 
+    @deprecated("use add({key: value})", category=None)
     def add_key_value_pair(self, key: Hashable, value: T) -> Self:
         """Add a member with a key, after the group's.
 
@@ -6030,6 +6185,7 @@ class VDict[T: Mobject = Mobject](Mobject):
         Mobject.add(self, value)
         return self
 
+    @deprecated("use the group's submobjects", category=None)
     def get_all_submobjects(self) -> list[T]:
         """The members, in the order of their keys.
 
@@ -6043,8 +6199,9 @@ class PMobject(Mobject):
     """A point cloud: a mobject drawn as points, each a dot of its own color.
 
     Points are added with [add_points][manimgx.PMobject.add_points], each with a color;
-    the style methods color them all. Each point is a disk `stroke_width` / 135 scene
-    units across: at the default width, 4, about 3 pixels of a 720p frame.
+    the style methods color them all. Each point is a disk as wide as a stroke of its
+    `stroke_width`, a hundredth of a scene unit for each unit of width: at the default
+    width, 4, about 4 pixels of a 720p frame.
 
     Args:
         **kwargs: [Style keywords][manimgx.drawing.paint.Style]: `color` colors the points
@@ -6114,6 +6271,7 @@ class PMobject(Mobject):
         self.paint = self.paint.but(fill=np.append(self.paint.fill, rgbas, axis=0))
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_all_rgbas(self) -> RGBA_Array:
         """The colors of every point of the cloud's family, member after member.
 
@@ -6125,6 +6283,7 @@ class PMobject(Mobject):
             or [np.zeros((0, 4))]
         )
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def match_colors(self, mobject: Mobject) -> Self:
         """Give the cloud another cloud's colors, point for point.
 
@@ -6147,8 +6306,9 @@ class PMobject(Mobject):
         if factor < 1:
             raise ValueError("factor must be positive")
         for mob in self.family_members_with_points():
-            mob.points, mob.paint = mob.points[::factor], mob.paint.but(
-                fill=mob.paint.fill[::factor].copy()
+            mob.points, mob.paint = (
+                mob.points[::factor],
+                mob.paint.but(fill=mob.paint.fill[::factor].copy()),
             )
         return self
 
@@ -6163,12 +6323,17 @@ class PMobject(Mobject):
         return Point(self.get_center() if center is None else center)
 
     def pointwise_become_partial(self, mobject: Mobject, a: float, b: float) -> Self:
-        lo, hi = (int(x * mobject.get_num_points()) for x in (a, b))
+        # every point the stretch reaches into, as a reveal over it shows them
+        n = mobject.get_num_points()
+        lo = min(max(math.floor(a * n), 0), n)
+        hi = min(max(math.ceil(b * n), lo), n)
+        fill = mobject.paint.fill
         self.points = mobject.points[lo:hi]
-        self.paint = self.paint.but(fill=mobject.paint.fill[lo:hi])
+        self.paint = self.paint.but(fill=fill[lo:hi] if len(fill) == n else fill)
         return self
 
 
+@deprecated("Manim CE's base of point clouds along lines: use PMobject", category=None)
 class Mobject1D(PMobject):
     """A point cloud of lines: points evenly spaced along each, `density` to a unit.
 
@@ -6228,10 +6393,18 @@ class Mobject1D(PMobject):
         return self.add_points(points, color=color)
 
 
-PGroup = Group  # a group is a group: kinds belong to leaves
-"""Another name for [Group][manimgx.Group], which holds mobjects of any kind."""
+if TYPE_CHECKING:
+
+    @deprecated("PGroup is Group: use Group, or VGroup", category=None)
+    class PGroup[T: Mobject = Mobject](Group[T]):
+        """Manim CE's group of point clouds: [Group][manimgx.Group], which holds
+        mobjects of any kind."""
+
+else:
+    PGroup = Group  # a group is a group: kinds belong to leaves
 
 
+@deprecated("Manim CE's one-point cloud: use VectorizedPoint, or Dot", category=None)
 class Point(PMobject):
     """A point cloud of one point, black unless colored: unseen on the default black
     background.
@@ -6264,7 +6437,7 @@ class Point(PMobject):
         color: Colors | None = None,
         **kwargs: Unpack[StyleBase],
     ) -> None:
-        self.location = location
+        self.location = np.array(location, dtype=float)  # its own, as it was given
         super().__init__(
             **(Style(**kwargs) if color is None else Style(**kwargs, color=color))
         )
@@ -6344,31 +6517,33 @@ class MeshMobject(Mobject):
         texture: "np.ndarray | Camera | None" = None,
         **kwargs: Unpack[Style],
     ) -> None:
-        self._init_mesh = (vertices, triangles, uvs)
-        self._vertex_colors = vertex_colors
-        self._texture = texture
+        # values, as they are given: regenerated, the mesh is what it was made of
+        self._init_mesh = (
+            None if vertices is None else np.array(vertices),
+            None if triangles is None else np.array(triangles),
+            None if uvs is None else np.array(uvs),
+        )
+        self._vertex_colors = None if vertex_colors is None else np.array(vertex_colors)
+        self._texture = _value(texture) if isinstance(texture, np.ndarray) else texture
         super().__init__(**kwargs)
 
     @property
     def triangles(self) -> np.ndarray:
-        """The mesh's readonly (m, 3) triangle indices; for a lattice these are its
-        coarse cell triangles.
+        """The mesh's readonly (m, 3) triangle indices; for a lattice these are the
+        coarse triangles of the faces it draws, two each.
 
         Equal assignment is a no-op. Ordinary meshes snapshot replacement indices;
         a sampled lattice requires constructing an explicit MeshMobject instead.
         """
-        return (
-            grid_triangles(*self._topology)
-            if isinstance(self._topology, tuple)
-            else self._topology
-        )
+        topology = self._topology
+        return topology.triangles() if isinstance(topology, Lattice) else topology
 
     @triangles.setter
     def triangles(self, value: npt.ArrayLike) -> None:
         array = np.asarray(value, dtype=np.int64)
         array = array if array.shape[1:] == (3,) else array.reshape(-1, 3)
         held = self.__dict__.get("_topology")
-        if isinstance(held, tuple):
+        if isinstance(held, Lattice):
             if np.array_equal(array, self.triangles):
                 return
             raise ValueError(
@@ -6398,9 +6573,11 @@ class MeshMobject(Mobject):
 
         A (u, v) lattice has (u + 1) * (v + 1) samples. Its fill rows belong to cells
         and UVs to samples; ordinary mesh fill rows belong to vertices. match_points
-        adopts this domain while retaining its recipient's style.
+        adopts this domain while retaining its recipient's style. A part of a surface
+        has its whole lattice, and draws some of its faces.
         """
-        return self._topology if isinstance(self._topology, tuple) else None
+        topology = self._topology
+        return (topology.u, topology.v) if isinstance(topology, Lattice) else None
 
     def generate_points(self) -> Self:
         vertices, triangles, uvs = self._init_mesh
@@ -6433,11 +6610,12 @@ class MeshMobject(Mobject):
             index, np.arange(len(index))
         ):
             return
-        grid = self.grid
-        if grid is not None:
-            if len(self.paint.fill) > 1:
-                cells = stretch_array(self.paint.fill, grid[0] * grid[1])
-                self.paint = self.paint.but(fill=np.repeat(cells, 6, axis=0))
+        topology = self._topology
+        if isinstance(topology, Lattice):
+            if len(self.paint.fill) > 1:  # its faces' rows, one per corner of each
+                cells = stretch_array(self.paint.fill, topology.u * topology.v)
+                drawn = cells[topology.first : topology.end]
+                self.paint = self.paint.but(fill=np.repeat(drawn, 6, axis=0))
         elif len(self.paint.fill) == len(self.points) > 1:
             self.paint = self.paint.but(fill=self.paint.fill[index])
         self.points = self.points[index]
@@ -6491,21 +6669,48 @@ class MeshMobject(Mobject):
         point.paint = self.paint
         return point
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def pointwise_become_partial(self, mobject: Mobject, a: float, b: float) -> Self:
-        """Take a source's geometry and paint, then select a fraction of its triangles.
+        """Take a source's geometry and paint, then keep the steps a reveal over the
+        stretch shows, whole: a surface's faces, or a mesh's triangles.
 
-        A whole interval retains lattice topology; an actual subset uses explicit
-        triangles with each corner's paint and UV. Repeated calls restart from source.
+        A surface's part is a surface: its whole lattice, drawing those faces, as smooth
+        and with the edges they have in it. A mesh's part is its triangles alone, each
+        corner with its paint and UV. Repeated calls restart from source.
         """
         if isinstance(mobject, MeshMobject):
             self._geometry = mobject._geometry
             self._take_shape(mobject)
             self.paint = mobject.paint
-            if not (a <= 0 and b >= 1):
-                self._as_soup()
-                t = len(self.triangles)
-                self._topology = self.triangles[int(a * t) : int(np.ceil(b * t))]
+            topology = self._topology
+            lattice = isinstance(topology, Lattice)
+            n = topology.end - topology.first if lattice else len(topology)
+            lo = min(max(math.floor(a * n), 0), n)
+            hi = min(max(math.ceil(b * n), lo), n)
+            if (lo, hi) == (0, n):
+                return self
+            if isinstance(topology, Lattice):
+                first = topology.first
+                self._topology = topology._replace(first=first + lo, end=first + hi)
+                return self
+            self._as_soup()  # three corners a triangle, in order: keep the part's own
+            self.points = self.points[3 * lo : 3 * hi]
+            if len(self.paint.fill) == 3 * n > 1:
+                self.paint = self.paint.but(fill=self.paint.fill[3 * lo : 3 * hi])
+            if self.uvs is not None:
+                self.uvs = self.uvs[3 * lo : 3 * hi]
+            self._topology = _value(np.arange(3 * (hi - lo)).reshape(-1, 3))
         return self
+
+    def _box(self) -> np.ndarray | None:
+        # a part of a surface keeps its whole lattice: its box is its drawn faces'
+        topology = self._topology
+        if not isinstance(topology, Lattice) or topology.end - topology.first == (
+            topology.u * topology.v
+        ):
+            return super()._box()
+        drawn = self.points[np.unique(topology.triangles())]
+        return np.array([drawn.min(axis=0), drawn.max(axis=0)]) if len(drawn) else None
 
     def interpolate(
         self,
