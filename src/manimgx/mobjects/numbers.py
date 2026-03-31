@@ -263,6 +263,12 @@ class DecimalNumber(VMobject):
             self.add_background_rectangle()
 
     def _get_num_string(self, number: float | complex) -> str:
+        if isinstance(number, complex | np.complexfloating):  # a+bi, not Python's a+bj
+            return (
+                self._get_formatter("0.real")
+                + self._get_formatter("0.imag", include_sign=True)
+                + "i"
+            ).format(number)
         return self._get_formatter().format(number)
 
     def _get_formatter(
@@ -270,9 +276,7 @@ class DecimalNumber(VMobject):
     ) -> str:
         sign = self.include_sign if include_sign is None else include_sign
         commas = "," if self.group_with_commas else ""
-        return (
-            f"{{{field_name}:{'+' if sign else ''}z{commas}.{self.num_decimal_places}f}}"
-        )
+        return f"{{{field_name}:{'+' if sign else ''}z{commas}.{self.num_decimal_places}f}}"
 
     _shown: (
         tuple[tuple[object, ...], tuple[tuple[Mobject, Blend, Paint], ...]] | None
@@ -327,7 +331,7 @@ class DecimalNumber(VMobject):
                 self.number = number
                 return self
         old_font_size = self.font_size
-        move_to_point = self.get_edge_center(self.edge_to_fix)
+        move_to_point = self.get_critical_point(self.edge_to_fix)
         key = self._set_submobjects_from_number(number)
         self.font_size = old_font_size
         self.move_to(move_to_point, self.edge_to_fix)
