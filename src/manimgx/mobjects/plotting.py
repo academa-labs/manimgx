@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = [
     "Axes",
     "BarChart",
@@ -156,6 +158,7 @@ class _ScaleBase:
     def _inverse_function(self, value: float | np.ndarray) -> float | np.ndarray:
         raise NotImplementedError
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_custom_labels(
         self, val_range: Iterable[float], unit_decimal_places: int = 0
     ) -> list[Mobject]:
@@ -280,6 +283,7 @@ class LogBase(_ScaleBase):
             return np.log(value) / np.log(self.base)
         return math.log(value, self.base)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_custom_labels(
         self,
         val_range: Iterable[float],
@@ -293,7 +297,7 @@ class LogBase(_ScaleBase):
         Args:
             val_range: The numbers, all positive.
             unit_decimal_places: The decimal places the exponents are written with.
-            **base_config: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions]
+            **base_config: [Number keywords][manimgx.DecimalNumber]
                 for the labels: each is an [Integer][manimgx.Integer], the base, with
                 its exponent as its `unit`.
 
@@ -363,9 +367,8 @@ class ParametricFunction(VMobject):
     an array, and checked against single calls; a function that does not take arrays
     is called once per value.
 
-    One-shot discontinuity iterators are retained as lists when point generation
-    consumes them. Their values are collected before range filtering, so copies and
-    regenerated curves keep all breaks. Repeatable iterables remain live inputs.
+    The discontinuities are kept as the list they were when the curve was made, before
+    range filtering, so copies and regenerated curves keep all its breaks.
 
     To graph a function on axes, in their coordinates, see [plot][manimgx.Axes.plot].
 
@@ -434,7 +437,9 @@ class ParametricFunction(VMobject):
             t_range = (*t_range, 0.01)
         self.scaling = scaling
         self.dt = dt
-        self.discontinuities = discontinuities
+        self.discontinuities = (
+            None if discontinuities is None else list(discontinuities)
+        )
         self.use_smoothing = use_smoothing
         self.use_vectorized = use_vectorized
         self.t_min, self.t_max, self.t_step = t_range
@@ -462,8 +467,6 @@ class ParametricFunction(VMobject):
     def generate_points(self) -> Self:
         if self.discontinuities is not None:
             values = self.discontinuities
-            if isinstance(values, Iterator):
-                self.discontinuities = values = list(values)
             discontinuities = filter(lambda t: self.t_min <= t <= self.t_max, values)
             discontinuities_array = np.array(list(discontinuities))
             boundary_times = np.array(
@@ -717,7 +720,7 @@ class NumberLineOptions(Tipped, total=False):
     line_to_number_buff: float
     """The gap between the line and its numbers, in scene units (default 0.25)."""
     decimal_number_config: DecimalNumberOptions | None
-    """[Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions] for the
+    """[Number keywords][manimgx.DecimalNumber] for the
     numbers (default None: as many decimal places as the range's step has)."""
     numbers_to_exclude: Iterable[float] | None
     """Numbers not to write, when the ticks are numbered (default None: none; an
@@ -746,9 +749,8 @@ class NumberLine(Line):
 
     Initial length, rotation, tip dimensions and which ticks/numbers to draw are
     construction inputs, not retained attributes. The line keeps its drawing and
-    the defaults used by later tick and label methods. Single-use iterators for
-    exclusions or elongated ticks are consumed into lists at construction;
-    reusable inputs remain live defaults.
+    the defaults used by later tick and label methods; the numbers to exclude and
+    those with elongated ticks are kept as the lists they were when it was made.
 
     Args:
         x_range: The range, `[x_min, x_max, x_step]`, or `[x_min, x_max]` for a step of
@@ -781,7 +783,7 @@ class NumberLine(Line):
             [LogBase][manimgx.LogBase] (its numbers are then written as powers).
         line_to_number_buff: The gap between the line and its numbers, in scene units.
         decimal_number_config: The numbers'
-            [number keywords][manimgx.mobjects.numbers.DecimalNumberOptions]; None
+            [number keywords][manimgx.DecimalNumber]; None
             for as many decimal places as `x_step` has.
         numbers_to_exclude: Numbers not to write, when the ticks are numbered; None
             for none.
@@ -846,14 +848,15 @@ class NumberLine(Line):
         numbers_to_include: Iterable[float] | None = None,
         **kwargs: Unpack[Tipped],
     ):
-        if numbers_to_exclude is None:
-            numbers_to_exclude = []
-        elif isinstance(numbers_to_exclude, Iterator):
-            numbers_to_exclude = list(numbers_to_exclude)
-        if numbers_with_elongated_ticks is None:
-            numbers_with_elongated_ticks = []
-        elif isinstance(numbers_with_elongated_ticks, Iterator):
-            numbers_with_elongated_ticks = list(numbers_with_elongated_ticks)
+        # values, as they are given: what the line keeps is its own
+        numbers_to_exclude = (
+            [] if numbers_to_exclude is None else list(numbers_to_exclude)
+        )
+        numbers_with_elongated_ticks = (
+            []
+            if numbers_with_elongated_ticks is None
+            else list(numbers_with_elongated_ticks)
+        )
         if x_range is None:
             x_range = [
                 round(-config.frame_x_radius),
@@ -946,6 +949,7 @@ class NumberLine(Line):
         """
         return self.rotate(angle, axis, about_point=self.n2p(number))
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def add_ticks(self) -> Self:
         """Add the line's ticks: one at each number of its
         [tick range][manimgx.NumberLine.get_tick_range], across the line, those of
@@ -968,6 +972,7 @@ class NumberLine(Line):
         self.ticks = ticks
         return self
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def get_tick(self, x: float, size: float | None = None) -> Line:
         """Make a tick for a number: a short line across the number line at the
         number's point, in the line's style.
@@ -988,6 +993,7 @@ class NumberLine(Line):
         result.match_style(self)
         return result
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def get_tick_range(self) -> np.ndarray:
         """The numbers the line's ticks are at.
 
@@ -1117,7 +1123,7 @@ class NumberLine(Line):
             buff: The gap between the line and the number, in scene units; None for the
                 line's `line_to_number_buff`.
             label_constructor: The class it is typeset with; None for the line's.
-            **number_config: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions],
+            **number_config: [Number keywords][manimgx.DecimalNumber],
                 over the line's.
 
         Returns:
@@ -1154,7 +1160,7 @@ class NumberLine(Line):
             x_values: The numbers to write; None for the ticks' numbers.
             excluding: Numbers not to write; None for the line's `numbers_to_exclude`.
             label_constructor: The class they are typeset with; None for the line's.
-            **kwargs: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions],
+            **kwargs: [Number keywords][manimgx.DecimalNumber],
                 over the line's: `font_size`, `num_decimal_places`, `color`, ….
 
         Examples:
@@ -1292,7 +1298,7 @@ class UnitInterval(NumberLine):
     Its numbers, when it has them, have one decimal place.
 
     Args:
-        **kwargs: [Number line keywords][manimgx.mobjects.plotting.NumberLineOptions]:
+        **kwargs: [Number line keywords][manimgx.NumberLine]:
             its range is always `[0, 1, 0.1]`, and its `unit_size`,
             `numbers_with_elongated_ticks` and `decimal_number_config` default to 10,
             [0, 1] and one decimal place.
@@ -1318,9 +1324,9 @@ class UnitInterval(NumberLine):
         super().__init__(x_range=(0, 1, 0.1), **kwargs)
 
 
-type Coordinates = float | Sequence[
-    float
-] | np.ndarray  # a number per axis, or arrays of them
+type Coordinates = (
+    float | Sequence[float] | np.ndarray
+)  # a number per axis, or arrays of them
 
 
 """A coordinate on one axis: a number, or an array of numbers (of any shape) for many
@@ -1329,10 +1335,11 @@ points at once."""
 
 def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
     """Merge axis configs: later ones win, key by key, and inside their
-    `decimal_number_config` too.
+    `decimal_number_config` too. An iterator among the values is read into a list: the
+    config is shared by every axis, and an iterator would give its numbers to the first.
 
     Args:
-        *configs: [Number line keywords][manimgx.mobjects.plotting.NumberLineOptions],
+        *configs: [Number line keywords][manimgx.NumberLine],
             in order; None for none.
 
     Returns:
@@ -1347,6 +1354,14 @@ def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
             merged = merged | config_
             if numbers:
                 merged["decimal_number_config"] = numbers
+    for key in (
+        "numbers_to_include",
+        "numbers_to_exclude",
+        "numbers_with_elongated_ticks",
+    ):
+        values = merged.get(key)
+        if isinstance(values, Iterator):
+            merged[key] = list(values)
     return merged
 
 
@@ -1359,7 +1374,7 @@ class AxisLine(TypedDict, total=False):
     """The class of the line (default [DashedLine][manimgx.DashedLine]; a
     [Line][manimgx.Line] is solid)."""
     line_config: DashedLineOptions | None
-    """[Dashed line keywords][manimgx.mobjects.shapes.DashedLineOptions] for the
+    """[Dashed line keywords][manimgx.DashedLine] for the
     line, but its color and width, which `color` and `stroke_width` set (default None:
     none)."""
     color: ParsableManimColor | None
@@ -1438,7 +1453,7 @@ class Axes(VGroup):
             less 2, rounded (12); None for `unit_size` (by default 1) per unit.
         y_length: The y-axis's length, in scene units: by default the frame's height
             less 2, rounded (6); None for `unit_size` per unit.
-        axis_config: [Number line keywords][manimgx.mobjects.plotting.NumberLineOptions]
+        axis_config: [Number line keywords][manimgx.NumberLine]
             for both axes: `include_numbers`, `font_size`, `color`, …; None for none.
         x_axis_config: Number line keywords for the x-axis, over `axis_config`'s; None
             for none.
@@ -1743,7 +1758,7 @@ class Axes(VGroup):
     ) -> Mobject:
         label_mobject: Mobject = self.x_axis._create_label_tex(label)
         label_mobject.next_to(
-            axis.get_edge_center(edge), direction=direction, buff=buff
+            axis.get_critical_point(edge), direction=direction, buff=buff
         )
         label_mobject.shift_onto_screen(buff=MED_SMALL_BUFF)
         return label_mobject
@@ -1798,7 +1813,7 @@ class Axes(VGroup):
         Args:
             *axes_numbers: What to write on each axis, in order: None, values, or
                 labels by value; the axes past the last argument get nothing.
-            **kwargs: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions]
+            **kwargs: [Number keywords][manimgx.DecimalNumber]
                 for the numbers: `font_size`, `num_decimal_places`, `color`, … (only
                 `font_size`, for labels by value).
 
@@ -1843,6 +1858,7 @@ class Axes(VGroup):
             self.coordinate_labels.add(labels)
         return self
 
+    @deprecated("use get_vertical_line or get_horizontal_line", category=None)
     def get_line_from_axis_to_point(
         self,
         index: int,
@@ -1860,7 +1876,7 @@ class Axes(VGroup):
             point: The point, in scene coordinates.
             line_func: The class of the line: [DashedLine][manimgx.DashedLine], or
                 [Line][manimgx.Line] for a solid one, ….
-            line_config: [Dashed line keywords][manimgx.mobjects.shapes.DashedLineOptions]
+            line_config: [Dashed line keywords][manimgx.DashedLine]
                 for the line, but its color and width; None for none.
             color: The line's color; None for white.
             stroke_width: The line's width, in hundredths of a scene unit.
@@ -2851,8 +2867,9 @@ class Axes(VGroup):
                     self.play(m.Create(graph))
             ```
         """
-        xs, ys = np.array(list(x_values), dtype=float), np.array(
-            list(y_values), dtype=float
+        xs, ys = (
+            np.array(list(x_values), dtype=float),
+            np.array(list(y_values), dtype=float),
         )
         zs = (
             np.zeros(xs.shape)
@@ -2908,7 +2925,7 @@ class AxesOptions(Style, total=False):
     keywords."""
 
     axis_config: NumberLineOptions | None
-    """[Number line keywords][manimgx.mobjects.plotting.NumberLineOptions]
+    """[Number line keywords][manimgx.NumberLine]
     for every axis: `include_numbers`, `font_size`, `color`, … (default None: none)."""
     x_axis_config: NumberLineOptions | None
     """Number line keywords for the x-axis, over `axis_config`'s (default None:
@@ -2958,7 +2975,7 @@ class ThreeDAxes(Axes):
             `unit_size` per unit.
         z_length: The z-axis's length, in scene units: by default the frame's height
             less 1.5 (6.5); None for `unit_size` per unit.
-        z_axis_config: [Number line keywords][manimgx.mobjects.plotting.NumberLineOptions]
+        z_axis_config: [Number line keywords][manimgx.NumberLine]
             for the z-axis, over `axis_config`'s; None for none.
         **kwargs: [Axes keywords][manimgx.mobjects.plotting.AxesOptions]:
             `axis_config`, `x_axis_config`, `y_axis_config`, `tips`.
@@ -3266,9 +3283,11 @@ class NumberPlane(_Plane):
 
     Args:
         x_range: The x-axis's range, `[x_min, x_max, x_step]`: a vertical line of the
-            grid at every step. By default the frame's width, by 1.
+            grid at every step. None for the frame's width when the plane is made, by
+            1.
         y_range: The y-axis's range, `[y_min, y_max, y_step]`: a horizontal line of
-            the grid at every step. By default the frame's height, by 1.
+            the grid at every step. None for the frame's height when the plane is made,
+            by 1.
         x_length: The x-axis's length, in scene units; None for one scene unit per
             unit.
         y_length: The y-axis's length, in scene units; None for one scene unit per
@@ -3303,16 +3322,8 @@ class NumberPlane(_Plane):
 
     def __init__(
         self,
-        x_range: Sequence[float] | None = (
-            -config["frame_x_radius"],
-            config["frame_x_radius"],
-            1,
-        ),
-        y_range: Sequence[float] | None = (
-            -config["frame_y_radius"],
-            config["frame_y_radius"],
-            1,
-        ),
+        x_range: Sequence[float] | None = None,
+        y_range: Sequence[float] | None = None,
         x_length: float | None = None,
         y_length: float | None = None,
         background_line_style: Style | None = None,
@@ -3334,6 +3345,11 @@ class NumberPlane(_Plane):
         kwargs["y_axis_config"] = merged_axis_config(
             {"label_direction": DR}, kwargs.get("y_axis_config")
         )
+        # the frame as it is now: a tall video's (9:16) is taller than a wide one's
+        if x_range is None:
+            x_range = (-config.frame_x_radius, config.frame_x_radius, 1)
+        if y_range is None:
+            y_range = (-config.frame_y_radius, config.frame_y_radius, 1)
         super().__init__(
             background_line_style=background_line_style,
             faded_line_style=faded_line_style,
@@ -3373,10 +3389,10 @@ class NumberPlane(_Plane):
         x_min, x_max, _ = axis_perpendicular_to.x_range
         if axis_perpendicular_to.x_min > 0 and x_min < 0:
             x_min, x_max = (0, np.abs(x_min) + np.abs(x_max))
-        ranges = (
+        ranges = (  # (short of the edges, which no rounding of the steps puts a line on)
             [0],
-            np.arange(step, min(x_max - x_min, x_max), step),
-            np.arange(-step, max(x_min - x_max, x_min), -step),
+            np.arange(step, min(x_max - x_min, x_max) - step * 1e-06, step),
+            np.arange(-step, max(x_min - x_max, x_min) + step * 1e-06, -step),
         )
         for inputs in ranges:
             for k, x in enumerate(inputs):
@@ -3414,7 +3430,8 @@ class PolarPlane(_Plane):
     retains its drawn grid rather than those setup attributes.
 
     Args:
-        radius_max: The radius of the outer circle, in the plane's units.
+        radius_max: The radius of the outer circle, in the plane's units; None for half
+            the frame's short side when the plane is made (4).
         size: The plane's width, its diameter, in scene units; None for one scene unit
             per unit.
         radius_step: The distance between two circles, in the plane's units.
@@ -3433,7 +3450,7 @@ class PolarPlane(_Plane):
         azimuth_label_buff: The gap between the outer circle and the angles' labels, in
             scene units.
         azimuth_label_font_size: The font size of the angles' labels.
-        radius_config: [Number line keywords][manimgx.mobjects.plotting.NumberLineOptions]
+        radius_config: [Number line keywords][manimgx.NumberLine]
             for the radii's axes, over the plane's own (no ticks, no tips, 2 wide,
             font size 24, numbers below and to the left); None for none.
         background_line_style: [Style keywords][manimgx.drawing.paint.Style] for the
@@ -3472,7 +3489,7 @@ class PolarPlane(_Plane):
 
     def __init__(
         self,
-        radius_max: float = config["frame_y_radius"],
+        radius_max: float | None = None,
         size: float | None = None,
         radius_step: float = 1,
         azimuth_step: float | None = None,
@@ -3489,6 +3506,11 @@ class PolarPlane(_Plane):
         **kwargs: Unpack[Style],
     ):
         self.azimuth_units, self.azimuth_direction = azimuth_units, azimuth_direction
+        radius = (
+            min(config.frame_x_radius, config.frame_y_radius)
+            if radius_max is None
+            else radius_max
+        )
         radius_config = merged_axis_config(
             {
                 "stroke_width": 2,
@@ -3520,8 +3542,8 @@ class PolarPlane(_Plane):
             background_line_style=background_line_style,
             faded_line_style=faded_line_style,
             faded_line_ratio=faded_line_ratio,
-            x_range=(-radius_max, radius_max, radius_step),
-            y_range=(-radius_max, radius_max, radius_step),
+            x_range=(-radius, radius, radius_step),
+            y_range=(-radius, radius, radius_step),
             x_length=size,
             y_length=size,
             axis_config=radius_config,
@@ -3537,7 +3559,11 @@ class PolarPlane(_Plane):
         parts1: list[VMobject] = []
         parts2: list[VMobject] = []
         unit_vector = self.x_axis.get_unit_vector()[0]
-        for k, x in enumerate(np.arange(0, self.x_axis.x_range[1] + rstep, rstep)):
+        # (the circles to the radius, the lines short of a whole turn: no rounding of the
+        # steps adds one beyond them)
+        for k, x in enumerate(
+            np.arange(0, self.x_axis.x_range[1] + rstep * 1e-06, rstep)
+        ):
             (parts1 if k % ratio_faded_lines == 0 else parts2).append(
                 Circle(radius=x * unit_vector)
             )
@@ -3545,7 +3571,7 @@ class PolarPlane(_Plane):
         alines2.add(*parts2)
         parts1, parts2 = [], []
         line = Line(center, self.get_x_axis().get_end())
-        for k, x in enumerate(np.arange(0, TAU, astep)):
+        for k, x in enumerate(np.arange(0, TAU - astep * 1e-06, astep)):
             new_line = line.copy()
             new_line.rotate(x + self.azimuth_offset, about_point=center)
             (parts1 if k % ratio_faded_lines == 0 else parts2).append(new_line)
@@ -3639,7 +3665,7 @@ class PolarPlane(_Plane):
 
         Args:
             number: The angle, as a fraction of a turn (0.375 for 3π/4).
-            **kwargs: [Math keywords][manimgx.mobjects.text.MathTexOptions]
+            **kwargs: [Math keywords][manimgx.MathTex]
                 for the label; its font size is 24 unless given.
 
         Returns:
@@ -3741,7 +3767,7 @@ class ComplexPlane(NumberPlane):
 
         Args:
             *numbers: The numbers to label; none for the ticks of both axes, but 0.
-            **kwargs: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions]
+            **kwargs: [Number keywords][manimgx.DecimalNumber]
                 for the labels: `font_size`, `num_decimal_places`, `color`, ….
 
         Returns:
@@ -3772,7 +3798,7 @@ class ComplexPlane(NumberPlane):
 
         Args:
             *numbers: The numbers to label; none for the ticks of both axes, but 0.
-            **kwargs: [Number keywords][manimgx.mobjects.numbers.DecimalNumberOptions]
+            **kwargs: [Number keywords][manimgx.DecimalNumber]
                 for the labels: `font_size`, `num_decimal_places`, `color`, ….
         """
         self.add(self.get_coordinate_labels(*numbers, **kwargs))
@@ -3782,8 +3808,8 @@ class ComplexPlane(NumberPlane):
 EPSILON = 0.0001
 
 
-"""How far from 1 probabilities may sum before
-[complete_p_list][manimgx.SampleSpace.complete_p_list] adds the rest as a part."""
+"""How far from 1 probabilities may sum before a sample space adds the rest as a
+part."""
 
 
 class SampleSpace(Rectangle):
@@ -3839,6 +3865,7 @@ class SampleSpace(Rectangle):
         super().__init__(height=height, width=width, **kwargs)
         self.default_label_scale_val = default_label_scale_val
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def complete_p_list(self, p_list: float | Iterable[float]) -> list[float]:
         """The probabilities of a division, completed to sum to 1: the rest, 1 minus
         their sum, is added as one more, unless it is within 0.0001 of 0.
@@ -3872,8 +3899,8 @@ class SampleSpace(Rectangle):
         space itself.
 
         Args:
-            p_list: The probabilities, completed to sum to 1 (see
-                [complete_p_list][manimgx.SampleSpace.complete_p_list]).
+            p_list: The probabilities: a part is added for the rest, if they sum to less
+                than 1.
             dim: The dimension divided: 0 for the width, 1 for the height.
             colors: The colors, a gradient over the parts.
             vect: The direction the parts follow one another in.
@@ -3882,7 +3909,7 @@ class SampleSpace(Rectangle):
             A new group of the parts, not added to the space.
         """
         p_list_complete = self.complete_p_list(p_list)
-        last_point = self.get_edge_center(-vect)
+        last_point = self.get_critical_point(-vect)
         parts = VGroup()
         for factor, color in zip(
             p_list_complete, color_gradient(colors, len(p_list_complete)), strict=True
@@ -3892,7 +3919,7 @@ class SampleSpace(Rectangle):
             part.replace(self, stretch=True)
             part.stretch(factor, dim)
             part.move_to(last_point, -vect)
-            last_point = part.get_edge_center(vect)
+            last_point = part.get_critical_point(vect)
             parts.add(part)
         return parts
 
