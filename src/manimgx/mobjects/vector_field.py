@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = ["ArrowVectorField", "StreamLines", "VectorField"]
 import itertools as it
 import random
@@ -139,6 +141,7 @@ class VectorField(VGroup):
             None
         )
 
+    @deprecated("use pos_to_color", category=None)
     def pos_to_rgb(self, pos: Point3D) -> FloatRGB:
         """The field's RGB color at a point, using its current function and palette."""
         if self.single_color:
@@ -368,7 +371,7 @@ class ArrowVectorField(VectorField):
             values.
         length_func: The arrows' length, as a function of their vectors' length.
         opacity: The arrows' opacity, from 0 to 1.
-        vector_config: [Arrow keywords][manimgx.mobjects.shapes.ArrowTips] for the
+        vector_config: [Arrow keywords][manimgx.Arrow] for the
             arrows: their tips, `stroke_width`, …; None for none.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style] of the field's group
             itself: as it has no points, they do not restyle its arrows.
