@@ -5,6 +5,8 @@ matte surface shows: 1 makes such a surface facing the light white."""
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = [
     "AmbientLight",
     "EnvironmentLight",
@@ -112,7 +114,9 @@ class SunLight(Light):
                 sun = m.SunLight(5 * m.RIGHT + 3 * m.OUT)
                 self.add(sun, m.AmbientLight(intensity=0.15))
                 self.add(m.Sphere(resolution=(48, 48)).set_material(m.Material()))
-                self.play(m.Rotate(sun, m.PI, axis=m.OUT, about_point=m.ORIGIN), run_time=3)
+                self.play(
+                    m.Rotate(sun, m.PI, axis=m.OUT, about_point=m.ORIGIN), run_time=3
+                )
         ```
     """
 
@@ -152,7 +156,9 @@ class PointLight(Light):
                 self.set_camera_orientation(phi=70 * m.DEGREES, theta=-30 * m.DEGREES)
                 lamp = m.PointLight(2 * m.OUT + 2 * m.LEFT, m.ORANGE, intensity=6)
                 self.add(lamp, m.AmbientLight(intensity=0.05))
-                floor = m.Surface(lambda u, v: [u, v, -1], u_range=[-4, 4], v_range=[-4, 4])
+                floor = m.Surface(
+                    lambda u, v: [u, v, -1], u_range=[-4, 4], v_range=[-4, 4]
+                )
                 self.add(floor.set_material(m.Material(roughness=0.4)))
                 self.play(lamp.animate.shift(4 * m.RIGHT), run_time=3)
         ```
@@ -195,8 +201,14 @@ class SpotLight(PointLight):
         class SpotLightExample(m.ThreeDScene):
             def construct(self) -> None:
                 self.set_camera_orientation(phi=60 * m.DEGREES, theta=-60 * m.DEGREES)
-                self.add(m.SpotLight(4 * m.OUT, toward=m.ORIGIN, intensity=20, angle=m.PI / 8))
-                floor = m.Surface(lambda u, v: [u, v, 0], u_range=[-4, 4], v_range=[-4, 4])
+                self.add(
+                    m.SpotLight(
+                        4 * m.OUT, toward=m.ORIGIN, intensity=20, angle=m.PI / 8
+                    )
+                )
+                floor = m.Surface(
+                    lambda u, v: [u, v, 0], u_range=[-4, 4], v_range=[-4, 4]
+                )
                 self.add(floor.set_material(m.Material(roughness=0.7)))
         ```
     """
@@ -306,6 +318,7 @@ class EnvironmentLight(Light):
         # its picture's right and up, a unit from its point: turned with it
         self.add(VectorizedPoint(RIGHT), VectorizedPoint(OUT))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def axes(self) -> tuple[np.ndarray, np.ndarray]:
         """Its picture's `RIGHT` and up in the scene, as it is turned: unit vectors, at a right
         angle."""
