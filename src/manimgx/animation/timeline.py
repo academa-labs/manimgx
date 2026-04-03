@@ -5,6 +5,7 @@ Scene chooses the instants; an animation tree evaluates what acts at each instan
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from fractions import Fraction
 from itertools import pairwise
@@ -18,6 +19,7 @@ from typing import (
     TypeIs,
     Unpack,
 )
+from warnings import deprecated
 
 import numpy as np
 
@@ -82,8 +84,8 @@ class Untimed(TypedDict, total=False):
     """Whether the mobject joins the scene when the animation begins (default False);
     otherwise the play brings it in when the play begins, if the scene lacks it."""
     use_override: bool
-    """Whether a mobject that plays another animation in place of this one (see
-    [`override_animation`][manimgx.override_animation]) does so (default True)."""
+    """Whether a mobject whose class plays another animation in place of this one
+    does so (default True)."""
 
 
 class AnimationOptions(Untimed, total=False):
@@ -150,28 +152,18 @@ class Animation[M: Mobject = Mobject]:
     part begins that fraction of its run after the part before it, so 0 moves them all
     together and 1 one after another.
 
-    [`Scene.play`][manimgx.Scene.play] plays it: `begin` when it starts, which takes the
-    mobject as it is then; `interpolate(alpha)` at every frame; `finish` at its end;
-    then `clean_up_from_scene`. An introducer brings its mobject into the scene when it
-    begins, any other animation when the play begins (if the scene lacks it), and a
-    remover takes its mobject out when it finishes. The
-    mobject's own updaters keep running while it plays: each frame shows the animation
-    applied to the mobject as its updaters have it then, and when the animation finishes
-    the mobject is as its last frame showed it.
+    [`Scene.play`][manimgx.Scene.play] plays it. An animation that brings its mobject in
+    adds it to the scene as it starts, and one that takes its mobject out removes it as
+    it ends. The mobject's own updaters keep running while it plays: each frame shows
+    the animation applied to the mobject as its updaters have it then, and when the
+    animation ends, the mobject is as its last frame showed it.
 
-    To write your own, subclass it and override one hook. `interpolate_submobject` sets
-    one part of the mobject at its own progress, already eased and staggered, from that
-    part as it was when the animation began. `interpolate_mobject` sets the whole
-    mobject at the animation's progress, which it gets before easing: apply
-    `self.rate_func(alpha)` yourself. Override `begin` to set things up when the
-    animation starts (and call the base's). The options are attributes of the same names
-    (`self.rate_func`, `self.lag_ratio`, …), and a class changes their defaults in
-    `defaults`. An `Animation` itself changes nothing: it holds its mobject in the scene
-    for its run time.
-
-    Whole-mobject presets that use only current state declare no keyframes. A subclass
-    needing its starting state can set `keys = (None,)` and read `frames[0]` after
-    `begin`.
+    To make an animation of your own, make a class from it, and override
+    [`interpolate_mobject`][manimgx.Animation.interpolate_mobject]: it sets the whole
+    mobject at the animation's progress, from 0 to 1, as it is before the rate function
+    eases it, so apply `self.rate_func(alpha)` yourself. The options are attributes of
+    the same names (`self.rate_func`, `self.lag_ratio`, …). An `Animation` itself
+    changes nothing: it holds its mobject in the scene for its run time.
 
     Args:
         mobject: The mobject to animate; None for none, as a [`Wait`][manimgx.Wait] has.
@@ -230,9 +222,7 @@ class Animation[M: Mobject = Mobject]:
         self._model: M | None = None
         self._scene: Scene | None = None  # the scene it plays in (`_setup_scene`)
         self._mobject: M = (
-            mobject
-            if mobject is not None
-            else Mobject()  # pyright: ignore[reportAttributeAccessIssue]  # ty: ignore[invalid-assignment]  # none: an Animation[Mobject]
+            mobject if mobject is not None else Mobject()  # pyright: ignore[reportAttributeAccessIssue]  # ty: ignore[invalid-assignment]  # none: an Animation[Mobject]
         )
 
     # read-only, so an animation of a Circle is an animation of a Mobject (M is covariant)
@@ -242,6 +232,10 @@ class Animation[M: Mobject = Mobject]:
         return self._mobject
 
     @property
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def model(self) -> M | None:
         """The mobject as its updaters have it while the animation plays.
 
@@ -249,6 +243,22 @@ class Animation[M: Mobject = Mobject]:
         updaters, or they act on it directly (`suspend_mobject_updating` False).
         """
         return self._model
+
+    @property
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
+    def hidden(self) -> Sequence[Mobject]:
+        """The parts of its mobject the animation leaves out of the picture now.
+
+        While the animation plays, the scene draws what it holds but these, with their
+        families; the parts themselves are not changed, so whatever else acts on them
+        shows once they are drawn again. Most animations hide nothing;
+        [`ShowIncreasingSubsets`][manimgx.ShowIncreasingSubsets] hides the parts it has
+        not shown yet.
+        """
+        return ()
 
     @property
     def run_time(self) -> float:
@@ -264,6 +274,10 @@ class Animation[M: Mobject = Mobject]:
             )
         self._run_time = value
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def build(self) -> Animation:
         """Return what plays for this animation: itself, unless it stands for another.
 
@@ -278,6 +292,10 @@ class Animation[M: Mobject = Mobject]:
         return self
 
     # ── lifecycle ─────────────────────────────────────────────────────────
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def begin(self) -> None:
         """Start the animation: derive its keyframes from the mobject as it is now, and
         take the mobject, changing nothing.
@@ -293,6 +311,10 @@ class Animation[M: Mobject = Mobject]:
         self.derive(self.mobject)
         self.take()
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def take(self) -> None:
         """Take the mobject as it is now, changing nothing.
 
@@ -316,6 +338,10 @@ class Animation[M: Mobject = Mobject]:
             ]
             self.mobject.suspend_updating()
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def derive(self, source: Mobject) -> None:
         """Derive the animation's keyframes from `source` as it is now, and align the
         mobject with every one of them.
@@ -329,7 +355,9 @@ class Animation[M: Mobject = Mobject]:
             (
                 None
                 if key is None
-                else key.copy() if isinstance(key, Mobject) else key(source.copy())
+                else key.copy()
+                if isinstance(key, Mobject)
+                else key(source.copy())
             )
             for key in self.keys
         ]
@@ -338,6 +366,10 @@ class Animation[M: Mobject = Mobject]:
                 self.mobject.align_data(frame)
         self.frames = [source.copy() if frame is None else frame for frame in own]
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def finish(self) -> None:
         """End the animation: show progress 1, and resume the updaters it suspended
         (those suspended before it began stay so).
@@ -354,6 +386,10 @@ class Animation[M: Mobject = Mobject]:
             for member in self._held:
                 member.resume_updating(recursive=False)
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def clean_up_from_scene(self, scene: Scene) -> None:
         """Leave the scene as the animation leaves it: a remover takes its mobject out.
 
@@ -364,15 +400,17 @@ class Animation[M: Mobject = Mobject]:
             scene: The scene the animation played in.
         """
         if self.is_remover():
-            scene.remove(self.mobject)
+            scene.remove(*_held(self.mobject))
 
     def _setup_scene(self, scene: Scene) -> None:
         self._scene = scene
-        if self.is_introducer() and _lacks(
-            self.mobject, scene.get_mobject_family_members()
-        ):
-            scene.add(self.mobject)
+        if self.is_introducer():
+            scene._introduce(_held(self.mobject))
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def get_all_families_zipped(self) -> Iterable[tuple[Mobject, ...]]:
         """Return the parts of the animation's mobjects, matched up.
 
@@ -393,6 +431,10 @@ class Animation[M: Mobject = Mobject]:
             ]
         return zip(*families, strict=True)
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def advance(self, t: Fraction) -> None:
         """Bring the mobject's updaters to scene time `t`, on its model.
 
@@ -408,6 +450,10 @@ class Animation[M: Mobject = Mobject]:
             self.model.advance(t)
             self.rederive()
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def rederive(self) -> None:
         """Derive the animation's keyframes again, from the mobject's model as it is now.
 
@@ -421,6 +467,10 @@ class Animation[M: Mobject = Mobject]:
         self.mobject.become(model)
 
     # ── the per-frame function ────────────────────────────────────────────
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def interpolate(self, alpha: float) -> None:
         """Show the animation at a progress.
 
@@ -450,6 +500,10 @@ class Animation[M: Mobject = Mobject]:
                 submobject, keys, self.get_sub_alpha(alpha, i, len(families))
             )
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def interpolate_keyframes(
         self, submobject: Mobject, keys: Sequence[Mobject], alpha: float
     ) -> None:
@@ -468,6 +522,10 @@ class Animation[M: Mobject = Mobject]:
         # hook custom animations override
         self.interpolate_submobject(submobject, keys[0], alpha)
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def interpolate_submobject(
         self, submobject: Mobject, starting_submobject: Mobject, alpha: float
     ) -> None:
@@ -483,6 +541,10 @@ class Animation[M: Mobject = Mobject]:
                 by the rate function.
         """
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def get_sub_alpha(self, alpha: float, index: int, num_submobjects: int) -> float:
         """Return a part's progress at a progress of the animation.
 
@@ -514,6 +576,7 @@ class Animation[M: Mobject = Mobject]:
         )
 
     # ── CE accessors ──────────────────────────────────────────────────────
+    @deprecated("get_run_time() is run_time: use it", category=None)
     def get_run_time(self) -> float:
         """How long the animation plays.
 
@@ -522,10 +585,18 @@ class Animation[M: Mobject = Mobject]:
         """
         return self.run_time
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def is_remover(self) -> bool:
         """Whether the mobject leaves the scene when the animation finishes."""
         return self.remover
 
+    @deprecated(
+        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        category=None,
+    )
     def is_introducer(self) -> bool:
         """Whether the mobject joins the scene when the animation begins."""
         return self.introducer
@@ -536,6 +607,23 @@ def _lacks(mob: Mobject, members: list[Mobject]) -> bool:
     return mob not in members and any(
         m.has_points() or m.updaters for m in mob.get_family()
     )
+
+
+_GATHERED: weakref.WeakSet[Mobject] = weakref.WeakSet()
+
+
+def _gathered(*mobjects: Mobject) -> Group:
+    """A group an animation makes of the mobjects it is given, to act on them as one: no
+    scene holds it (`_held`)."""
+    group = Group(*mobjects)
+    _GATHERED.add(group)
+    return group
+
+
+def _held(mob: Mobject) -> list[Mobject]:
+    """What a scene holds of a mobject an animation acts on: the mobject, or the members
+    of a group the animation gathered them in, each where it is or by itself."""
+    return list(mob.submobjects) if mob in _GATHERED else [mob]
 
 
 def _updating(mob: Mobject) -> bool:
@@ -570,7 +658,7 @@ def prepare(anim: object) -> Animation:
     """Return what plays for an animation: as built, or what its mobject plays instead.
 
     The animation is built first (`build`); a mobject may play another animation in its
-    place (see [`override_animation`][manimgx.override_animation]).
+    place (see `override_animation`).
 
     Args:
         anim: The animation; anything else raises a TypeError.
@@ -678,7 +766,7 @@ class Add(Animation[Mobject]):
 
     def __init__(self, *mobjects: Mobject, **kwargs: Unpack[AnimationOptions]) -> None:
         super().__init__(
-            mobjects[0] if len(mobjects) == 1 else Group(*mobjects), **kwargs
+            mobjects[0] if len(mobjects) == 1 else _gathered(*mobjects), **kwargs
         )
 
     def begin(self) -> None: ...
@@ -945,11 +1033,15 @@ class AnimationGroup(Animation):
 
         class AnimationGroupExample(m.Scene):
             def construct(self) -> None:
-                shapes = m.VGroup(
-                    m.Square(color=m.BLUE, fill_opacity=0.5),
-                    m.Circle(color=m.YELLOW, fill_opacity=0.5),
-                    m.Triangle(color=m.GREEN, fill_opacity=0.5),
-                ).scale(1.2).arrange(buff=1)
+                shapes = (
+                    m.VGroup(
+                        m.Square(color=m.BLUE, fill_opacity=0.5),
+                        m.Circle(color=m.YELLOW, fill_opacity=0.5),
+                        m.Triangle(color=m.GREEN, fill_opacity=0.5),
+                    )
+                    .scale(1.2)
+                    .arrange(buff=1)
+                )
                 self.play(
                     m.AnimationGroup(
                         m.Create(shapes[0]),
@@ -1034,9 +1126,17 @@ class AnimationGroup(Animation):
         return True, self._in(_0, _1)
 
     @property
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def max_end_time(self) -> float:
         """Where the last part ends, in seconds: the group's own run time."""
         return self._laid_out()[0]
+
+    @property
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    def hidden(self) -> Sequence[Mobject]:
+        """What its parts leave out of the picture now (a part hides nothing until it
+        begins, nor once it has ended)."""
+        return [m for anim in self.animations for m in anim.hidden]
 
     @property
     def run_time(self) -> float:
@@ -1085,6 +1185,7 @@ class AnimationGroup(Animation):
         if self.scene is not None:
             self.animations[i].clean_up_from_scene(self.scene)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def begin_all(self) -> None:
         """Begin every part at once, for a play the scene computes ahead of time.
 
@@ -1291,15 +1392,7 @@ class LaggedStartMap(LaggedStart):
             def construct(self) -> None:
                 dots = m.VGroup(*(m.Dot(radius=0.2) for _ in range(35)))
                 dots.arrange_in_grid(rows=5, cols=7, buff=0.6)
-                self.add(dots)
-                self.play(
-                    m.LaggedStartMap(
-                        m.ApplyMethod,
-                        dots,
-                        lambda dot: (dot.set_color, m.YELLOW),
-                        lag_ratio=0.1,
-                    )
-                )
+                self.play(m.LaggedStartMap(m.GrowFromCenter, dots, lag_ratio=0.1))
         ```
     """
 
@@ -1393,11 +1486,17 @@ class ChangeSpeed(AnimationGroup):
         for (a, v), (b, w) in pairwise(speeds.items()):
             self._stretches.append((a, b, v, w, self._total))
             self._total += 2 / (v + w) * (b - a)
-        before = kwargs.pop("rate_func", linear)
-        kwargs["rate_func"] = lambda t: self.progress(before(t))
+        self._before = kwargs.pop("rate_func", linear)
+        kwargs["rate_func"] = self._rate
         kwargs["run_time"] = self._total * self.anim.run_time
         super().__init__(self.anim, **kwargs)
 
+    def _rate(self, t: float) -> float:
+        """Its rate function: the wrapped animation's progress at the rate function given
+        (a method, so that a copy reads its own stretches)."""
+        return self.progress(self._before(t))
+
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def progress(self, t: float) -> float:
         """The animation's progress at a time of the play.
 
