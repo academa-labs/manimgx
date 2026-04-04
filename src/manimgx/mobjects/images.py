@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, Unpack
+from warnings import deprecated
 
 import numpy as np
 
@@ -30,18 +31,18 @@ class ImageMobject(MeshMobject):
     pixels make it.
 
     An image `scale_to_resolution` pixels tall (1080 unless given) is as tall as the
-    frame, 8 scene units, and any other in proportion. Shown larger than its pixels, the
-    picture is reconstructed from them by `resampling_algorithm`: by default a smooth
-    cubic through every pixel; linear blends neighboring pixels; nearest shows each
-    pixel as a square of its color. Shown smaller, it is sampled, not averaged. The
+    frame's short side, 8 scene units, and any other in proportion. Shown larger than its
+    pixels, the picture is reconstructed from them by `resampling_algorithm`: by default
+    a smooth cubic through every pixel; linear blends neighboring pixels; nearest shows
+    each pixel as a square of its color. Shown smaller, it is sampled, not averaged. The
     mobject's opacity multiplies its pixels' own.
 
     Args:
         filename_or_array: The picture: an image file's path, the file's contents
             (bytes), or an array of pixel values from 0 to 255: (h, w) gray, (h, w, 3)
             RGB or (h, w, 4) RGBA.
-        scale_to_resolution: How many pixels tall an image as tall as the frame is; 0
-            for an image 3 units tall, whatever its size.
+        scale_to_resolution: How many pixels tall an image as tall as the frame's
+            short side is; 0 for an image 3 units tall, whatever its size.
         invert: Whether its colors are inverted (not its transparency).
         image_mode: The mode, as the Pillow library names them, a file is read in:
             "RGBA", or "L" for gray.
@@ -161,11 +162,9 @@ class ImageMobject(MeshMobject):
         texture = self._texture
         assert isinstance(texture, np.ndarray)
         h, w = texture.shape[:2]
-        height = (
-            h / self.scale_to_resolution * config.frame_height
-            if self.scale_to_resolution
-            else 3
-        )
+        # an image `scale_to_resolution` pixels high spans the frame's short side
+        short = min(config.frame_width, config.frame_height)
+        height = h / self.scale_to_resolution * short if self.scale_to_resolution else 3
         return self.stretch_to_fit_height(height).stretch_to_fit_width(height * w / h)
 
     def set_color(  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]  # CE's: an image's tint, then its alpha
@@ -218,6 +217,7 @@ class ImageMobject(MeshMobject):
         self.resampling_algorithm = resampling_algorithm
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_style(self) -> Fill:
         """The picture's style, as fill keywords: its color and its opacity.
 
@@ -238,9 +238,8 @@ def _to_rgba(pixels: np.ndarray) -> np.ndarray:
 
 
 class ImageCameraOptions(Style, total=False):
-    """A camera picture's keywords, those of an
-    [ImageMobjectFromCamera][manimgx.ImageMobjectFromCamera], for the scenes that pass
-    them on: a [ZoomedScene][manimgx.ZoomedScene]'s display.
+    """A camera picture's keywords, for the scenes that pass them on: a
+    [ZoomedScene][manimgx.ZoomedScene]'s display.
 
     Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
     """
@@ -251,6 +250,7 @@ class ImageCameraOptions(Style, total=False):
     outline, over a white outline 3 wide with no margin (default None)."""
 
 
+@deprecated("Manim CE's machinery for ZoomedScene: use ZoomedScene", category=None)
 class ImageMobjectFromCamera(MeshMobject):
     """What a camera sees, as a picture: a rectangle showing the camera's view, drawn
     anew every frame.
