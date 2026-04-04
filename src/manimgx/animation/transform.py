@@ -9,6 +9,7 @@ import functools
 import inspect
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Never, Protocol, Self, Unpack, cast, overload
+from warnings import deprecated
 
 import numpy as np
 
@@ -42,6 +43,8 @@ from manimgx.typing import (
 if TYPE_CHECKING:
     from fractions import Fraction
 
+    from manimgx.constants import DEFAULT_MOBJECT_TO_MOBJECT_BUFFER, RIGHT
+    from manimgx.mobject import Beside
     from manimgx.mobjects.numbers import DecimalNumber
     from manimgx.scene import Scene
 
@@ -86,9 +89,12 @@ if TYPE_CHECKING:
         def mobject(self) -> T: ...
 
     class _Method[
-        S1: Mobject, **P1,
-        S2: Mobject = Never, **P2 = ...,
-        S3: Mobject = Never, **P3 = ...,
+        S1: Mobject,
+        **P1,
+        S2: Mobject = Never,
+        **P2 = ...,
+        S3: Mobject = Never,
+        **P3 = ...,
     ]:
         """A mobject method as a proxy records it: for mobjects of kind S (the method's own
         class), the method's parameters P, returning the proxy — per kind, first match.
@@ -135,7 +141,7 @@ class TransformOptions(AnimationOptions, total=False):
 
     path_func: PathFunc | None
     """How each point travels from its start to its end: a function of the start points,
-    the end points and the progress (see [paths][manimgx.drawing.geometry]); it replaces
+    the end points and the progress (see [paths][manimgx.Path]); it replaces
     `path_arc` and `path_arc_centers` (default None: a straight path)."""
     path_arc: float
     """The angle each point turns through on its way, in radians: 0 is a straight path,
@@ -174,7 +180,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
             `keys` is omitted. Passing only `keys` leaves `target_mobject` as None.
         path_func: How each point travels from its start to its end: a function of the
             start points, the end points and the progress (see
-            [paths][manimgx.drawing.geometry]); it replaces `path_arc` and `path_arc_centers`.
+            [paths][manimgx.Path]); it replaces `path_arc` and `path_arc_centers`.
             None: a straight path.
         path_arc: The angle each point turns through on its way, in radians: 0 is a
             straight path, and a positive angle turns counterclockwise.
@@ -185,10 +191,9 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         replace_mobject_with_target_in_scene: Whether an independent target takes
             the mobject's place when the animation finishes. Presets without
             such a target retain their usual removal or restoration behavior.
-        keys: Two or more states to tween through, in the existing keyframe form: None
-            for a copy of the source, a function of that copy, or a mobject
-            copied when the animation begins. When omitted, the states are the
-            source and target_mobject; presets supply their own sequence.
+        keys: Two or more states to pass through, in order: None for the mobject as the
+            animation starts, a function of it, or a mobject, copied when the animation
+            starts. Without them, the states are the mobject and `target_mobject`.
 
     Examples:
         ```python
@@ -294,6 +299,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         return None if self._scene is None else self._scene.compositor
 
     @functools.cached_property
+    @deprecated("manimgx's machinery: the play calls it", category=None)
     def motion(self) -> tuple[tuple[Step, ...], Floats] | None:
         """The motion that carries the mobject from its first keyframe to its last, or
         None.
@@ -309,6 +315,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         steps = path.steps or ((moved,) if np.any(moved) else ())
         return steps, np.linalg.inv(carried((step, 1.0) for step in steps))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def moving_target(self) -> bool:
         """Whether the target moves while the animation plays.
 
@@ -355,7 +362,9 @@ class Transform[M: Mobject = Mobject](Animation[M]):
                 else (
                     frame
                     if model is None
-                    else model.copy() if key is None else key(model.copy())
+                    else model.copy()
+                    if key is None
+                    else key(model.copy())
                 )
             )
             for key, frame in zip(self.keys, self.frames, strict=True)
@@ -566,7 +575,16 @@ class _Methods:
         )
         arrange = recorded(_on(Mobject).arrange)
         arrange_in_grid = recorded(_on(Mobject).arrange_in_grid)
-        arrange_submobjects = recorded(_on(Mobject).arrange_submobjects)
+
+        @deprecated("arrange_submobjects is arrange: use it", category=None)
+        def arrange_submobjects(
+            self,
+            direction: Vector3DLike = RIGHT,
+            buff: float = DEFAULT_MOBJECT_TO_MOBJECT_BUFFER,
+            center: bool = True,
+            **kwargs: Unpack[Beside],
+        ) -> Self: ...
+
         become = recorded(_on(Mobject).become)
         center = recorded(_on(Mobject).center)
         clear_updaters = recorded(_on(Mobject).clear_updaters)
@@ -607,7 +625,15 @@ class _Methods:
         resume_updating = recorded(_on(Mobject).resume_updating)
         reverse_points = recorded(_on(Mobject).reverse_points)
         rotate = recorded(_on(Mobject).rotate)
-        rotate_about_origin = recorded(_on(Mobject).rotate_about_origin)
+
+        @deprecated(
+            "rotate_about_origin(angle, axis) is rotate(angle, axis, about_point=ORIGIN)",
+            category=None,
+        )
+        def rotate_about_origin(
+            self, angle: float, axis: Vector3DLike = OUT
+        ) -> Self: ...
+
         save_state = recorded(_on(Mobject).save_state)
         scale = recorded(_on(Arrow).scale, _on(Mobject).scale)
         scale_to_fit_height = recorded(_on(Mobject).scale_to_fit_height)
@@ -762,9 +788,9 @@ class Animate[M: Mobject](Transform[M], _Methods):
     animation begins (in a [`Succession`][manimgx.Succession], after the parts before
     it). When it finishes, the mobject is exactly what the calls make of it.
 
-    The mobject moves as the calls do: a turn among them (`rotate`, `flip`,
-    `rotate_about_origin`) turns it rigidly, through its whole angle (`rotate(TAU)` is a
-    full turn), about its pivot as the motion carries it; any other call moves its
+    The mobject moves as the calls do: a turn among them (`rotate`, `flip`) turns it
+    rigidly, through its whole angle (`rotate(TAU)` is a full turn), about its pivot as
+    the motion carries it; any other call moves its
     center in a straight line; and the rest of the change (a scale, a color, a new
     shape) happens along the way. A `path_arc` or `path_func` of its own replaces that
     motion.
@@ -773,9 +799,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
     [options][manimgx.animation.transform.TransformOptions]:
     `square.animate(run_time=2, rate_func=linear).shift(RIGHT)`. It also takes an edit,
     a function applied to the mobject as a method would be:
-    `square.animate(lambda mob: mob.shift(RIGHT))`. A method that the mobject's class
-    overrides with [`override_animate`][manimgx.override_animate] plays the animation it
-    returns instead, and cannot be chained.
+    `square.animate(lambda mob: mob.shift(RIGHT))`.
 
     Args:
         mobject: The mobject whose method calls are animated.
