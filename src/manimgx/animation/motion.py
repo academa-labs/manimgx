@@ -1,7 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Academa, Inc.
+# SPDX-FileCopyrightText: 2024 the Manim Community Developers
+# SPDX-FileCopyrightText: 2018 3Blue1Brown LLC
+# SPDX-License-Identifier: MIT
+
 """Animation presets built from the shared lifecycle and transform primitives.
 
 A reveal is paint, so drawing, passing flashes and border reveals use the same
-Transform as movement and morphing; whole-object procedures use Animation."""
+Transform as movement and morphing; whole-object procedures use Animation. Showing a
+group's parts in turn is visibility, not paint: the scene leaves the parts not shown yet
+out of the picture (`Animation.hidden`)."""
 
 from __future__ import annotations
 
@@ -10,6 +17,7 @@ import itertools as it
 import math
 from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING, ClassVar, Unpack, cast
+from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
@@ -28,6 +36,7 @@ from manimgx.animation.timeline import (
     Key,
     LaggedStart,
     Succession,
+    _gathered,
 )
 from manimgx.config import config
 from manimgx.constants import (
@@ -55,7 +64,6 @@ from manimgx.mobject import Group, Mobject, Pivot, VGroup, VMobject
 from manimgx.typing import Point3D, Point3DLike, Vector3DLike
 
 if TYPE_CHECKING:
-
     from manimgx.drawing.paint import Paint
     from manimgx.mobjects.numbers import DecimalNumber
     from manimgx.scene import Scene
@@ -301,14 +309,14 @@ class DrawBorderThenFill(Transform):
     ) -> None:
         super().__init__(
             vmobject,
-            keys=(
-                lambda m: trimmed(self._outline(m), 0, 0),
-                self._outline,
-                self._filled,
-            ),
+            keys=(self._undrawn, self._outline, self._filled),
             **kwargs,
         )
         self.stroke_width, self.stroke_color = stroke_width, stroke_color
+
+    def _undrawn(self, mobject: Mobject) -> Mobject:
+        """Its outline, none of it drawn yet: where it starts."""
+        return trimmed(self._outline(mobject), 0, 0)
 
     def _border(self, part: Mobject) -> None:
         """A part's stroke as its border: its own stroke if it draws one, else its fill (every
@@ -447,7 +455,7 @@ class _Fade(Transform):
     ) -> None:
         if not mobjects:
             raise ValueError("At least one mobject must be passed.")
-        mobject = mobjects[0] if len(mobjects) == 1 else Group(*mobjects)
+        mobject = mobjects[0] if len(mobjects) == 1 else _gathered(*mobjects)
         self.point_target = shift is None and target_position is not None
         if self.point_target:
             center = (
@@ -873,9 +881,14 @@ class Rotate(Transform):
         kwargs.setdefault("path_arc_centers", self.about_point)
         super().__init__(
             mobject,
-            keys=(None, lambda m: m.rotate(angle, axis, about_point=self.about_point)),
+            keys=(None, self._turned),
             **kwargs,
         )
+
+    def _turned(self, mob: Mobject) -> Mobject:
+        """Where it ends: turned through the whole angle about its pivot (a method, so
+        that a copy of the animation turns about its own)."""
+        return mob.rotate(self.angle, self.axis, about_point=self.about_point)
 
     def _pivot(self, mob: Mobject) -> Point3D:
         if self._point is not None:
@@ -1082,32 +1095,19 @@ class MoveToTarget[M: Mobject = Mobject](Transform[M]):
         super().__init__(mobject, mobject.target, **kwargs)
 
 
-class ApplyMethod(Transform):
-    """Transform a mobject into what a call of one of its methods makes of it.
+class _ApplyMethod(Transform):
+    """Transform a mobject into what a call of one of its methods makes of it: what
+    `ApplyMethod` and the animations that apply one method (`Restore`, …) are made of.
 
     The call is carried out when the animation begins, on the mobject as it is then. Its
     arguments are taken as written, when the animation is made: a mobject among them
     that is not part of this one is a copy of it as it was then. The method's keywords
-    go in a dict after its positional arguments (the keywords of `ApplyMethod` itself
-    are its options): `ApplyMethod(square.scale, 2, {"about_edge": DL})`.
-    [`.animate`][manimgx.Mobject.animate] does the same, and more:
-    `square.animate.scale(2, about_edge=DL)`.
+    go in a dict after its positional arguments (the animation's own keywords are its
+    options): `_ApplyMethod(square.scale, 2, {"about_edge": DL})`.
 
     Args:
         method: A method of a mobject, not called: `square.scale`.
         *args: The method's arguments; a dict at the end holds its keywords.
-
-    Examples:
-        ```python
-        import manimgx as m
-
-
-        class ApplyMethodExample(m.Scene):
-            def construct(self) -> None:
-                square = m.Square(side_length=2, color=m.BLUE, fill_opacity=0.5)
-                self.add(square.shift(m.DL))
-                self.play(m.ApplyMethod(square.scale, 2, {"about_edge": m.DL}))
-        ```
     """
 
     def __init__(
@@ -1133,7 +1133,22 @@ class ApplyMethod(Transform):
         super().__init__(method.__self__, keys=(None, call), **kwargs)
 
 
-class ApplyPointwiseFunction(ApplyMethod):
+@deprecated(
+    "ApplyMethod(mobject.method, *args) is mobject.animate.method(*args): use .animate",
+    category=None,
+)
+class ApplyMethod(_ApplyMethod):
+    """Transform a mobject into what a call of one of its methods makes of it: Manim
+    CE's older way to write [`.animate`][manimgx.Mobject.animate].
+    `ApplyMethod(square.scale, 2)` is `square.animate.scale(2)`.
+
+    Args:
+        method: A method of a mobject, not called: `square.scale`.
+        *args: The method's arguments; a dict at the end holds its keywords.
+    """
+
+
+class ApplyPointwiseFunction(_ApplyMethod):
     """Transform a mobject into its image under a function of a point.
 
     Each point p travels in a straight line to `function(p)`, and a path's curves are
@@ -1176,26 +1191,16 @@ class ApplyPointwiseFunction(ApplyMethod):
         super().__init__(mobject.apply_function, function, **kwargs)
 
 
-class FadeToColor(ApplyMethod):
-    """Change a mobject's color, gradually.
-
-    Its fill and stroke turn `color`.
+@deprecated(
+    "FadeToColor(mobject, color) is mobject.animate.set_color(color): use .animate",
+    category=None,
+)
+class FadeToColor(_ApplyMethod):
+    """Change a mobject's color, gradually: `mobject.animate.set_color(color)`.
 
     Args:
         mobject: The mobject to recolor.
         color: The color it turns.
-
-    Examples:
-        ```python
-        import manimgx as m
-
-
-        class FadeToColorExample(m.Scene):
-            def construct(self) -> None:
-                text = m.Text("Hello World!", font_size=96)
-                self.add(text)
-                self.play(m.FadeToColor(text, m.RED))
-        ```
     """
 
     def __init__(
@@ -1207,24 +1212,16 @@ class FadeToColor(ApplyMethod):
         super().__init__(mobject.set_color, color, **kwargs)
 
 
-class ScaleInPlace(ApplyMethod):
-    """Scale a mobject about its center.
+@deprecated(
+    "ScaleInPlace(mobject, k) is mobject.animate.scale(k): use .animate",
+    category=None,
+)
+class ScaleInPlace(_ApplyMethod):
+    """Scale a mobject about its center: `mobject.animate.scale(scale_factor)`.
 
     Args:
         mobject: The mobject to scale.
         scale_factor: The factor it is scaled by: 2 doubles its size.
-
-    Examples:
-        ```python
-        import manimgx as m
-
-
-        class ScaleInPlaceExample(m.Scene):
-            def construct(self) -> None:
-                text = m.Text("Hello World!")
-                self.add(text)
-                self.play(m.ScaleInPlace(text, 2.5))
-        ```
     """
 
     def __init__(
@@ -1233,7 +1230,7 @@ class ScaleInPlace(ApplyMethod):
         super().__init__(mobject.scale, scale_factor, **kwargs)
 
 
-class ShrinkToCenter(ScaleInPlace):
+class ShrinkToCenter(_ApplyMethod):
     """Shrink a mobject to nothing at its center.
 
     It stays in the scene, shrunk to a point: pass `remover=True` to take it out when
@@ -1261,10 +1258,10 @@ class ShrinkToCenter(ScaleInPlace):
     """
 
     def __init__(self, mobject: Mobject, **kwargs: Unpack[TransformOptions]) -> None:
-        super().__init__(mobject, 0, **kwargs)
+        super().__init__(mobject.scale, 0, **kwargs)
 
 
-class Restore(ApplyMethod):
+class Restore(_ApplyMethod):
     """Transform a mobject back into the state it saved.
 
     Save the state first with [`save_state`][manimgx.Mobject.save_state]; the animation
@@ -1386,7 +1383,7 @@ class ApplyMatrix(ApplyPointwiseFunction):
         )
 
 
-class ApplyComplexFunction(ApplyMethod):
+class ApplyComplexFunction(_ApplyMethod):
     """Transform a mobject into its image under a function of a complex number.
 
     Each point (x, y, z) is taken as x + iy and travels in a straight line to its image
@@ -1453,7 +1450,7 @@ class CyclicReplace(Transform):
         self.group = (
             mobjects[0]
             if len(mobjects) == 1 and isinstance(mobjects[0], Group)
-            else Group(*mobjects)
+            else _gathered(*mobjects)
         )
         kwargs.setdefault("path_arc", 90 * DEGREES)
         super().__init__(self.group, keys=(None, self._cycled), **kwargs)
@@ -1537,18 +1534,27 @@ class FadeTransform(Transform):
             stretch,
             dim_to_match,
         )
-        mobject.save_state()
+        self._start = mobject.copy()  # what the mobject is put back to when it is done
         super().__init__(
             Group(mobject, target_mobject.copy()),
-            keys=(lambda g: self._ghosted(g, 1, 0), lambda g: self._ghosted(g, 0, 1)),
+            keys=(self._fading_in, self._faded_out),
             **kwargs,
         )
+
+    def _fading_in(self, group: Mobject) -> Mobject:
+        """Where it starts: the target ghosted onto the mobject."""
+        return self._ghosted(group, 1, 0)
+
+    def _faded_out(self, group: Mobject) -> Mobject:
+        """Where it ends: the mobject ghosted onto the target."""
+        return self._ghosted(group, 0, 1)
 
     def _ghosted(self, group: Mobject, i: int, j: int) -> Mobject:
         """The group with its part i ghosted onto its part j."""
         self.ghost_to(group[i], group[j])
         return group
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def ghost_to(self, source: Mobject, target: Mobject) -> None:
         """Fit a mobject onto another and make it transparent.
 
@@ -1567,7 +1573,7 @@ class FadeTransform(Transform):
     def clean_up_from_scene(self, scene: Scene) -> None:
         Animation.clean_up_from_scene(self, scene)
         scene.remove(self.mobject)
-        self.mobject[0].restore()
+        self.mobject[0].become(self._start)
         scene.add(self.to_add_on_completion)
 
 
@@ -1937,6 +1943,7 @@ class Homotopy(Animation):
         self.apply_function_kwargs: Pivot = apply_function_kwargs or {}
         super().__init__(mobject, **kwargs)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def function_at_time_t(self, t: float) -> Callable[[Point3D], Point3D]:
         """Return the homotopy at one progress, as a function of a point.
 
@@ -2321,8 +2328,11 @@ class ShowIncreasingSubsets(Animation):
     """Show the submobjects of a group one more at a time.
 
     At progress p, eased by the rate function, the first ⌊p·n⌋ of its n submobjects are
-    shown, each in its own paint as the animation began, and the rest are hidden. Pass
-    `rate_func=linear` for an even pace.
+    shown and the rest are hidden: left out of the picture, not changed, so each part
+    shows as it is, whatever else plays on it. The group joins the scene when the
+    animation begins. A part still hidden when the animation ends stays unseen, left
+    transparent; a remover's group leaves the scene as it is. Pass `rate_func=linear` for
+    an even pace.
 
     Args:
         group: The group whose submobjects are shown.
@@ -2343,7 +2353,10 @@ class ShowIncreasingSubsets(Animation):
 
     keys: Sequence[Key] = ()
 
-    defaults: ClassVar[AnimationOptions] = {"suspend_mobject_updating": False}
+    defaults: ClassVar[AnimationOptions] = {
+        "suspend_mobject_updating": False,
+        "introducer": True,
+    }
 
     def __init__(
         self,
@@ -2352,26 +2365,14 @@ class ShowIncreasingSubsets(Animation):
         **kwargs: Unpack[AnimationOptions],
     ) -> None:
         self.all_submobs, self.int_func = list(group.submobjects), int_func
+        self._hidden: list[Mobject] = []
         super().__init__(group, **kwargs)
 
-    def begin(self) -> None:
-        super().begin()
-        # showing is visibility: each part shows in its own paint, member by member
-        self._paints = [
-            [(m, m.paint) for m in sub.get_family()] for sub in self.all_submobs
-        ]
-
-    def show(self, index: int, shown: bool) -> None:
-        """Show a submobject in its own paint, as the animation began, or hide it.
-
-        Args:
-            index: Which submobject, counting from 0.
-            shown: Whether it is shown.
-        """
-        for member, paint in self._paints[index]:
-            member.paint = paint
-            if not shown:
-                member.set_opacity(0, family=False)
+    @property
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    def hidden(self) -> Sequence[Mobject]:
+        """The submobjects it has not shown yet, or no longer shows."""
+        return self._hidden
 
     def interpolate_mobject(self, alpha: float) -> None:
         value = (
@@ -2381,6 +2382,7 @@ class ShowIncreasingSubsets(Animation):
         )
         self.update_submobject_list(int(self.int_func(value * len(self.all_submobs))))
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def update_submobject_list(self, index: int) -> None:
         """Show the first `index` submobjects and hide the rest.
 
@@ -2389,16 +2391,24 @@ class ShowIncreasingSubsets(Animation):
         Args:
             index: How many submobjects are shown.
         """
-        for i in range(len(self.all_submobs)):
-            self.show(i, i < index)
+        self._hidden = self.all_submobs[max(index, 0) :]
+
+    def _release(self) -> None:
+        super()._release()
+        # ended, what it hides stays unseen: transparent, the one way the scene holds a
+        # part unseen (a remover's group leaves the scene as it is)
+        if not self.is_remover():
+            for part in self._hidden:
+                part.set_opacity(0)
+        self._hidden = []
 
 
 class ShowSubmobjectsOneByOne(ShowIncreasingSubsets):
     """Show mobjects one at a time, each in place of the one before.
 
     At progress p, eased by the rate function, only the ⌈p·n⌉-th of the n mobjects is
-    shown, in its own paint as the animation began. Pass `rate_func=linear` for an even
-    pace.
+    shown, as it is, and the others are hidden; when the animation ends, those it hides
+    stay unseen, left transparent. Pass `rate_func=linear` for an even pace.
 
     Args:
         group: The mobjects to show in turn.
@@ -2411,9 +2421,13 @@ class ShowSubmobjectsOneByOne(ShowIncreasingSubsets):
 
         class ShowSubmobjectsOneByOneExample(m.Scene):
             def construct(self) -> None:
-                polygons = m.VGroup(
-                    *(m.RegularPolygon(n, fill_opacity=1) for n in range(3, 9))
-                ).set_color(m.YELLOW).scale(2.5)
+                polygons = (
+                    m.VGroup(
+                        *(m.RegularPolygon(n, fill_opacity=1) for n in range(3, 9))
+                    )
+                    .set_color(m.YELLOW)
+                    .scale(2.5)
+                )
                 self.play(
                     m.ShowSubmobjectsOneByOne(polygons, rate_func=m.linear, run_time=3)
                 )
@@ -2426,11 +2440,10 @@ class ShowSubmobjectsOneByOne(ShowIncreasingSubsets):
         int_func: Callable[[float], float] = np.ceil,
         **kwargs: Unpack[AnimationOptions],
     ) -> None:
-        super().__init__(Group(*group), int_func=int_func, **kwargs)
+        super().__init__(_gathered(*group), int_func=int_func, **kwargs)
 
     def update_submobject_list(self, index: int) -> None:
-        for i in range(len(self.all_submobs)):
-            self.show(i, i == index - 1)
+        self._hidden = [m for i, m in enumerate(self.all_submobs) if i != index - 1]
 
 
 class AddTextLetterByLetter(ShowIncreasingSubsets):
@@ -2459,7 +2472,7 @@ class AddTextLetterByLetter(ShowIncreasingSubsets):
         ```
     """
 
-    defaults: ClassVar[AnimationOptions] = {"rate_func": linear, "introducer": True}
+    defaults: ClassVar[AnimationOptions] = {"rate_func": linear}
 
     def __init__(
         self,
@@ -2484,7 +2497,8 @@ class RemoveTextLetterByLetter(AddTextLetterByLetter):
 
     The reverse of [`AddTextLetterByLetter`][manimgx.AddTextLetterByLetter]: the letters
     disappear from the last to the first, `time_per_char` seconds each unless a
-    `run_time` is given. The text leaves the scene when the animation finishes.
+    `run_time` is given. The text leaves the scene when the animation finishes, as it
+    was before it: adding it again shows it.
 
     Args:
         text: The text to remove, whose submobjects are its letters; a text without any
@@ -2518,9 +2532,9 @@ class TypeWithCursor(AddTextLetterByLetter):
     """Type a text in letter by letter, with a cursor after the last letter typed.
 
     The letters appear as with [`AddTextLetterByLetter`][manimgx.AddTextLetterByLetter],
-    and the cursor moves along after them. The cursor becomes part of the text, at its
-    end, and stays there when the animation finishes unless `leave_cursor_on` is False.
-    The text joins the scene when the animation begins.
+    and the cursor, shown as it is, moves along after them. The cursor becomes part of
+    the text, at its end, and stays there when the animation finishes unless
+    `leave_cursor_on` is False. The text joins the scene when the animation begins.
 
     Args:
         text: The text to type, whose submobjects are its letters.
@@ -2569,12 +2583,10 @@ class TypeWithCursor(AddTextLetterByLetter):
         self.cursor_start = self.mobject.get_center()
         if self.keep_cursor_y:
             self.cursor.set_y(self.y_cursor)
-        self.cursor.set_opacity(0)
         self.mobject.add(self.cursor)
         super().begin()
 
     def finish(self) -> None:
-        self.cursor.set_opacity(1 if self.leave_cursor_on else 0)
         if not self.leave_cursor_on:
             self.mobject.remove(self.cursor)
         super().finish()
@@ -2594,15 +2606,15 @@ class TypeWithCursor(AddTextLetterByLetter):
         ).set_y(self.cursor_start[1])
         if self.keep_cursor_y:
             self.cursor.set_y(self.y_cursor)
-        self.cursor.set_opacity(1)
 
 
 class UntypeWithCursor(TypeWithCursor):
     """Delete a text letter by letter, with a cursor after the last letter left.
 
     The reverse of [`TypeWithCursor`][manimgx.TypeWithCursor]: the letters disappear
-    from the last to the first. The text leaves the scene when the animation finishes;
-    the cursor becomes part of the text, and leaves with it.
+    from the last to the first. The text leaves the scene when the animation finishes,
+    as it was before it (adding it again shows it); the cursor becomes part of the
+    text, and leaves with it.
 
     Args:
         text: The text to delete, whose submobjects are its letters.
@@ -2700,12 +2712,12 @@ class SpiralIn(Animation):
 class AddTextWordByWord(Succession):
     """Type words in, letter by letter, pausing briefly after each word.
 
-    Each submobject of `text_mobject` is a word, whose own submobjects, its letters,
-    appear one after another, `time_per_char` seconds each; then the word holds for
-    0.005 × (its number of letters)^1.5 seconds. Give it a group of words, such as a
-    [`VGroup`][manimgx.VGroup] of [`Text`][manimgx.Text]s: the submobjects of a single
-    `Text` are its letters, which have no parts of their own to type, so it shows at
-    once.
+    Each submobject of `text_mobject` is a word, and the words come in turn: a word's own
+    submobjects, its letters, appear one after another, `time_per_char` seconds each;
+    then the word holds for 0.005 × (its number of letters)^1.5 seconds. Give it a group
+    of words, such as a [`VGroup`][manimgx.VGroup] of [`Text`][manimgx.Text]s: the
+    submobjects of a single `Text` are its letters, which have no parts of their own to
+    type, so each appears whole in its turn.
 
     Args:
         text_mobject: The words: a group whose submobjects are words made of letters.

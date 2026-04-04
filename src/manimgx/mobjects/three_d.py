@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import warnings
+from warnings import deprecated
 
 __all__ = [
     "Arrow3D",
@@ -51,6 +52,7 @@ from manimgx.constants import (
     LineJointType,
 )
 from manimgx.drawing.geometry import (
+    Lattice,
     QuickHull,
     normalize,
     perpendicular_bisector,
@@ -86,6 +88,9 @@ if TYPE_CHECKING:
     )
 
 
+@deprecated(
+    "ThreeDVMobject(...) is VMobject(..., shade_in_3d=True): use it", category=None
+)
 class ThreeDVMobject(VMobject):
     """A path shaded by a three-dimensional scene's light: a
     [VMobject][manimgx.VMobject] with `shade_in_3d` on.
@@ -166,7 +171,7 @@ class Surface(MeshMobject):
     the faces' edges, curved with the surface. The faces are one mesh (a
     [MeshMobject][manimgx.MeshMobject]): it morphs into other meshes (drawn as flat
     faces while it morphs into one of another grid), and [Create][manimgx.Create] draws
-    it in face by face.
+    it in face by face, each face with its edges.
     [set_fill_by_checkerboard][manimgx.Surface.set_fill_by_checkerboard] and
     [set_fill_by_value][manimgx.Surface.set_fill_by_value] color it.
 
@@ -240,8 +245,8 @@ class Surface(MeshMobject):
         pre_function_handle_to_anchor_scale_factor: float = 1e-05,
         **kwargs: Unpack[Style],
     ) -> None:
-        self.u_range = u_range
-        self.v_range = v_range
+        self.u_range = list(u_range)  # values, as they are given
+        self.v_range = list(v_range)
         self.resolution = resolution
         colors: list[ManimColor] | Literal[False] = (
             False
@@ -278,10 +283,11 @@ class Surface(MeshMobject):
         v = np.linspace(self.v_range[0], self.v_range[1], v_res + 1)
         grid = sample(self.func, *np.meshgrid(u, v, indexing="ij"))
         self.points = grid.reshape(-1, 3)
-        self._topology = (len(u) - 1, len(v) - 1)
+        self._topology = Lattice.of(len(u) - 1, len(v) - 1)
         self.uvs = None
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def face_indices(self) -> tuple[np.ndarray, np.ndarray]:
         """The place of every face in the surface's grid: its index along u and its
         index along v, in the mesh's order.
@@ -794,8 +800,7 @@ class Cylinder(_DirectedSurface):
         direction: The direction of its axis.
         v_range: The range of the angle around its axis, in radians: (0, τ) goes all
             the way around.
-        show_ends: Whether discs close its ends (see
-            [add_bases][manimgx.Cylinder.add_bases]).
+        show_ends: Whether discs close its ends.
         resolution: How many faces it has along its axis and around it: one number for
             both, or `(u, v)`.
         **kwargs: [Surface keywords][manimgx.mobjects.three_d.SurfaceLook]:
@@ -855,6 +860,7 @@ class Cylinder(_DirectedSurface):
         """
         return _revolve(self.radius, u, v)
 
+    @deprecated("Manim CE's machinery: the constructor calls it", category=None)
     def add_bases(self) -> Self:
         """Add the discs that close the cylinder's ends: `base_top` and `base_bottom`,
         in its fill color.
@@ -938,6 +944,7 @@ class Line3D(Cylinder):
         if color is not None:
             self.set_color(color)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def set_start_and_end_attrs(
         self,
         start: Point3DLike | Mobject,
@@ -972,6 +979,7 @@ class Line3D(Cylinder):
         self.shift((self.start + self.end) / 2)
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def pointify(
         self, mob_or_point: Mobject | Point3DLike, direction: Vector3DLike | None = None
     ) -> Point3D:
@@ -1231,7 +1239,7 @@ class PolyhedronOptions(TypedDict, total=False):
     """[Style keywords][manimgx.drawing.paint.Style] for the faces, over their defaults:
     half opaque, shaded by a three-dimensional scene's light (default None: none)."""
     graph_config: GraphOptions | None
-    """[Graph keywords][manimgx.mobjects.graph.GraphOptions] for the vertices and edges,
+    """[Graph keywords][manimgx.Graph] for the vertices and edges,
     over their defaults: [Dot3D][manimgx.Dot3D] vertices, invisible edges (default None:
     none)."""
 
@@ -1256,7 +1264,7 @@ class Polyhedron(VGroup):
             around it.
         faces_config: [Style keywords][manimgx.drawing.paint.Style] for the faces, over
             their defaults (half opaque, shaded in 3D); None for none.
-        graph_config: [Graph keywords][manimgx.mobjects.graph.GraphOptions] for the
+        graph_config: [Graph keywords][manimgx.Graph] for the
             vertices and edges, over their defaults ([Dot3D][manimgx.Dot3D] vertices,
             invisible edges); None for none.
 
@@ -1294,8 +1302,8 @@ class Polyhedron(VGroup):
         layout: dict[Hashable, Point3D] = {
             i: np.asarray(p, dtype=float) for i, p in enumerate(vertex_coords)
         }
-        self.faces_list = faces_list
-        """The faces, each a list of the indices of its vertices."""
+        self.faces_list = [list(face) for face in faces_list]
+        """The faces, each a list of the indices of its vertices, as they were given."""
         face_coords = [[layout[j] for j in i] for i in faces_list]
         self.edges = self.get_edges(self.faces_list)
         """The edges, each a pair of vertex indices."""
@@ -1312,6 +1320,7 @@ class Polyhedron(VGroup):
         self.add(self.faces, self.graph)
         self.add_updater(self.update_faces)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_edges(self, faces_list: list[list[int]]) -> list[tuple[int, int]]:
         """Find the edges of faces: each two vertices next to each other around a face,
         each edge once.
@@ -1331,6 +1340,7 @@ class Polyhedron(VGroup):
                 edges.setdefault(frozenset(edge), edge)
         return list(edges.values())
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def create_faces(
         self, face_coords: Sequence[Sequence[Point3DLike]]
     ) -> VGroup[Polygon]:
@@ -1347,6 +1357,7 @@ class Polyhedron(VGroup):
             *(Polygon(*face, **self.faces_config) for face in face_coords)
         )
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def update_faces(self, m: Mobject) -> Self:
         """Put the faces back through the vertices, where they are now: the updater the
         polyhedron runs every frame.
@@ -1358,6 +1369,7 @@ class Polyhedron(VGroup):
             face.set_points_as_corners([*coords, coords[0]])
         return self
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def extract_face_coords(self) -> list[list[Point3D]]:
         """The faces' corners where the vertices are now: the centers of the graph's
         vertices.
@@ -1473,9 +1485,7 @@ class Icosahedron(Polyhedron):
         class IcosahedronExample(m.ThreeDScene):
             def construct(self) -> None:
                 self.set_camera_orientation(phi=70 * m.DEGREES, theta=30 * m.DEGREES)
-                self.add(
-                    m.Icosahedron(edge_length=2, faces_config={"color": m.TEAL})
-                )
+                self.add(m.Icosahedron(edge_length=2, faces_config={"color": m.TEAL}))
         ```
     """
 
@@ -1542,9 +1552,7 @@ class Dodecahedron(Polyhedron):
             def construct(self) -> None:
                 self.set_camera_orientation(phi=70 * m.DEGREES, theta=30 * m.DEGREES)
                 self.add(
-                    m.Dodecahedron(
-                        edge_length=1.5, faces_config={"color": m.PURPLE}
-                    )
+                    m.Dodecahedron(edge_length=1.5, faces_config={"color": m.PURPLE})
                 )
         ```
     """
