@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = [
     "TransformMatchingAbstractBase",
     "TransformMatchingShapes",
@@ -28,6 +30,10 @@ if TYPE_CHECKING:
     from manimgx.scene import Scene
 
 
+@deprecated(
+    "the base of TransformMatchingShapes and TransformMatchingTex: use either",
+    category=None,
+)
 class TransformMatchingAbstractBase(AnimationGroup):
     """The base of the transforms that match the parts of two mobjects: the parts that
     match move to their counterparts, and the others fade.
