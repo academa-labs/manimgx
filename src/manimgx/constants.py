@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 
 from manimgx.typing import Vector3D
 
@@ -63,33 +64,42 @@ __all__ = [
     "LineJointType",
 ]
 
-ORIGIN: Vector3D = np.array((0.0, 0.0, 0.0))
+
+def _constant(value: npt.ArrayLike) -> Vector3D:
+    """A direction as a constant: read-only, so that a mobject that keeps it (an arc's
+    center, a number's edge) can't change it for everything made after."""
+    array = np.array(value, dtype=float)
+    array.flags.writeable = False
+    return array
+
+
+ORIGIN: Vector3D = _constant((0.0, 0.0, 0.0))
 """The center of the scene: (0, 0, 0)."""
-UP: Vector3D = np.array((0.0, 1.0, 0.0))
+UP: Vector3D = _constant((0.0, 1.0, 0.0))
 """One unit up: (0, 1, 0)."""
-DOWN: Vector3D = np.array((0.0, -1.0, 0.0))
+DOWN: Vector3D = _constant((0.0, -1.0, 0.0))
 """One unit down: (0, −1, 0)."""
-RIGHT: Vector3D = np.array((1.0, 0.0, 0.0))
+RIGHT: Vector3D = _constant((1.0, 0.0, 0.0))
 """One unit right: (1, 0, 0)."""
-LEFT: Vector3D = np.array((-1.0, 0.0, 0.0))
+LEFT: Vector3D = _constant((-1.0, 0.0, 0.0))
 """One unit left: (−1, 0, 0)."""
-IN: Vector3D = np.array((0.0, 0.0, -1.0))
+IN: Vector3D = _constant((0.0, 0.0, -1.0))
 """One unit into the screen, away from the viewer: (0, 0, −1)."""
-OUT: Vector3D = np.array((0.0, 0.0, 1.0))
+OUT: Vector3D = _constant((0.0, 0.0, 1.0))
 """One unit out of the screen, toward the viewer: (0, 0, 1)."""
-X_AXIS: Vector3D = np.array((1.0, 0.0, 0.0))
+X_AXIS: Vector3D = _constant((1.0, 0.0, 0.0))
 """The direction of the x axis: (1, 0, 0)."""
-Y_AXIS: Vector3D = np.array((0.0, 1.0, 0.0))
+Y_AXIS: Vector3D = _constant((0.0, 1.0, 0.0))
 """The direction of the y axis: (0, 1, 0)."""
-Z_AXIS: Vector3D = np.array((0.0, 0.0, 1.0))
+Z_AXIS: Vector3D = _constant((0.0, 0.0, 1.0))
 """The direction of the z axis, out of the screen: (0, 0, 1)."""
-UL: Vector3D = UP + LEFT
+UL: Vector3D = _constant(UP + LEFT)
 """Up and left, toward the upper left corner: (−1, 1, 0)."""
-UR: Vector3D = UP + RIGHT
+UR: Vector3D = _constant(UP + RIGHT)
 """Up and right, toward the upper right corner: (1, 1, 0)."""
-DL: Vector3D = DOWN + LEFT
+DL: Vector3D = _constant(DOWN + LEFT)
 """Down and left, toward the lower left corner: (−1, −1, 0)."""
-DR: Vector3D = DOWN + RIGHT
+DR: Vector3D = _constant(DOWN + RIGHT)
 """Down and right, toward the lower right corner: (1, −1, 0)."""
 
 PI = np.pi

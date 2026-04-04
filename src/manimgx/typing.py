@@ -17,9 +17,9 @@ type Point3D = Vec
 type Point3D_Array = Rows
 type Vector3D = Vec
 # an input: any array of floats (as CE's docs pass a tracker's `points`), a tuple or a sequence
-type Point3DLike = npt.NDArray[np.floating] | tuple[float, float, float] | Sequence[
-    float
-]
+type Point3DLike = (
+    npt.NDArray[np.floating] | tuple[float, float, float] | Sequence[float]
+)
 type Vector3DLike = Point3DLike
 type Point3DLike_Array = Point3D_Array | Sequence[Point3DLike]
 type RGBA_Array = Rows
