@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = [
     "AnimatedBoundary",
     "TracedPath",
@@ -20,7 +22,9 @@ __all__ = [
     "turn_animation_into_updater",
 ]
 import inspect
+import itertools
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, Unpack
 
 import numpy as np
@@ -52,6 +56,7 @@ def _owner(method: Callable[..., object]) -> tuple[Mobject, Callable[..., object
     return method.__self__, method.__func__
 
 
+@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
 def assert_is_mobject_method(method: Callable[..., object]) -> None:
     """Check that `method` is a method of a mobject, bound to it (as `square.move_to`):
     anything else raises a TypeError.
@@ -62,6 +67,10 @@ def assert_is_mobject_method(method: Callable[..., object]) -> None:
     _owner(method)
 
 
+@deprecated(
+    "always(mobject.method, *args) is mobject.always.method(*args): use it",
+    category=None,
+)
 def always[**P](
     method: Callable[P, object], *args: P.args, **kwargs: P.kwargs
 ) -> Mobject:
@@ -89,6 +98,7 @@ def always[**P](
     return mobject
 
 
+@deprecated("use add_updater, or always_redraw", category=None)
 def f_always(
     method: Callable[..., object],
     *arg_generators: Callable[[], object],
@@ -246,7 +256,8 @@ def turn_animation_into_updater(
     the scene; after `delay` seconds it plays, at its run time and rate function. When
     it ends, it finishes and its updater is removed; with `cycle`, it starts over from
     its beginning instead, again and again. Nothing is added to the scene or taken out
-    of it: add the mobject yourself.
+    of it: add the mobject yourself. The animation and its time are the mobject's: a
+    copy of it plays a copy of them, on itself.
 
     Args:
         cycle: Whether it repeats forever.
@@ -278,13 +289,20 @@ def turn_animation_into_updater(
     animation.interpolate(
         0
     )  # the object is the animation's from now: at its start, until then
-    elapsed = -delay
+    # the animation and its time are kept on the mobject, so that a copy of it plays a copy
+    # of them: the updater holds only their key, and plays those of the mobject it runs on
+    key = next(_PLAYED_KEYS)
+    played: dict[int, _Played] = mobject.__dict__.setdefault("_played", {})
+    played[key] = _Played(animation, -delay)
 
     def update(m: Mobject, dt: float) -> None:
-        nonlocal elapsed
-        elapsed += dt  # its time now: what this frame shows
-        if elapsed < 0:
+        state = m.__dict__.get("_played", {}).get(key)
+        if state is None:  # nothing of its own to play
             return
+        state.elapsed += dt  # its time now: what this frame shows
+        if state.elapsed < 0:
+            return
+        animation, elapsed = state.animation, state.elapsed
         run_time = animation.get_run_time()
         if run_time > 0 and (cycle or elapsed < run_time):
             animation.interpolate(
@@ -294,9 +312,22 @@ def turn_animation_into_updater(
         else:
             animation.finish()
             m.remove_updater(update)
+            del m.__dict__["_played"][key]
 
     mobject.add_updater(flow(update))  # the animation at the time it has run
     return mobject
+
+
+@dataclass
+class _Played:
+    """An animation [turn_animation_into_updater][manimgx.turn_animation_into_updater]
+    plays, and the time it has run (before its delay, negative)."""
+
+    animation: Animation
+    elapsed: float
+
+
+_PLAYED_KEYS = itertools.count()
 
 
 def cycle_animation(animation: Animation, delay: float = 0) -> Mobject:
@@ -373,7 +404,7 @@ class AnimatedBoundary(VGroup):
     def __init__(
         self,
         vmobject: Mobject,
-        colors: Sequence[ParsableManimColor] = [BLUE_D, BLUE_B, BLUE_E, GREY_BROWN],
+        colors: Sequence[ParsableManimColor] = (BLUE_D, BLUE_B, BLUE_E, GREY_BROWN),
         max_stroke_width: float = 3,
         cycle_rate: float = 0.5,
         back_and_forth: bool = True,
@@ -382,7 +413,7 @@ class AnimatedBoundary(VGroup):
         **kwargs: Unpack[Style],
     ):
         super().__init__(**kwargs)
-        self.colors = colors
+        self.colors = list(colors)  # its own: the default, or what was given, as it was
         self.max_stroke_width = max_stroke_width
         self.cycle_rate = cycle_rate
         self.back_and_forth = back_and_forth
@@ -396,6 +427,7 @@ class AnimatedBoundary(VGroup):
         self.total_time = 0.0
         self.add_updater(flow(lambda m, dt: m.update_boundary_copies(dt)))
 
+    @deprecated("Manim CE's machinery: its updater calls it", category=None)
     def update_boundary_copies(self, dt: float) -> None:
         """Move the outline on by some time: its updater calls it every frame.
 
@@ -422,6 +454,7 @@ class AnimatedBoundary(VGroup):
             self.full_family_become_partial(fading, vmobject, 0, 1)
             fading.set_stroke(color=colors[index - 1], width=(1 - fade_alpha) * msw)
 
+    @deprecated("Manim CE's machinery: its updater calls it", category=None)
     def full_family_become_partial(
         self, mob1: Mobject, mob2: Mobject, a: float, b: float
     ) -> Self:
@@ -513,20 +546,21 @@ class TracedPath(VMobject):
         self.traced_point_func = traced_point_func
         self.dissipating_time = dissipating_time
         self.time = 0.0  # the path's own time
-        self._traced: list[float] = (
-            []
-        )  # when each curve's end was traced (its own time)
-        self._open: list[float] = (
-            []
-        )  # the scene time of each curve's end since the last frame
+        # when each curve's end was traced (its own time)
+        self._traced: list[float] = []
+        # the scene time of each curve's end since the last frame
+        self._open: list[float] = []
         self._framed: float | None = None  # the scene time of the last frame (or event)
         self._last = np.zeros(3)  # the point as last traced
         self._loose = (
             False  # its last curve runs on to the point at a frame between two ticks
         )
-        self.add_updater(self.update_path)
+        self.add_updater(
+            _trace
+        )  # (a function of the path it runs on: a copy traces itself)
 
     @record
+    @deprecated("Manim CE's machinery: its updater calls it", category=None)
     def update_path(self, mob: Mobject, dt: float) -> None:
         """Trace the point where it is now: the path's updater, a
         [recorder][manimgx.mobject.record].
@@ -605,3 +639,11 @@ class TracedPath(VMobject):
             self._last = point
         self._open = [now] if self._loose else []
         self._framed = now
+
+
+@record
+def _trace(path: Mobject, dt: float) -> None:
+    """A traced path's updater: it traces the path it runs on (its copies, a path that takes
+    its updaters over), and holds nothing of the path it was made for."""
+    if isinstance(path, TracedPath):
+        path.update_path(path, dt)
