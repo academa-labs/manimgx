@@ -1,0 +1,13 @@
+[package]
+name = "manimgx-encode"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+manimgx-core = { path = "../manimgx-core" }
+log = { workspace = true }
+
+[build-dependencies]
+pkg-config = "0.3"
+bindgen = { version = "0.70", default-features = false, features = ["runtime"] }

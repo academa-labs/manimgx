@@ -23,6 +23,7 @@ import pathlib
 from collections.abc import Callable, Sequence
 from fractions import Fraction
 from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, Unpack, cast
+from warnings import deprecated
 
 import numpy as np
 
@@ -54,6 +55,7 @@ from manimgx.rendering.film import (
     PlayHook,
     SectionType,
     Take,
+    X264Preset,
 )
 from manimgx.typing import Point3D, Point3DLike, Vector3DLike
 
@@ -155,7 +157,7 @@ class Camera:
         three_d: Whether it sees in three dimensions: with perspective and depth, from
             its orbit.
         frame_width: The width of its frame, in scene units; None for the configured one
-            (about 14.2). Its height is the configured one (8); a width out of the
+            (about 14.2 at 16:9). Its height is the configured one; a width out of the
             video's proportions stretches the picture.
         phi: The angle between its line of sight and the z axis, in radians: 0 looks
             straight down on the xy plane.
@@ -200,9 +202,10 @@ class Camera:
             ValueTracker(theta),
             ValueTracker(gamma),
         )
-        self.focal_distance_tracker, self.zoom_tracker = ValueTracker(
-            focal_distance
-        ), ValueTracker(zoom)
+        self.focal_distance_tracker, self.zoom_tracker = (
+            ValueTracker(focal_distance),
+            ValueTracker(zoom),
+        )
         self.light_source = Point(light_source_start_point)
         """Where the light comes from: a point in the scene, which lights the mobjects
         shaded in three dimensions (`shade_in_3d`). Move it like any mobject."""
@@ -285,6 +288,7 @@ class Camera:
         """The height of the view, in scene units: its frame's."""
         return self.frame.height
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_mobjects_indicating_movement(self) -> list[Mobject]:
         """The mobjects the view is made of: moving any of them moves the camera.
 
@@ -337,11 +341,13 @@ class Camera:
             raise ValueError(
                 "Could not determine bounding box of the mobjects given to 'auto_zoom'."
             )
-        left, right = min(m.get_critical_point(LEFT)[0] for m in mobs), max(
-            m.get_critical_point(RIGHT)[0] for m in mobs
+        left, right = (
+            min(m.get_critical_point(LEFT)[0] for m in mobs),
+            max(m.get_critical_point(RIGHT)[0] for m in mobs),
         )
-        up, down = max(m.get_critical_point(UP)[1] for m in mobs), min(
-            m.get_critical_point(DOWN)[1] for m in mobs
+        up, down = (
+            max(m.get_critical_point(UP)[1] for m in mobs),
+            min(m.get_critical_point(DOWN)[1] for m in mobs),
         )
         target = (
             (self.frame.animate if animate else self.frame)
@@ -353,6 +359,7 @@ class Camera:
         return target.set(height=up - down + margin)
 
     # ── the 3D orbit ───────────────────────────────────────────────────────────
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_value_trackers(self) -> list[ValueTracker]:
         """The five trackers of the camera's orbit.
 
@@ -483,24 +490,20 @@ class ZoomedCameraConfig(TypedDict, total=False):
 
 
 class Scene:
-    """A scene: the mobjects on screen, an exact clock, and the film they make.
+    """A scene: one video, and what happens in it.
 
-    Methods returning `Self` change and return the scene, so calls can chain.
+    Make a class from it, and write what happens in its
+    [`construct`][manimgx.Scene.construct] method: manimgx runs it once, from top to
+    bottom, and [`render`][manimgx.Scene.render] records the video. A mobject shows from
+    the moment the scene holds it ([`add`][manimgx.Scene.add] puts one in). Time passes
+    only in [`play`][manimgx.Scene.play] and [`wait`][manimgx.Scene.wait]: whatever
+    `construct` does between them happens at one moment.
 
-    Subclass it and describe, in [`construct`][manimgx.Scene.construct], what happens
-    and when; [`render`][manimgx.Scene.render] runs it and records the film. The scene
-    holds mobjects ([`add`][manimgx.Scene.add] puts one in, from that moment on), and
-    each frame draws those it holds. Its clock moves only in
-    [`play`][manimgx.Scene.play] and [`wait`][manimgx.Scene.wait]: whatever `construct`
-    does between two of them happens at one instant.
-
-    Scene time is exact: a rational number of seconds, never rounded. A play or wait of
-    `d` seconds that begins at time `T` owns the frames whose times fall in
-    `[T, T + d)`, each showing the world at its own instant, frame `k` at exactly
-    `k / fps`; then the world is brought to `T + d` itself, where `construct` goes on
-    and the next frame finds it. When `construct` returns, a closing frame shows the
-    scene as it ends, so its last animation is seen landing. Nothing depends on the
-    frame rate: a frame is a photograph of the world at one instant.
+    Each frame shows the scene at its own exact time, so a scene is the same at every
+    frame rate: a second of animation is 60 frames at 60 frames a second, and 30 at 30.
+    When `construct` ends, a last frame shows the scene as it ends, so that its last
+    animation is seen landing. The methods that change a scene give it back, so that
+    their calls chain.
 
     Examples:
         ```python
@@ -548,6 +551,12 @@ class Scene:
         # the play's instants no frame shows, with what each concerns (`_exact`, `_ticks`)
         self._events: dict[Fraction, Concern | None] = {}
         self._playing: list[Mobject] = []  # what the play running acts on (`_running`)
+        # while animations begin together (`_together`): what the scene held, by id, and
+        # the list of mobjects it was found in (`_introduce`)
+        self._beginning = False
+        self._holding: tuple[list[Mobject], set[int]] | None = None
+        # the play running: its animations may hide parts of the scene (`display_list`)
+        self._animation: Animation | None = None
         self.num_plays = 0
         """How many plays and waits the scene has run."""
         self.film = Film()
@@ -555,6 +564,9 @@ class Scene:
         and returns it."""
 
     @property
+    @deprecated(
+        "Manim CE's: the scene is its own renderer: use the scene", category=None
+    )
     def renderer(self) -> Self:
         """The scene itself: Manim code reaches the camera and the time through
         `self.renderer`, and a scene has both."""
@@ -562,10 +574,10 @@ class Scene:
 
     @property
     def time(self) -> float:
-        """The scene's time, in seconds: the instant the world is at.
+        """The scene's time, in seconds.
 
-        In `construct`, it is 0 when the scene begins, then the end of each play or wait
-        once it returns; during a play, as animations and updaters run, it is the instant
+        In `construct`, it is 0 when the scene begins, and the end of each play or wait
+        once it returns. During a play, while animations and updaters run, it is the time
         of the frame being made.
         """
         return float(clock.now)
@@ -602,6 +614,8 @@ class Scene:
         self,
         video: str | os.PathLike[str] | None = None,
         *,
+        preset: X264Preset = "ultrafast",
+        crf: float = 18.0,
         frames: FrameSink | None = None,
         plays: PlayHook | None = None,
         take: Take | None = None,
@@ -627,6 +641,9 @@ class Scene:
             video: The MP4 file to write, if any, at the size and frame rate of
                 [`config`][manimgx.config.config] (a whole number of frames a second,
                 and an even width and height).
+            preset: The x264 encoding preset; faster presets make larger files.
+            crf: The x264 constant rate factor, from 0 to 51; lower values give
+                higher quality.
             frames: A function handed each frame as it is sent (a
                 [`FrameSink`][manimgx.rendering.film.FrameSink]): a [`Frame`][manimgx.rendering.film.Frame],
                 which knows its place in the film and draws its pixels when asked.
@@ -642,7 +659,9 @@ class Scene:
             The film: how many frames it has, its plays, sections, sounds and captions,
             and how its video was made.
         """
-        self.film = Film(video, frames=frames, plays=plays, take=take)
+        self.film = Film(
+            video, frames=frames, plays=plays, take=take, preset=preset, crf=crf
+        )
         clock.reset()
         try:
             self.setup()
@@ -663,22 +682,24 @@ class Scene:
         self.film.close()
         return self.film
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def display_list(self) -> list[Mobject]:
         """The mobjects a frame draws, in the order it draws them.
 
         They are the members with points of the scene's mobjects, in family order (a
-        mobject before its submobjects), the foreground mobjects last; then sorted by
-        z-index, which keeps that order among equal ones. A member held twice is drawn
-        once, at its last place.
+        mobject before its submobjects), the foreground mobjects last, but the parts the
+        play running hides (its animations' [`hidden`][manimgx.Animation.hidden]); then
+        sorted by z-index, which keeps that order among equal ones. A member held twice
+        is drawn once, at its last place.
 
         Returns:
             A new list.
         """
-        leaves = [
-            m
-            for m in _family([*self.mobjects, *self.foreground_mobjects])
-            if m.has_points()
-        ]
+        members = _family([*self.mobjects, *self.foreground_mobjects])
+        if self._animation is not None and (parts := self._animation.hidden):
+            hidden = {id(m) for m in _family(parts)}
+            members = [m for m in members if id(m) not in hidden]
+        leaves = [m for m in members if m.has_points()]
         leaves.sort(key=lambda m: m.z_index)
         return leaves
 
@@ -836,11 +857,9 @@ class Scene:
             self._since[func] = t
             func(float(t - since))
         if opening is not None:
-            opening()
-        for mob, recorder, updaters in recorders or ():
-            if not mob.updating_suspended and (
-                updaters is mob.updaters or _has_updater(mob.updaters, recorder)
-            ):
+            self._together(opening)
+        for mob, recorder, _ in recorders or ():  # if still there when its turn comes
+            if not mob.updating_suspended and _has_updater(mob.updaters, recorder):
                 mob._bring(recorder, t)
 
     def _pure_tweens(
@@ -855,6 +874,7 @@ class Scene:
             Animation,
             AnimationGroup,
             Wait,
+            _held,
             _updating,
             walk,
         )
@@ -890,6 +910,7 @@ class Scene:
                 and kind.interpolate is Animation.interpolate
                 and kind.interpolate_mobject is Animation.interpolate_mobject
                 and kind.interpolate_keyframes is Transform.interpolate_keyframes
+                and kind.hidden is Animation.hidden  # (it hides nothing)
                 and not _updating(node.mobject)  # (no updaters act while it plays)
                 and not node.moving_target()
             ):
@@ -927,11 +948,15 @@ class Scene:
                 return None
         present = {id(m) for m in self.mobjects}
         if isinstance(anim, AnimationGroup):
-            anim.begin_all()
+            self._together(anim.begin_all)
         # what the parts brought into the scene as they began (not the parts aligning a
         # mobject split out of it: those were there, and show until their part's window
         # opens), in the order they begin, as frame by frame
-        opens = {id(t.mobject): b for (t, _), b in zip(tweens, begins, strict=True)}
+        opens = {
+            id(mob): b
+            for (t, _), b in zip(tweens, begins, strict=True)
+            for mob in _held(t.mobject)
+        }
         new = [root for root in self.mobjects if id(root) not in present]
         new.sort(key=lambda root: opens.get(id(root), 0))
         self.mobjects = [r for r in self.mobjects if id(r) in present] + new
@@ -1027,9 +1052,13 @@ class Scene:
         )
         return self.add(*mobjects)
 
-    add_foreground_mobject = add_foreground_mobjects
-    """The same as
-    [`add_foreground_mobjects`][manimgx.Scene.add_foreground_mobjects]."""
+    @deprecated(
+        "add_foreground_mobject is add_foreground_mobjects: use it", category=None
+    )
+    def add_foreground_mobject(self, *mobjects: Mobject) -> Self:
+        """The same as
+        [`add_foreground_mobjects`][manimgx.Scene.add_foreground_mobjects]."""
+        return self.add_foreground_mobjects(*mobjects)
 
     def remove_foreground_mobjects(self, *mobjects: Mobject) -> Self:
         """Take mobjects out of the front: they stay in the scene, where they are in its
@@ -1038,9 +1067,13 @@ class Scene:
         self.foreground_mobjects = _restructure(self.foreground_mobjects, mobjects)
         return self
 
-    remove_foreground_mobject = remove_foreground_mobjects
-    """The same as
-    [`remove_foreground_mobjects`][manimgx.Scene.remove_foreground_mobjects]."""
+    @deprecated(
+        "remove_foreground_mobject is remove_foreground_mobjects: use it", category=None
+    )
+    def remove_foreground_mobject(self, *mobjects: Mobject) -> Self:
+        """The same as
+        [`remove_foreground_mobjects`][manimgx.Scene.remove_foreground_mobjects]."""
+        return self.remove_foreground_mobjects(*mobjects)
 
     def bring_to_front(self, *mobjects: Mobject) -> Self:
         """Draw mobjects over the others, but under the foreground mobjects: the same as
@@ -1095,7 +1128,9 @@ class Scene:
 
         if not (replace_in(self.mobjects) or replace_in(self.foreground_mobjects)):
             raise ValueError(f"Could not find {old} in scene")
+        self._holding = None  # (what it holds changed in place)
 
+    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def get_mobject_family_members(self) -> list[Mobject]:
         """Every mobject in the scene, with all its submobjects, each once.
 
@@ -1141,21 +1176,18 @@ class Scene:
     def play(self, *animations: Animation, **options: Unpack[TransformOptions]) -> None:
         """Play animations, together, from the scene's present time.
 
-        Each animation plays in a window of its own that begins now and lasts its run
-        time: the play lasts as long as the longest, and each animation finishes at the
-        end of its own window, whatever else still plays. A play of `d` seconds from
-        time `T` owns the frames whose times fall in `[T, T + d)`, each showing the
-        world at its own instant; then the world is brought to `T + d`, where
-        `construct` goes on. To play animations one after another, or staggered, play a
+        Each animation starts now and lasts its own run time, and ends when its time is up,
+        whatever else still plays: the play lasts as long as the longest one. Then
+        `construct` goes on, at the time the play ended. To play animations one after
+        another, or each a little after the one before it, play a
         [`Succession`][manimgx.Succession] or a [`LaggedStart`][manimgx.LaggedStart].
 
-        As the play begins, it brings into the scene what its animations act on, if the
-        scene lacks it, each by itself, in the order given; but an animation that
-        introduces its mobject ([`Create`][manimgx.Create], [`FadeIn`][manimgx.FadeIn], …)
-        brings it in as it begins, and a replacement's target comes in as the
-        replacement finishes. A remover ([`FadeOut`][manimgx.FadeOut], …) takes its mobject
-        out as it finishes. A part of a composition begins and finishes as its window opens
-        and closes. A [`Wait`][manimgx.Wait] played alone is a [`wait`][manimgx.Scene.wait].
+        A play brings into the scene what its animations change, if the scene doesn't
+        hold it yet, in the order given. An animation that brings its mobject in
+        ([`Create`][manimgx.Create], [`FadeIn`][manimgx.FadeIn], …) adds it as it starts,
+        and a replacement adds the mobject it turns into as it ends. One that takes its
+        mobject out ([`FadeOut`][manimgx.FadeOut], …) removes it as it ends. A
+        [`Wait`][manimgx.Wait] played alone is a [`wait`][manimgx.Scene.wait].
 
         Args:
             *animations: The animations, or iterables of them; at least one.
@@ -1209,11 +1241,11 @@ class Scene:
                 )
             )
             end = start + _exact(anim.run_time)
-            self.compositor = Compositor()
+            self.compositor, self._animation = Compositor(), anim
             try:
                 self._play(anim, start, end)
             finally:
-                self.compositor = None
+                self.compositor, self._animation = None, None
         self.film.played(Play(index, start, self.clock, where), tuple(anims))
 
     def _play(self, anim: Animation, start: Fraction, end: Fraction) -> None:
@@ -1348,15 +1380,54 @@ class Scene:
         for mob in concern.mobjects:
             mob.advance(t, recursive=False)
         if opening is not None:
-            opening()
+            self._together(opening)
         clock.stepping = clock.framing = True
+
+    def _together(self, begin: Callable[[], object]) -> None:
+        """Run `begin`, in which animations begin together: they all find the scene as it
+        was, and what they bring in (`_introduce`) is looked for in what it holds, found
+        once for them all."""
+        self._beginning, self._holding = True, None
+        try:
+            begin()
+        finally:
+            self._beginning, self._holding = False, None
+
+    def _introduce(self, mobjects: Sequence[Mobject]) -> None:
+        """Bring in, as an animation that introduces them begins, those of `mobjects` the
+        scene lacks (with something to draw or to run), each by itself, as `add` does: one
+        none of whose family the scene holds joins it without its being searched again."""
+        holding = self._holding
+        if holding is None or holding[0] is not self.mobjects:
+            holding = (self.mobjects, {id(m) for m in _family(self.mobjects)})
+        held = holding[1]
+        lacking = [
+            mob
+            for mob in mobjects
+            if id(mob) not in held
+            and any(m.has_points() or m.updaters for m in mob.get_family())
+        ]
+        if lacking:
+            family = _family(lacking)
+            if self.foreground_mobjects or any(id(m) in held for m in family):
+                self.add(*lacking)  # (what the scene held of them leaves its place)
+                holding = None
+            else:
+                if any(m.updaters for m in family):  # their updaters run from now on
+                    for m in family:
+                        m._stamp(clock.now, recursive=False)
+                self.mobjects = [*self.mobjects, *remove_list_redundancies(lacking)]
+                held.update(id(m) for m in family)
+                holding = (self.mobjects, held)
+        if self._beginning:
+            self._holding = holding
 
     def _bring(self, anim: Animation) -> None:
         """Bring into the scene, as a play begins, what its animations act on that it lacks,
         in their order, each by itself (what it holds stays in place): all but what an
         animation introduces (it joins as that animation begins) and what a replacement
         puts in (as it finishes)."""
-        from manimgx.animation.timeline import AnimationGroup, _lacks
+        from manimgx.animation.timeline import AnimationGroup, _held, _lacks
         from manimgx.animation.transform import Transform
 
         promised: set[int] = set()
@@ -1367,11 +1438,12 @@ class Scene:
                 for part in anim.animations:
                     visit(part)
             elif anim.is_introducer():
-                promised.add(id(anim.mobject))
+                promised.update(id(mob) for mob in _held(anim.mobject))
             else:
-                if id(anim.mobject) not in promised and _lacks(anim.mobject, members):
-                    self.add(anim.mobject)
-                    members.extend(anim.mobject.get_family())
+                for mob in _held(anim.mobject):
+                    if id(mob) not in promised and _lacks(mob, members):
+                        self.add(mob)
+                        members.extend(mob.get_family())
                 if (
                     isinstance(anim, Transform)
                     and anim.replace_mobject_with_target_in_scene
@@ -1389,12 +1461,11 @@ class Scene:
     ) -> None:
         """Let time pass, playing nothing: the updaters keep running.
 
-        The wait owns the frames whose times fall in its `duration` from now, each
-        showing the world at its own instant; then `construct` goes on at its end. With
-        a `stop_condition`, it ends at the first frame at which the condition holds, and
-        the scene goes on from that frame's time. With `frozen_frame`, the picture holds
-        instead: the video goes on for `duration`, but the world stands still, no
-        updater runs, and time-based updaters go on afterwards as if no time had passed
+        The video goes on for `duration` seconds, and `construct` goes on at their end.
+        With a `stop_condition`, the wait ends at the first frame at which the condition
+        holds, and the scene goes on from that frame's time. With `frozen_frame`, the
+        picture holds instead: the video goes on for `duration`, but nothing moves, no
+        updater runs, and time-based updaters go on afterward as if no time had passed
         (see [`pause`][manimgx.Scene.pause]).
 
         Args:
@@ -1626,35 +1697,18 @@ class Scene:
         return clip
 
 
+@deprecated(
+    "MovingCameraScene is Scene: every scene's camera moves (self.camera.frame)",
+    category=None,
+)
 class MovingCameraScene(Scene):
-    """A scene whose camera moves: the name Manim code knows it by, as every scene's
-    camera can move.
-
-    The camera's [`frame`][manimgx.Camera.frame] is a rectangle in the scene whose
-    center and size are the view: move it, scale it or animate it, and the view pans and
-    zooms.
-
-    Examples:
-        ```python
-        import manimgx as m
-
-
-        class MovingCameraSceneExample(m.MovingCameraScene):
-            def construct(self) -> None:
-                square = m.Square(color=m.BLUE, fill_opacity=0.5).shift(3 * m.LEFT)
-                triangle = m.Triangle(color=m.YELLOW, fill_opacity=0.5)
-                triangle.shift(3 * m.RIGHT)
-                self.add(square, triangle)
-                frame = self.camera.frame
-                frame.save_state()
-                self.play(frame.animate.move_to(square).set(width=4))
-                self.play(frame.animate.move_to(triangle))
-                self.play(m.Restore(frame))
-        ```
+    """A scene whose camera moves: the name Manim CE knows it by. Every scene's camera
+    moves, so it is a [`Scene`][manimgx.Scene]: animate `self.camera.frame` to pan and
+    zoom.
     """
 
 
-class ZoomedScene(MovingCameraScene):
+class ZoomedScene(Scene):
     """A scene with a second camera, whose picture is shown in the frame: a magnifying
     glass.
 
@@ -1675,9 +1729,9 @@ class ZoomedScene(MovingCameraScene):
             corner, in scene units.
         zoomed_camera_config: [The zoomed camera's look][manimgx.scene.ZoomedCameraConfig]:
             its frame's outline, and its picture's background.
-        zoomed_camera_image_mobject_config: Keywords for the display, an
-            [`ImageMobjectFromCamera`][manimgx.ImageMobjectFromCamera]: its style, and
-            its outline's (`default_display_frame_config`).
+        zoomed_camera_image_mobject_config: Keywords for the display, the picture of
+            what the zoomed camera sees: its style, and its outline's
+            (`default_display_frame_config`).
         zoomed_camera_frame_starting_position: Where the zoomed camera's frame starts.
         zoom_factor: The size of the zoomed camera's frame, as a fraction of the
             display's: the display magnifies `1 / zoom_factor` times.
@@ -1799,7 +1853,7 @@ class ZoomedScene(MovingCameraScene):
         Returns:
             The animation, to play.
         """
-        from manimgx.animation.motion import ApplyMethod
+        from manimgx.animation.motion import Restore
 
         kwargs.setdefault("run_time", 2)
         frame = self.zoomed_camera.frame
@@ -1808,7 +1862,7 @@ class ZoomedScene(MovingCameraScene):
         frame.stretch_to_fit_height(self.camera.frame_height)
         frame.center()
         frame.set_stroke(width=0)
-        return ApplyMethod(frame.restore, **kwargs)
+        return Restore(frame, **kwargs)
 
     def get_zoomed_display_pop_out_animation(
         self, **kwargs: Unpack[TransformOptions]
@@ -1825,12 +1879,12 @@ class ZoomedScene(MovingCameraScene):
         Returns:
             The animation, to play.
         """
-        from manimgx.animation.motion import ApplyMethod
+        from manimgx.animation.motion import Restore
 
         display = self.zoomed_display
         display.save_state()
         display.replace(self.zoomed_camera.frame, stretch=True)
-        return ApplyMethod(display.restore, **kwargs)
+        return Restore(display, **kwargs)
 
     def get_zoom_factor(self) -> float:
         """How small the zoomed camera's frame is next to the display.
@@ -2317,7 +2371,7 @@ class VectorScene(Scene):
         Args:
             animate: Whether to draw it in ([`Create`][manimgx.Create], its lines
                 overlapping).
-            **kwargs: [Number plane keywords][manimgx.mobjects.plotting.NumberPlaneOptions].
+            **kwargs: [Number plane keywords][manimgx.NumberPlane].
 
         Returns:
             The plane. It is not the scene's [`plane`][manimgx.VectorScene.plane] unless
@@ -2354,7 +2408,7 @@ class VectorScene(Scene):
         Args:
             numerical_vector: The point's coordinates on
                 [`plane`][manimgx.VectorScene.plane]: x and y (a z is ignored).
-            **kwargs: [Arrow keywords][manimgx.mobjects.shapes.ArrowTips].
+            **kwargs: [Arrow keywords][manimgx.Arrow].
 
         Returns:
             A new arrow, not added to the scene.
@@ -2395,8 +2449,9 @@ class VectorScene(Scene):
 
         It is shown growing from the origin ([GrowArrow][manimgx.GrowArrow]) if `animate`
         says so, or else if the scene's `grows_vectors` does (a vector scene's does, a
-        transformation scene's doesn't); then the scene takes it up
-        ([added_vector][manimgx.VectorScene.added_vector]).
+        transformation scene's doesn't); then the scene takes it up: a
+        [LinearTransformationScene][manimgx.LinearTransformationScene] moves it with the
+        plane.
 
         Args:
             vector: An arrow, or the coordinates of a vector's tip, in scene units.
@@ -2416,6 +2471,7 @@ class VectorScene(Scene):
         self.added_vector(vector)
         return vector
 
+    @deprecated("Manim CE's machinery: vector_to_coords calls it", category=None)
     def added_vector(self, vector: Arrow) -> None:
         """Take up a vector that [add_vector][manimgx.VectorScene.add_vector] added: a
         vector scene does nothing with it, and a
@@ -2567,6 +2623,7 @@ class VectorScene(Scene):
         self.add(mathtex_label)
         return mathtex_label
 
+    @deprecated("Manim CE's machinery: vector_to_coords calls it", category=None)
     def position_x_coordinate(
         self, x_coord: Mobject, x_line: Line, vector: Vector3DLike
     ) -> Mobject:
@@ -2585,6 +2642,7 @@ class VectorScene(Scene):
         x_coord.set_color(X_COLOR)
         return x_coord
 
+    @deprecated("Manim CE's machinery: vector_to_coords calls it", category=None)
     def position_y_coordinate(
         self, y_coord: Mobject, y_line: Line, vector: Vector3DLike
     ) -> Mobject:
@@ -2697,9 +2755,9 @@ class LinearTransformationScene(VectorScene):
         include_background_plane: Whether a plane stays still in the background.
         include_foreground_plane: Whether a plane over it moves with the
             transformations: the scene's `plane`.
-        background_plane_kwargs: [Number plane keywords][manimgx.mobjects.plotting.NumberPlaneOptions]
+        background_plane_kwargs: [Number plane keywords][manimgx.NumberPlane]
             for the background plane, over its own (grey lines).
-        foreground_plane_kwargs: [Number plane keywords][manimgx.mobjects.plotting.NumberPlaneOptions]
+        foreground_plane_kwargs: [Number plane keywords][manimgx.NumberPlane]
             for the moving plane, over its own (it reaches past the frame, so that the
             frame stays covered as it moves).
         show_coordinates: Whether the background plane's axes are numbered.
@@ -2804,6 +2862,7 @@ class LinearTransformationScene(VectorScene):
             self.i_hat, self.j_hat = self.basis_vectors
             self.add(self.basis_vectors)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def add_special_mobjects(
         self, mob_list: list[Mobject], *mobs_to_add: Mobject
     ) -> None:
@@ -2993,6 +3052,7 @@ class LinearTransformationScene(VectorScene):
         self.title = title
         return self
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_matrix_transformation(
         self, matrix: npt.ArrayLike
     ) -> Callable[[Point3D], Point3D]:
@@ -3007,6 +3067,7 @@ class LinearTransformationScene(VectorScene):
         """
         return self.get_transposed_matrix_transformation(np.array(matrix).T)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_transposed_matrix_transformation(
         self, transposed_matrix: npt.ArrayLike
     ) -> Callable[[Point3D], Point3D]:
@@ -3029,6 +3090,7 @@ class LinearTransformationScene(VectorScene):
             raise ValueError("Matrix has bad dimensions")
         return lambda point: np.dot(point, matrix)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_piece_movement(self, pieces: Iterable[Mobject]) -> Transform:
         """The animation that moves mobjects whole into their targets (their `target`
         each), all together.
@@ -3050,6 +3112,7 @@ class LinearTransformationScene(VectorScene):
             self.add(self.ghost_vectors[-1])
         return Transform(start, target, lag_ratio=0)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_moving_mobject_movement(self, func: MappingFunction) -> Transform:
         """The animation that moves the moving mobjects whole to where a function takes
         their centers.
@@ -3066,6 +3129,7 @@ class LinearTransformationScene(VectorScene):
             m.target.move_to(func(m.get_center()))
         return self.get_piece_movement(self.moving_mobjects)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_vector_movement(self, func: MappingFunction) -> Transform:
         """The animation that redraws the moving vectors to where a function takes their
         tips; a vector that ends up shorter than 0.1 gets a tip as small.
@@ -3084,6 +3148,7 @@ class LinearTransformationScene(VectorScene):
             v.target = target
         return self.get_piece_movement(self.moving_vectors)
 
+    @deprecated("Manim CE's machinery: apply_matrix calls it", category=None)
     def get_transformable_label_movement(self) -> Transform:
         """The animation that moves each transformable label to where its vector goes,
         rewritten: it follows `get_vector_movement`, which moves the vectors.
