@@ -11,7 +11,8 @@ import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from fractions import Fraction
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
+from warnings import deprecated
 
 from manimgx import _engine
 from manimgx.config import config
@@ -26,6 +27,21 @@ if TYPE_CHECKING:
     from manimgx.drawing.geometry import Path
     from manimgx.mobject import Mobject
     from manimgx.scene import Camera
+
+
+X264Preset = Literal[
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+    "placebo",
+]
+"""The x264 presets, from fastest to slowest."""
 
 
 class Frame:
@@ -214,8 +230,8 @@ class Film:
             if the film is recorded as a take (see [`Take`][manimgx.rendering.film.Take]).
         preset: The x264 preset the video is encoded with: faster presets make larger
             files.
-        crf: The video's quality, as x264's constant rate factor: lower is better, and
-            18 looks lossless.
+        crf: The video's quality, as x264's constant rate factor, from 0 to 51:
+            lower is better, the default value is 18.
     """
 
     def __init__(
@@ -225,9 +241,15 @@ class Film:
         frames: FrameSink | None = None,
         plays: PlayHook | None = None,
         take: Take | None = None,
-        preset: str = "ultrafast",
+        preset: X264Preset = "ultrafast",
         crf: float = 18.0,
     ) -> None:
+        if preset not in get_args(X264Preset):
+            raise ValueError(f"unknown x264 preset {preset!r}")
+        if not 0 <= crf <= 51:
+            raise ValueError(
+                f"x264 CRF must be a finite number from 0 to 51, not {crf}"
+            )
         fps = config.frame_rate
         if video is not None and fps != int(fps):
             raise ValueError(
@@ -304,6 +326,7 @@ class Film:
 
         return mix(self.clips, self.frame_count / self.fps)
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def section(
         self, name: str, start: Fraction, type: SectionType, notes: str
     ) -> None:
@@ -340,9 +363,7 @@ class Film:
 
         def stamp(t: float) -> str:
             ms = round(t * 1000)
-            return (
-                f"{ms // 3_600_000:02d}:{ms // 60_000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
-            )
+            return f"{ms // 3_600_000:02d}:{ms // 60_000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
         return "".join(
             f"{i}\n{stamp(c.start)} --> {stamp(c.end)}\n{c.text}\n\n"
@@ -362,6 +383,7 @@ class Film:
         ]
         return sorted(self.subcaptions + spoken, key=lambda c: c.start)
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def played(self, play: Play, animations: "tuple[Animation, ...]") -> None:
         """Keep a play that has ended, and hand it to the play hook with the animations
         it played: the scene calls it as each play ends, the world as the play left it.
@@ -376,6 +398,7 @@ class Film:
         if self._hook is not None:
             self._hook(play, animations)
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def picture(self, camera: "Camera", mobjects: "list[Mobject]") -> bytes:
         """Draw the world as `camera` sees it now: a picture, not a frame of the film.
 
@@ -391,6 +414,7 @@ class Film:
             raise RuntimeError("a film recorded as a take is drawn by manimgx's player")
         return self._player.render(view, records, cameras)
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def record(
         self, camera: "Camera", mobjects: "list[Mobject]", repeat: int = 1
     ) -> None:
@@ -408,6 +432,7 @@ class Film:
         view, records, cameras = self.feeder.frame(camera, mobjects)
         self._add(view, records, cameras, repeat)
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def tween(
         self,
         camera: "Camera",
@@ -466,6 +491,7 @@ class Film:
                 )
             )
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def close(self) -> None:
         """Close the film: send its last frame, and write its video, if any.
 
@@ -508,6 +534,7 @@ class Film:
             self._recorder.end()
             self._flush()
 
+    @deprecated("manimgx's machinery: the scene calls it", category=None)
     def abort(self) -> None:
         """Stop the film without writing its video; its take, if it is recorded as one, ends
         saying that its scene failed.
