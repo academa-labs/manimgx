@@ -24,6 +24,7 @@ from manimgx.constants import CapStyleType, LineJointType
 from manimgx.drawing.geometry import (
     IDENTITY,
     Blend,
+    Lattice,
     Shape,
     grid_triangles,
     subpath_ranges,
@@ -473,8 +474,8 @@ def view(
 
 
 def _same_topology(
-    a: "tuple[np.ndarray | tuple[int, int], np.ndarray | None] | None",
-    b: "tuple[np.ndarray | tuple[int, int], np.ndarray | None] | None",
+    a: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
+    b: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
 ) -> bool:
     """Topology and UV values are immutable; retaining them also retains their identity."""
     if a is None or b is None:
@@ -528,7 +529,7 @@ class Feeder:
             int,
             tuple[
                 Shape,
-                np.ndarray | tuple[int, int],
+                np.ndarray | Lattice,
                 np.ndarray | None,
                 int,
                 int,
@@ -572,7 +573,11 @@ class Feeder:
         stale = [k for k, t in self.last_used.items() if t < self.frames - keep]
         if not stale:
             return
-        self.player.evict(stale)
+        # a key whose path draws nothing, or whose upload failed, never reached the player:
+        # it is only forgotten
+        resident = [k for k in stale if self.sizes.get(k, -1) != -1]
+        if resident:
+            self.player.evict(resident)
         self.evictions += 1
         gone = set(stale)
         for key in stale:
@@ -714,13 +719,14 @@ class Feeder:
     def mesh(
         self,
         shape: Shape,
-        topology: np.ndarray | tuple[int, int],
+        topology: np.ndarray | Lattice,
         uvs: np.ndarray | None,
         steps: int = 0,
     ) -> tuple[int, np.ndarray]:
-        """Upload explicit triangles or lower a sample lattice to refined spline cells."""
-        grid = topology if isinstance(topology, tuple) else None
-        steps = steps if grid is not None else 0
+        """Upload explicit triangles or lower a sample lattice to refined spline cells:
+        the faces it draws, cut from its whole lattice's spline."""
+        lattice = topology if isinstance(topology, Lattice) else None
+        steps = steps if lattice is not None else 0
         known = self.mesh_keys.get(id(shape))
         if (
             known is not None
@@ -737,8 +743,8 @@ class Feeder:
             else np.asarray(uvs, dtype=float)
         )
         form, array, a = shape.affine
-        if isinstance(topology, tuple):
-            indices = b"grid" + struct.pack("<3I", *topology, steps)
+        if lattice is not None:
+            indices = b"grid" + struct.pack("<5I", *lattice, steps)
         else:
             tri = np.ascontiguousarray(topology, dtype="<u4")
             indices = b"triangles" + tri.tobytes()
@@ -749,9 +755,14 @@ class Feeder:
         if key not in self.sizes:
             self.last_used[key] = self.frames
             block = outline = 0
-            if grid is not None:
-                g = np.hstack([array, uv]).reshape(grid[0] + 1, grid[1] + 1, -1)
+            if lattice is not None:
+                u, v, first, end = lattice
+                g = np.hstack([array, uv]).reshape(u + 1, v + 1, -1)
                 points, normals, faces, block = refine_surface(g, steps)
+                drawn = slice(first * block, end * block)
+                per = len(faces) // (u * v)  # a face's triangles
+                faces = faces[first * per : end * per] - first * block
+                points, normals = points[drawn], normals[drawn]
                 array, uv, tri = points[:, :3], points[:, 3:], faces.astype("<u4")
                 outline = 4 * steps + 1
             else:
@@ -772,19 +783,21 @@ class Feeder:
             self.sizes[key] = len(array)
         return key, a
 
-    def per_vertex(self, rows: np.ndarray, n: int, key: int, faces: int) -> np.ndarray:
-        """A mesh's rows, one per vertex the player draws: each lattice cell's paint row
-        repeats on every vertex of its refined block. Zero faces means an ordinary mesh.
+    def per_vertex(
+        self, rows: np.ndarray, n: int, key: int, lattice: Lattice | None
+    ) -> np.ndarray:
+        """A mesh's rows, one per vertex the player draws: each drawn lattice cell's paint
+        row repeats on every vertex of its refined block. No lattice: an ordinary mesh's.
         """
-        count = faces or n
+        count = n if lattice is None else lattice.u * lattice.v
         rows = rows if len(rows) == count else stretch_array(rows, count)
-        if not faces:
+        if lattice is None:
             return rows
         known = self.expanded.get((id(rows), key))
         if known is not None and known[0] is rows:
             return known[1]
-        block = self.sizes[key] // faces
-        out = np.repeat(rows, block, axis=0)
+        drawn = rows[lattice.first : lattice.end]
+        out = np.repeat(drawn, self.sizes[key] // max(len(drawn), 1), axis=0)
         out.flags.writeable = False
         if len(self.expanded) > 1 << 10:
             self.expanded.clear()
@@ -1010,7 +1023,9 @@ class Feeder:
                 return None
             terms = (Blend.of(mob.points).terms[0],)
             self.materialized += 1
-        faces = grid[0] * grid[1] if grid is not None and m > 0 else 0
+        # a surface's lattice, refined (m > 0): its faces are u's steps and own its rows
+        topology = mob._topology if isinstance(mob, MeshMobject) and m > 0 else None
+        lattice = topology if isinstance(topology, Lattice) else None
         if isinstance(mob, VMobject):
             lo, hi = p.window(g.n // 4)
             params = [lo, hi, p.stroke_width * 0.01, p.background_width * 0.01]
@@ -1026,17 +1041,20 @@ class Feeder:
                 if len(stroke[0]) > 1:
                     head[3], head[5] = self.rows(stroke[0]), self.rows(stroke[1])
         elif isinstance(mob, PMobject):
-            params[:2] = np.clip(p.trim, 0.0, 1.0)
-            gradient_a[3] = p.stroke_width / 135  # a point's size, in scene units
+            params[:2] = p.window(g.n)
+            # a point's size, in scene units: as wide as a stroke of its width
+            gradient_a[3] = p.stroke_width * 0.01
             if len(fill[0]) > 1:
                 head[2], head[4] = self.rows(fill[0]), self.rows(fill[1])
         elif isinstance(mob, MeshMobject):
-            params = [*np.clip(p.trim, 0.0, 1.0), p.stroke_width * 0.01, 0.0]
+            steps = len(mob.triangles) // (1 if lattice is None else 2)
+            params = [*p.window(steps), p.stroke_width * 0.01, 0.0]
             if (
                 len(fill[0]) > 1
             ):  # a color per vertex (the player reads a row per vertex)
                 head[2], head[4] = (
-                    self.rows(self.per_vertex(f, g.n, keys[0][0], faces)) for f in fill
+                    self.rows(self.per_vertex(f, g.n, keys[0][0], lattice))
+                    for f in fill
                 )
             if isinstance(p.texture, np.ndarray):
                 head[6] = self.texture(p.texture)
