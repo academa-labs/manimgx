@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Self
+from warnings import deprecated
 
 import numpy as np
 
@@ -69,7 +70,7 @@ class Sound(Animation[Mobject]):
 
     Args:
         source: A file's path, a file's bytes, or samples: floats from -1 to 1, one
-            column per channel (a 1-D array is mono).
+            column per channel (a 1-D array is mono), copied as they are given.
         rate: The samples' rate, in samples a second; only for samples.
     """
 
@@ -81,6 +82,8 @@ class Sound(Animation[Mobject]):
             raise ValueError("give a rate with samples, and only with samples")
         if isinstance(source, str | os.PathLike) and not Path(source).is_file():
             raise FileNotFoundError(f"no sound file at {os.fspath(source)!r}")
+        if isinstance(source, np.ndarray):  # its own: the samples as they were given
+            source = np.array(source, copy=True, subok=True)
         self.source = source
         self.rate = rate
         self._edit = _Edit()
@@ -362,7 +365,7 @@ class Speech(Sound):
         if not self._words:
             self._words = estimate(self.text, _source_samples(self))
         e = self._edit
-        if e.start == 0 and e.speed == 1:
+        if e.start == 0 and e.speed == 1 and e.end is None:
             return self._words
         end = math.inf if e.end is None else e.end
         return tuple(
@@ -420,6 +423,7 @@ def estimate(text: str, samples: np.ndarray) -> tuple[Word, ...]:
     )
 
 
+@deprecated("manimgx's machinery: the captions call it", category=None)
 def lines(speech: Speech, width: int = 42) -> list[tuple[float, float, str]]:
     """A speech as captions: its words in lines of at most `width` characters, a line ending
     at the end of a sentence, each shown from its first word's start until the next line's
@@ -444,6 +448,7 @@ def lines(speech: Speech, width: int = 42) -> list[tuple[float, float, str]]:
 _SPAN = re.compile(r"\[([^\[\]]*)\]")
 
 
+@deprecated("manimgx's machinery: say calls it", category=None)
 def spans(script: str) -> tuple[str, list[tuple[int, int]]]:
     """The text of a script, its brackets taken out, and each bracketed span's characters
     in that text: `"Here is [a circle]."` is `("Here is a circle.", [(8, 16)])`."""
@@ -459,6 +464,7 @@ def spans(script: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(text), found
 
 
+@deprecated("manimgx's machinery: say calls it", category=None)
 def times(speech: Speech, span: tuple[int, int]) -> tuple[float, float]:
     """When the characters `span` of a speech's text are said: from the start of its first
     word to the end of its last; an empty span, the start of the word it comes before.
@@ -512,7 +518,8 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
                 "words": [[w.text, w.start, w.end] for w in speech._words],
             },
             indent=1,
-        ),
+        )
+        + "\n",  # a text file, to commit
         encoding="utf-8",
     )
     return speech
@@ -619,9 +626,8 @@ def timed(text: str, pieces: Sequence[tuple[str, float, float]]) -> tuple[Word, 
     or its tokens): each word from the start of the piece its first letter is in to the end
     of the piece its last letter is in. Empty if the pieces don't spell the text's letters
     (a voice that said "two" for "2"): its words are then estimated."""
-    owner: list[tuple[float, float]] = (
-        []
-    )  # each letter of the pieces: its piece's times
+    # each letter of the pieces: its piece's times
+    owner: list[tuple[float, float]] = []
     for piece, a, b in pieces:
         owner += [(a, b)] * sum(c.isalnum() for c in piece)
     letters = [c.lower() for c in text if c.isalnum()]
