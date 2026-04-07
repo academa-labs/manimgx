@@ -26,7 +26,7 @@ from manimgx.cli.scenes import (
 )
 from manimgx.cli.storyboard import PER_SHEET, Sheets, Watch, caption, tile
 from manimgx.config import config
-from manimgx.rendering.film import Cut, Film, Frame, Play
+from manimgx.rendering.film import Cut, Film, Frame, Play, X264Preset
 from manimgx.scene import Scene
 
 
@@ -43,6 +43,15 @@ def render(
     ] = None,
     resolution: Resolution = None,
     fps: Fps = None,
+    preset: Annotated[
+        X264Preset,
+        typer.Option(
+            help="x264 encoding preset; faster presets render faster while making larger files."
+        ),
+    ] = "ultrafast",
+    crf: Annotated[
+        float, typer.Option(min=0, max=51, help="x264 CRF (0 to 51); lower is better.")
+    ] = 18.0,
 ) -> None:
     """Render a scene to an MP4 video, with its sound.
 
@@ -56,7 +65,7 @@ def render(
     look = Format.own(resolution, fps)
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
-    made, _ = take(kind, look, video=video, plays=watch)
+    made, _ = take(kind, look, video=video, plays=watch, preset=preset, crf=crf)
     sheets = watch.close()
     took = time.perf_counter() - started
     megabytes = video.stat().st_size / 1e6
@@ -258,8 +267,8 @@ def present(
 
     Renders the video, writes a page that plays it (it stops at the end of each section,
     until you go on), and opens it. Keys: → or Space next, ← back, F full screen, B black,
-    P presenter view (notes, the next slide, a clock), C captions, ? help. A clicker works:
-    it sends the same keys. Begin a section with `self.next_section(...)` in the scene.
+    Shift+P presenter view (notes, the next slide, a timer), C captions, ? help. A clicker
+    works: it sends the same keys. Begin a section with `self.next_section(...)` in the scene.
     """
     kind = scene(file, name)
     video = output or file.with_name(f"{kind.__name__}.mp4")
