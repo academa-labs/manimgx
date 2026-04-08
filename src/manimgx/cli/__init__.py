@@ -59,7 +59,7 @@ def manimgx(
         ),
     ] = False,
 ) -> None:
-    """Render Manim Community Edition scenes on a fast GPU engine.
+    """The animation engine for agents: blazingly fast math and 3D videos with Manim's Python API, on a Rust GPU core.
 
     A scene file is Manim CE code: `import manimgx as m`, a class deriving m.Scene, its
     `construct`. Work in a loop:

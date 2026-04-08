@@ -19,7 +19,7 @@ from rich.console import Console
 import manimgx
 from manimgx.animation.timeline import Animation
 from manimgx.config import Config, config
-from manimgx.rendering.film import Film, FrameSink, Play
+from manimgx.rendering.film import Film, FrameSink, Play, X264Preset
 from manimgx.scene import Scene
 
 
@@ -286,6 +286,8 @@ def take(
     video: str | os.PathLike[str] | None = None,
     frames: FrameSink | None = None,
     plays: Watch | None = None,
+    preset: X264Preset = "ultrafast",
+    crf: float = 18.0,
 ) -> tuple[Scene, Film]:
     """Run the scene at `look`, making its film (and video, frames and plays, as asked). On a
     terminal, a status line on stderr follows the plays as they end."""
@@ -306,6 +308,8 @@ def take(
                 if plays is not None:
                     plays(made, play, did)
 
-            return made, made.render(video, frames=frames, plays=hook)
+            return made, made.render(
+                video, frames=frames, plays=hook, preset=preset, crf=crf
+            )
     except Exception as error:
         raise fail(report_error(error), 1) from None

@@ -287,9 +287,9 @@ def _layout(name: LayoutName) -> LayoutFunction[Hashable]:
     }[name]
 
 
-type Layout[V] = LayoutName | str | Positions[V] | LayoutFunction[
-    V
-]  # a layout's name, checked when used
+type Layout[V] = (
+    LayoutName | str | Positions[V] | LayoutFunction[V]
+)  # a layout's name, checked when used
 """Where a graph's vertices go: a layout's name, the vertices' positions (a dictionary
 from each vertex to its point), or a layout function."""
 
@@ -416,10 +416,6 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
     `partitions`) and `"tree"` (down from `root_vertex`) — by a dictionary of positions,
     or by a function of one's own. It spans about `layout_scale` from the center, the
     center at the scene's origin; points of two coordinates lie in the plane z = 0.
-
-    Construction places vertices before creating edges, without calling an overridden
-    `change_layout`. The `_empty_networkx_graph` factory runs after vertex creation for
-    named or custom layouts; a position mapping does not call it.
 
     Args:
         vertices: The vertices: hashable values, each a vertex's name.
@@ -789,7 +785,7 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
 
         Args:
             nxgraph: The NetworkX graph (a `Graph`, or a `DiGraph`).
-            **kwargs: [Graph keywords][manimgx.mobjects.graph.GraphOptions]: `layout`,
+            **kwargs: [Graph keywords][manimgx.Graph]: `layout`,
                 `labels`, `vertex_config`, ….
 
         Returns:

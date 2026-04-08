@@ -5,8 +5,9 @@
 
 """Global scene configuration (a small, typed subset of CE's `config`)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, overload
+from warnings import deprecated
 
 import numpy as np
 
@@ -26,13 +27,17 @@ class Config:
     takes the video's size and frame rate when it starts. It can be read and set as a
     dictionary too, as Manim code does: `config["frame_width"]`,
     `config["pixel_height"] = 720`.
+
+    The frame has the video's proportions, and its short side is 8 units: a wide video
+    (16:9) shows about 14.2 × 8 units, a tall one (9:16) 8 × 14.2. So what fits in the
+    8 × 8 square at the center fits both, at the same size.
     """
 
     pixel_width: int = 1920
     """The width of the video, in pixels (default 1920)."""
     pixel_height: int = 1080
-    """The height of the video, in pixels (default 1080). The frame has the video's
-    proportions: `frame_height` tall, and as wide as they make it."""
+    """The height of the video, in pixels (default 1080). For a tall video (9:16), make
+    it the larger: `config.pixel_width, config.pixel_height = 1080, 1920`."""
     frame_rate: float = 60
     """How many frames a second the film has (default 60): frame k shows the scene at
     exactly k / `frame_rate` seconds. A video needs a whole number."""
@@ -46,18 +51,31 @@ class Config:
     frames a second each frame is a tick, so the ticks cost nothing more; at a frame
     rate that divides it (10, 12, 15, 20, 30), every frame falls on a tick too.
     """
-    frame_height: float = 8.0
-    """The height of the frame, in scene units (default 8); its width follows from the
-    video's proportions."""
     background_color: ParsableManimColor = BLACK
     """The color of the background (default black)."""
     background_opacity: float = 1.0
     """The opacity of the background, from 0 to 1 (default 1)."""
+    _frame_height: float | None = field(default=None, repr=False)
+    """The frame's height as set, if it was (`frame_height`)."""
+
+    @property
+    def frame_height(self) -> float:
+        """The height of the frame, in scene units. Unless set, the frame's short side is
+        8 units: a wide video's frame is 8 high, a tall one's as high as its proportions
+        make it when it is 8 wide (about 14.2 at 9:16). Its width follows from the
+        video's proportions."""
+        if self._frame_height is not None:
+            return self._frame_height
+        return 8.0 * max(1.0, self.pixel_height / self.pixel_width)
+
+    @frame_height.setter
+    def frame_height(self, value: float) -> None:
+        self._frame_height = value
 
     @property
     def frame_width(self) -> float:
         """The width of the frame, in scene units: `frame_height` times the video's
-        aspect ratio (about 14.2 at 16:9)."""
+        aspect ratio (about 14.2 at 16:9, 8 at 9:16)."""
         return self.frame_height * self.pixel_width / self.pixel_height
 
     @property
@@ -67,7 +85,7 @@ class Config:
 
     @property
     def frame_y_radius(self) -> float:
-        """Half the frame's height, in scene units (4 by default): the y of its top
+        """Half the frame's height, in scene units (4 for a wide video): the y of its top
         edge."""
         return self.frame_height / 2
 
@@ -156,7 +174,6 @@ config = Config()
 
 
 class _PixelUnits:
-
     def __mul__(self, val: float) -> float:
         return val * config.frame_width / config.pixel_width
 
@@ -164,6 +181,9 @@ class _PixelUnits:
         return val * config.frame_width / config.pixel_width
 
 
+@deprecated(
+    "use a fraction of config.frame_width or config.frame_height", category=None
+)
 class Percent:
     """A length as a percentage of the frame's width or height: `25 * Percent(X_AXIS)`
     is a quarter of the frame's width, in scene units.
