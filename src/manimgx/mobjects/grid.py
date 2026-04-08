@@ -90,7 +90,7 @@ class MatrixOptions(Style, total=False):
     """Whether the brackets are stretched to the entries' height, and `bracket_v_buff`
     beyond (default True)."""
     bracket_config: MathTexOptions | None
-    """[Math keywords][manimgx.mobjects.text.MathTexOptions] for the
+    """[Math keywords][manimgx.MathTex] for the
     brackets: their `color`, … (default None: none)."""
 
     element_to_mobject: ElementFactory
@@ -275,7 +275,7 @@ class Matrix(_Grid, VMobject):
         right_bracket: The right bracket, as a LaTeX delimiter.
         stretch_brackets: Whether the brackets are stretched to the entries' height,
             and `bracket_v_buff` beyond.
-        bracket_config: [Math keywords][manimgx.mobjects.text.MathTexOptions]
+        bracket_config: [Math keywords][manimgx.MathTex]
             for the brackets: their `color`, …; None for none.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style] of the matrix itself: as it
             has no points, they do not restyle its entries or its brackets.
@@ -417,7 +417,7 @@ class DecimalMatrix(Matrix):
 
     It takes a [Matrix][manimgx.Matrix]'s arguments; its entries are numbers, and its
     `element_to_mobject_config` gives the numbers'
-    [keywords][manimgx.mobjects.numbers.DecimalNumberOptions], in place of
+    [keywords][manimgx.DecimalNumber], in place of
     `{"num_decimal_places": 1}`.
 
     Examples:
@@ -448,7 +448,7 @@ class IntegerMatrix(Matrix):
 
     It takes a [Matrix][manimgx.Matrix]'s arguments; its entries are numbers, and its
     `element_to_mobject_config` gives the numbers'
-    [keywords][manimgx.mobjects.numbers.DecimalNumberOptions].
+    [keywords][manimgx.DecimalNumber].
 
     Examples:
         ```python
@@ -540,10 +540,10 @@ class Table(_Grid, VGroup):
             (Paragraph, for a Table).
         element_to_mobject_config: Keywords for `element_to_mobject`; None for the
             class's own (none, for a Table).
-        arrange_in_grid_config: [Grid keywords][manimgx.mobject.GridArrangement]
+        arrange_in_grid_config: [Grid keywords][manimgx.Mobject.arrange_in_grid]
             for laying out the cells, over the table's own rows, columns and gaps:
             `cell_alignment`, `col_alignments`, …; None for none.
-        line_config: [Line keywords][manimgx.mobjects.shapes.LineOptions] for the
+        line_config: [Line keywords][manimgx.Line] for the
             lines: their `color`, `stroke_width`, …; None for none.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style] of the table itself: as it
             has no points, they do not restyle its entries or its lines.
@@ -891,14 +891,16 @@ class Table(_Grid, VGroup):
         """
         row = list(self.cells[pos[0] - 1])
         col = [row[pos[1] - 1] for row in self.cells]
-        box = _family_box(_family(col))
-        left = (np.float64(0) if box is None else box[0, 0]) - self.h_buff / 2
-        box = _family_box(_family(col))
-        right = (np.float64(0) if box is None else box[1, 0]) + self.h_buff / 2
-        box = _family_box(_family(row))
-        bottom = (np.float64(0) if box is None else box[0, 1]) - self.v_buff / 2
-        box = _family_box(_family(row))
-        top = (np.float64(0) if box is None else box[1, 1]) + self.v_buff / 2
+        across = _family_box(_family(col))  # (the column's box: the cell's sides)
+        down = _family_box(_family(row))  # (the row's box: its top and bottom)
+        if across is None:
+            across = np.zeros((2, 3))
+        if down is None:
+            down = np.zeros((2, 3))
+        left = across[0, 0] - self.h_buff / 2
+        right = across[1, 0] + self.h_buff / 2
+        bottom = down[0, 1] - self.v_buff / 2
+        top = down[1, 1] + self.v_buff / 2
         return Polygon(
             [left, top, 0],
             [right, top, 0],
@@ -1044,7 +1046,7 @@ class MathTable(Table):
 
     It takes a [Table][manimgx.Table]'s arguments; its entries are strings of math, or
     numbers, and its `element_to_mobject_config` gives their
-    [math keywords][manimgx.mobjects.text.MathTexOptions].
+    [math keywords][manimgx.MathTex].
 
     Examples:
         ```python
@@ -1100,7 +1102,7 @@ class IntegerTable(Table):
 
     It takes a [Table][manimgx.Table]'s arguments; its entries are numbers, and its
     `element_to_mobject_config` gives their
-    [number keywords][manimgx.mobjects.numbers.DecimalNumberOptions].
+    [number keywords][manimgx.DecimalNumber].
 
     Examples:
         ```python
@@ -1128,7 +1130,7 @@ class DecimalTable(Table):
 
     It takes a [Table][manimgx.Table]'s arguments; its entries are numbers, and its
     `element_to_mobject_config` gives their
-    [number keywords][manimgx.mobjects.numbers.DecimalNumberOptions], in place of
+    [number keywords][manimgx.DecimalNumber], in place of
     `{"num_decimal_places": 1}`.
 
     Examples:

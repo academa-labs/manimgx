@@ -1,366 +1,127 @@
-from manimgx.animations.bases.animation import Animation
-from manimgx.animations.bases.animation_group import (
-    AnimationGroup,
-    LaggedStart,
-    Succession,
-)
-from manimgx.animations.bases.animation_on_mobject import AnimationOnMobject
-from manimgx.animations.create import Create
-from manimgx.animations.fade_in import FadeIn
-from manimgx.animations.fade_out import FadeOut
-from manimgx.animations.lagged_start_map import LaggedStartMap
-from manimgx.animations.morph import Morph
-from manimgx.animations.rotate import Rotate
-from manimgx.animations.scale_in_place import ScaleInPlace
-from manimgx.animations.tween import Tween
-from manimgx.animations.write import Write
-from manimgx.engine import Shading, Side
-from manimgx.mobjects.annulus import Annulus
-from manimgx.mobjects.arrow import Arrow
-from manimgx.mobjects.bases.fill_stroke_mobject import FillStrokeMobject
-from manimgx.mobjects.bases.mobject import Mobject
-from manimgx.mobjects.bases.planar_path import PlanarPath
-from manimgx.mobjects.bases.planar_path_mobject import PlanarPathMobject
-from manimgx.mobjects.bases.surface_mobject import Surface, SurfaceMobject
-from manimgx.mobjects.circle import Circle
-from manimgx.mobjects.cone import Cone
-from manimgx.mobjects.cube import Cube
-from manimgx.mobjects.cubic_bezier import CubicBezier
-from manimgx.mobjects.curved_arrow import CurvedArrow
-from manimgx.mobjects.cylinder import Cylinder
-from manimgx.mobjects.dashed_line import DashedLine
-from manimgx.mobjects.dot import Dot
-from manimgx.mobjects.double_arrow import DoubleArrow
-from manimgx.mobjects.ellipse import Ellipse
-from manimgx.mobjects.group import Group
-from manimgx.mobjects.hexagon import Hexagon
-from manimgx.mobjects.image import Image
-from manimgx.mobjects.line import Line
-from manimgx.mobjects.math_tex import MathTex
-from manimgx.mobjects.pentagon import Pentagon
-from manimgx.mobjects.polygon import Polygon
-from manimgx.mobjects.rectangle import Rectangle
-from manimgx.mobjects.regular_polygon import RegularPolygon
-from manimgx.mobjects.rounded_rectangle import RoundedRectangle
-from manimgx.mobjects.sector import AnnularSector
-from manimgx.mobjects.sphere import Sphere
-from manimgx.mobjects.square import Square
-from manimgx.mobjects.star import Star
-from manimgx.mobjects.tex import Tex
-from manimgx.mobjects.torus import Torus
-from manimgx.mobjects.triangle import Triangle
-from manimgx.mobjects.typst import Typst
-from manimgx.mobjects.value_tracker import ValueTracker
-from manimgx.mobjects.vector import Vector
-from manimgx.primitives.color import Color, Opacity, StrokeWidth, parse_color
-from manimgx.primitives.manim_colors import (
-    BLACK,
-    BLUE,
-    BLUE_A,
-    BLUE_B,
-    BLUE_C,
-    BLUE_D,
-    BLUE_E,
-    DARK_BLUE,
-    DARK_BROWN,
-    GOLD,
-    GOLD_A,
-    GOLD_B,
-    GOLD_C,
-    GOLD_D,
-    GOLD_E,
-    GRAY_A,
-    GRAY_B,
-    GRAY_C,
-    GRAY_D,
-    GRAY_E,
-    GREEN,
-    GREEN_A,
-    GREEN_B,
-    GREEN_C,
-    GREEN_D,
-    GREEN_E,
-    GREY_A,
-    GREY_B,
-    GREY_C,
-    GREY_D,
-    GREY_E,
-    LIGHT_BROWN,
-    LIGHT_PINK,
-    MAROON,
-    MAROON_A,
-    MAROON_B,
-    MAROON_C,
-    MAROON_D,
-    MAROON_E,
-    ORANGE,
-    PINK,
-    PURE_BLUE,
-    PURE_GREEN,
-    PURE_RED,
-    PURPLE,
-    PURPLE_A,
-    PURPLE_B,
-    PURPLE_C,
-    PURPLE_D,
-    PURPLE_E,
-    RED,
-    RED_A,
-    RED_B,
-    RED_C,
-    RED_D,
-    RED_E,
-    TEAL,
-    TEAL_A,
-    TEAL_B,
-    TEAL_C,
-    TEAL_D,
-    TEAL_E,
-    WHITE,
-    YELLOW,
-    YELLOW_A,
-    YELLOW_B,
-    YELLOW_C,
-    YELLOW_D,
-    YELLOW_E,
-)
-from manimgx.primitives.rate_functions import (
-    RateFunc,
-    double_smooth,
-    ease_in_back,
-    ease_in_bounce,
-    ease_in_circ,
-    ease_in_cubic,
-    ease_in_elastic,
-    ease_in_expo,
-    ease_in_out_back,
-    ease_in_out_bounce,
-    ease_in_out_circ,
-    ease_in_out_cubic,
-    ease_in_out_elastic,
-    ease_in_out_expo,
-    ease_in_out_quad,
-    ease_in_out_quart,
-    ease_in_out_quint,
-    ease_in_out_sine,
-    ease_in_quad,
-    ease_in_quart,
-    ease_in_quint,
-    ease_in_sine,
-    ease_out_back,
-    ease_out_bounce,
-    ease_out_circ,
-    ease_out_cubic,
-    ease_out_elastic,
-    ease_out_expo,
-    ease_out_quad,
-    ease_out_quart,
-    ease_out_quint,
-    ease_out_sine,
-    exponential_decay,
-    linear,
-    lingering,
-    running_start,
-    rush_from,
-    rush_into,
-    scaled_func,
-    slow_into,
-    smooth,
-    smootherstep,
-    smoothstep,
-    squished_func,
-    there_and_back,
-    there_and_back_with_pause,
-    wiggle,
-)
-from manimgx.primitives.units import PI, Angle, RunTime
-from manimgx.primitives.vector import DOWN, IN, LEFT, ORIGIN, OUT, RIGHT, UP
-from manimgx.scene import Scene
+"""Manim's authoring API, backed by manimgx's scene, object and animation models."""
 
-__all__ = [
-    "BLACK",
-    "BLUE",
-    "BLUE_A",
-    "BLUE_B",
-    "BLUE_C",
-    "BLUE_D",
-    "BLUE_E",
-    "DARK_BLUE",
-    "DARK_BROWN",
-    "DOWN",
-    "GOLD",
-    "GOLD_A",
-    "GOLD_B",
-    "GOLD_C",
-    "GOLD_D",
-    "GOLD_E",
-    "GRAY_A",
-    "GRAY_B",
-    "GRAY_C",
-    "GRAY_D",
-    "GRAY_E",
-    "GREEN",
-    "GREEN_A",
-    "GREEN_B",
-    "GREEN_C",
-    "GREEN_D",
-    "GREEN_E",
-    "GREY_A",
-    "GREY_B",
-    "GREY_C",
-    "GREY_D",
-    "GREY_E",
-    "IN",
-    "LEFT",
-    "LIGHT_BROWN",
-    "LIGHT_PINK",
-    "MAROON",
-    "MAROON_A",
-    "MAROON_B",
-    "MAROON_C",
-    "MAROON_D",
-    "MAROON_E",
-    "ORANGE",
-    "ORIGIN",
-    "OUT",
-    "PI",
-    "PINK",
-    "PURE_BLUE",
-    "PURE_GREEN",
-    "PURE_RED",
-    "PURPLE",
-    "PURPLE_A",
-    "PURPLE_B",
-    "PURPLE_C",
-    "PURPLE_D",
-    "PURPLE_E",
-    "RED",
-    "RED_A",
-    "RED_B",
-    "RED_C",
-    "RED_D",
-    "RED_E",
-    "RIGHT",
-    "TEAL",
-    "TEAL_A",
-    "TEAL_B",
-    "TEAL_C",
-    "TEAL_D",
-    "TEAL_E",
-    "UP",
-    "WHITE",
-    "YELLOW",
-    "YELLOW_A",
-    "YELLOW_B",
-    "YELLOW_C",
-    "YELLOW_D",
-    "YELLOW_E",
-    "Angle",
-    "Animation",
-    "AnimationGroup",
-    "AnimationOnMobject",
-    "AnnularSector",
-    "Annulus",
-    "Arrow",
-    "Circle",
-    "Color",
-    "Cone",
-    "Create",
-    "Cube",
-    "CubicBezier",
-    "CurvedArrow",
-    "Cylinder",
-    "DashedLine",
-    "Dot",
-    "DoubleArrow",
-    "Ellipse",
-    "FadeIn",
-    "FadeOut",
-    "FillStrokeMobject",
-    "Group",
-    "Hexagon",
-    "Image",
-    "LaggedStart",
-    "LaggedStartMap",
-    "Line",
-    "MathTex",
-    "Mobject",
-    "Morph",
-    "Opacity",
-    "Pentagon",
-    "PlanarPath",
-    "PlanarPathMobject",
-    "Polygon",
-    "RateFunc",
-    "Rectangle",
-    "RegularPolygon",
-    "Rotate",
-    "RoundedRectangle",
-    "RunTime",
-    "ScaleInPlace",
-    "Scene",
-    "Shading",
-    "Side",
-    "Sphere",
-    "Square",
-    "Star",
-    "StrokeWidth",
-    "Succession",
-    "Surface",
-    "SurfaceMobject",
-    "Tex",
-    "Torus",
-    "Triangle",
-    "Tween",
-    "Typst",
-    "ValueTracker",
-    "Vector",
-    "Write",
-    "double_smooth",
-    "ease_in_back",
-    "ease_in_bounce",
-    "ease_in_circ",
-    "ease_in_cubic",
-    "ease_in_elastic",
-    "ease_in_expo",
-    "ease_in_out_back",
-    "ease_in_out_bounce",
-    "ease_in_out_circ",
-    "ease_in_out_cubic",
-    "ease_in_out_elastic",
-    "ease_in_out_expo",
-    "ease_in_out_quad",
-    "ease_in_out_quart",
-    "ease_in_out_quint",
-    "ease_in_out_sine",
-    "ease_in_quad",
-    "ease_in_quart",
-    "ease_in_quint",
-    "ease_in_sine",
-    "ease_out_back",
-    "ease_out_bounce",
-    "ease_out_circ",
-    "ease_out_cubic",
-    "ease_out_elastic",
-    "ease_out_expo",
-    "ease_out_quad",
-    "ease_out_quart",
-    "ease_out_quint",
-    "ease_out_sine",
-    "exponential_decay",
-    "linear",
-    "lingering",
-    "parse_color",
-    "running_start",
-    "rush_from",
-    "rush_into",
-    "scaled_func",
-    "slow_into",
-    "smooth",
-    "smootherstep",
-    "smoothstep",
-    "squished_func",
-    "there_and_back",
-    "there_and_back_with_pause",
-    "wiggle",
-]
+import numpy as np
+
+from manimgx import audio as voices
+from manimgx.animation.easing import *
+from manimgx.animation.matching import *
+from manimgx.animation.motion import *
+from manimgx.animation.timeline import *
+from manimgx.animation.transform import Animate
+from manimgx.animation.updaters import *
+from manimgx.audio import Speech
+from manimgx.audio.sound import Sound
+from manimgx.config import Degrees, Munits, Percent, Pixels, config
+from manimgx.constants import *
+from manimgx.drawing.geometry import (
+    STRAIGHT_PATH_THRESHOLD,
+    Coefficients,
+    Floats,
+    Path,
+    QuickHull,
+    R3_to_complex,
+    Step,
+    angle_axis_from_quaternion,
+    angle_between_vectors,
+    angle_of_vector,
+    bezier,
+    carried,
+    cartesian_to_spherical,
+    center_of_mass,
+    clockwise_path,
+    compass_directions,
+    complex_func_to_R3_func,
+    complex_to_R3,
+    counterclockwise_path,
+    cross2d,
+    earclip_triangulation,
+    find_intersection,
+    get_unit_normal,
+    get_winding_number,
+    interpolate,
+    inverse_interpolate,
+    line_intersection,
+    midpoint,
+    norm_squared,
+    normalize,
+    normalize_along_axis,
+    path_along_arc,
+    path_along_circles,
+    perpendicular_bisector,
+    polylabel,
+    quaternion_conjugate,
+    quaternion_from_angle_axis,
+    quaternion_mult,
+    regular_vertices,
+    rotate_vector,
+    rotation_about_z,
+    rotation_matrix,
+    rotation_matrix_from_quaternion,
+    rotation_matrix_transpose,
+    rotation_matrix_transpose_from_quaternion,
+    shoelace,
+    shoelace_direction,
+    sigmoid,
+    spherical_to_cartesian,
+    spiral_path,
+    straight_path,
+    thick_diagonal,
+    z_to_vector,
+)
+from manimgx.drawing.paint import *
+from manimgx.drawing.paint import stretch_array as stretch_array_to_length
+from manimgx.mobject import (
+    ComplexValueTracker,
+    Group,
+    MeshMobject,
+    Mobject,
+    Mobject1D,
+    PGroup,
+    PMobject,
+    Point,
+    ValueTracker,
+    VDict,
+    VectorizedPoint,
+    VGroup,
+    VMobject,
+    override_animate,
+    override_animation,
+    remove_list_redundancies,
+)
+from manimgx.mobjects.annotations import *
+from manimgx.mobjects.code import *
+from manimgx.mobjects.graph import *
+from manimgx.mobjects.grid import *
+from manimgx.mobjects.images import ImageMobject, ImageMobjectFromCamera
+from manimgx.mobjects.lights import *
+from manimgx.mobjects.logo import *
+from manimgx.mobjects.numbers import DecimalNumber, Integer, Variable, index_labels
+from manimgx.mobjects.plotting import *
+from manimgx.mobjects.shapes import *
+from manimgx.mobjects.shapes import PointCloudDot
+from manimgx.mobjects.svg import SVGMobject, VMobjectFromSVGPath
+from manimgx.mobjects.text import (
+    BulletedList,
+    MathTex,
+    MathTexPart,
+    MathTypst,
+    Paragraph,
+    SingleStringMathTex,
+    Tex,
+    Text,
+    Title,
+    Typst,
+)
+from manimgx.mobjects.three_d import *
+from manimgx.mobjects.vector_field import *
+from manimgx.rendering.film import Film
+from manimgx.rendering.window import Window
+from manimgx.scene import (
+    Camera,
+    LinearTransformationScene,
+    MovingCameraScene,
+    Scene,
+    ThreeDScene,
+    VectorScene,
+    ZoomedScene,
+)
