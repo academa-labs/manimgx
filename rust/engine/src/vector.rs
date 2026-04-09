@@ -71,6 +71,10 @@ struct FrameUniform {
 /// (`light.wgsl`'s `Light`), and its environment's diffuse light (9 vectors).
 pub(crate) const LIGHT: usize = 12 + 32 * 8 + 36 + 4;
 
+/// A 3D view's see-through points lie among its pixels' this many nearest layers, a slab between each two (as
+/// `vector.wgsl`'s `SLABS`; `blend_lists.wgsl` writes them as targets, all in one pass).
+pub(crate) const SLABS: usize = 4;
+
 /// A 3D view's see-through fragments for its composite: its lists (heads, nodes: see `blend.wgsl`), the rows whose
 /// heads are this frame's, its samples per pixel, and its raster base's samples (color, depth; with lit meshes, their
 /// light: `Out::Color`'s `light`) to lay among them.
@@ -151,11 +155,6 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    /// Where its objects paint: their boxes (view pixels from the top left: x0, y0, x1, y1).
-    pub(crate) fn boxes(&self) -> impl Iterator<Item = [f32; 4]> + '_ {
-        self.groups.iter().flat_map(|g| g.objects.iter().map(|o| [o.rect[0], o.rect[1], o.rect[0] + o.rect[2], o.rect[1] + o.rect[3]]))
-    }
-
     /// Where a raster is drawn: the view's clip space mapped into its rectangle of the raster
     /// atlas (x ↦ scale·x + bias·w, y alike), and the view's pixels (y up) moved by `shift`.
     pub(crate) fn place(&self, raster: &Raster) -> Place {
@@ -592,8 +591,8 @@ pub(crate) struct Vector {
     shader: wgpu::ShaderModule,
     write_layout: wgpu::BindGroupLayout,
     flatten: wgpu::ComputePipeline,
-    composite: [Option<[wgpu::ComputePipeline; 2]>; 8], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
-    crossing: [Option<[wgpu::ComputePipeline; 2]>; 8], // where depths cross: the count, the pixels (alike)
+    composite: [Option<[wgpu::ComputePipeline; 2]>; 16], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
+    crossing: [Option<[wgpu::ComputePipeline; 2]>; 16], // where depths cross: the count, the pixels (alike)
     crossings: (wgpu::Buffer, wgpu::Buffer, u64),      // their list, the second pass's workgroups; pixels it holds
     groups_layout: wgpu::BindGroupLayout,              // the workgroups, as the count writes them
     records: Option<(wgpu::Buffer, wgpu::Buffer, [u32; 2])>, // fill, stroke records' slots; how many they hold
@@ -603,6 +602,8 @@ pub(crate) struct Vector {
     stroke_depths: Option<(wgpu::Buffer, u64)>, // a non-planar path's strokes' depths, per pixel of the atlas
     no_samples: [wgpu::TextureView; 2],         // its base's samples when it has none (color, depth)
     nearest: Option<(wgpu::BindGroupLayout, [wgpu::RenderPipeline; 2])>, // a light's map, a view's opaque depth, from its paths (made when first needed)
+    bounds: Option<([wgpu::BindGroupLayout; 2], wgpu::ComputePipeline)>, // a 3D view's slab bounds: what they read, where they go (made when first needed)
+    no_slabs: wgpu::TextureView, // a view's slabs when it has none: 1x1, one layer
     scene_layout: wgpu::BindGroupLayout,
     image_layout: wgpu::BindGroupLayout,
     read_layout: wgpu::BindGroupLayout,
@@ -643,9 +644,11 @@ impl Vector {
         let dfg = wgpu::BindGroupLayoutEntry { binding: 12, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None };
         let linear = wgpu::BindGroupLayoutEntry { binding: 13, visibility: composing, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None };
         let cube = wgpu::BindGroupLayoutEntry { binding: 15, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::Cube, multisampled: false }, count: None };
+        // and a 3D view's see-through points' slabs, as many layers as `SLABS`
+        let slabs = wgpu::BindGroupLayoutEntry { binding: 21, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false }, count: None };
         let image_layout = layout(
             "vector images",
-            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), multisampled(7, wgpu::TextureSampleType::Float { filterable: false }), multisampled(8, wgpu::TextureSampleType::Depth), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), multisampled(18, wgpu::TextureSampleType::Float { filterable: false }), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }],
+            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), multisampled(7, wgpu::TextureSampleType::Float { filterable: false }), multisampled(8, wgpu::TextureSampleType::Depth), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), multisampled(18, wgpu::TextureSampleType::Float { filterable: false }), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }, texture(20), slabs],
         );
         let read_layout = layout("records in", &[entry(0, vertex, read), entry(1, vertex, read), entry(2, fragment, rw)]);
         let pipeline_layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
@@ -721,6 +724,10 @@ impl Vector {
             stroke_depths: None,
             no_samples,
             nearest: None,
+            bounds: None,
+            no_slabs: device
+                .create_texture(&wgpu::TextureDescriptor { label: Some("no slabs"), size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: super::COLOR, usage: wgpu::TextureUsages::TEXTURE_BINDING, view_formats: &[] })
+                .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() }),
             scene_layout,
             image_layout,
             read_layout,
@@ -1055,7 +1062,7 @@ impl Vector {
         if self.composite[key].is_some() {
             return;
         }
-        let constants = [("lighting", (key & LIT) as f64), ("rasters", (key & RASTERS != 0) as u8 as f64), ("lists", (key & LISTS != 0) as u8 as f64)];
+        let constants = [("lighting", (key & LIT) as f64), ("rasters", (key & RASTERS != 0) as u8 as f64), ("lists", (key & LISTS != 0) as u8 as f64), ("points", (key & POINTS != 0) as u8 as f64)];
         let layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
         let (composing, counting) = (layout(&[Some(&self.scene_layout), Some(&self.image_layout)]), layout(&[Some(&self.scene_layout), Some(&self.image_layout), Some(&self.groups_layout)]));
         // workgroup memory is written before it is read: zeroing it would only cost time
@@ -1096,15 +1103,32 @@ impl Vector {
         self.nearest = Some((layout, pipelines));
     }
 
+    /// The pipeline of a 3D view's slab bounds (`bound_slabs`), made when first needed: what it reads besides the scene
+    /// (the coverage atlas, the lists, a non-planar path's strokes' depths), and where it writes them.
+    fn bounds(&mut self, device: &wgpu::Device) {
+        if self.bounds.is_some() {
+            return;
+        }
+        let compute = wgpu::ShaderStages::COMPUTE;
+        let read = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: compute, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None };
+        let atlas = wgpu::BindGroupLayoutEntry { binding: 0, visibility: compute, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None };
+        let out = wgpu::BindGroupLayoutEntry { binding: 0, visibility: compute, ty: wgpu::BindingType::StorageTexture { access: wgpu::StorageTextureAccess::WriteOnly, format: wgpu::TextureFormat::Rgba32Float, view_dimension: wgpu::TextureViewDimension::D2 }, count: None };
+        let layouts = [("slab bounds in", &[atlas, read(5), read(6), read(9)][..]), ("slab bounds", &[out][..])].map(|(label, entries)| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries }));
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&self.scene_layout), Some(&layouts[0]), Some(&layouts[1])], immediate_size: 0 });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("bound_slabs"), layout: Some(&layout), module: &self.shader, entry_point: Some("bound_slabs"), compilation_options: Default::default(), cache: None });
+        self.bounds = Some((layouts, pipeline));
+    }
+
     /// Encode group `g` of a planned view into `out`: `statics` are the store's control points, subpaths and rows.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, plan: &Plan, g: usize, statics: &[wgpu::BindingResource<'_>; 3], out: Out<'_>) {
         let group = &plan.groups[g];
         let [w, h] = plan.size;
         let [tiles_x, tiles_y] = [w.div_ceil(TILE), h.div_ceil(TILE)];
-        let (base, light, listed, glowing) = match &out {
-            Out::Color { base, light, listed, light_out, .. } => (*base, *light, *listed, *light_out),
-            Out::Depth(_) | Out::Opaque(_) => (None, None, None, None),
+        let (base, light, listed, glowing, slabs) = match &out {
+            Out::Color { base, light, listed, light_out, slabs, .. } => (*base, *light, *listed, *light_out, slabs.filter(|_| g == 0)),
+            Out::Bounds { listed, .. } => (None, None, *listed, None, None),
+            Out::Depth(_) | Out::Opaque(_) => (None, None, None, None, None),
         };
         // records and the coverage atlas, shared by every group (drawn one after another)
         let need = plan.groups.iter().fold([1024, 1024], |[f, s], g| [f.max(g.fills), s.max(g.strokes)]);
@@ -1134,9 +1158,10 @@ impl Vector {
         }
         // its composite's pipeline: with the code of what the group lays alone (`vector.wgsl`'s overrides)
         let rastered = !group.rasters.is_empty() || (g == 0 && base.is_some());
-        let key = lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS;
+        let key = lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
         match out {
             Out::Color { .. } => self.composite(device, key),
+            Out::Bounds { .. } => self.bounds(device),
             Out::Depth(_) | Out::Opaque(_) => self.nearest(device),
         }
         if self.used == self.groups.len() {
@@ -1266,7 +1291,7 @@ impl Vector {
                 };
                 let images = bind(
                     &self.image_layout,
-                    &[(0, view(atlas)), (1, view(rasters.unwrap_or(&self.empty))), (2, view(under)), (3, view(written)), (4, view(depth)), (5, heads.as_entire_binding()), (6, nodes.as_entire_binding()), (7, view(colors)), (8, view(sample_depths)), (9, depths.as_entire_binding()), (10, view(lighting.maps)), (11, wgpu::BindingResource::Sampler(lighting.compare)), (12, view(lighting.dfg)), (13, wgpu::BindingResource::Sampler(lighting.linear)), (14, self.crossings.0.as_entire_binding()), (15, view(lighting.environment)), (16, view(lighting.occlusion)), (17, view(light_in)), (18, view(lights)), (19, view(light_out))],
+                    &[(0, view(atlas)), (1, view(rasters.unwrap_or(&self.empty))), (2, view(under)), (3, view(written)), (4, view(depth)), (5, heads.as_entire_binding()), (6, nodes.as_entire_binding()), (7, view(colors)), (8, view(sample_depths)), (9, depths.as_entire_binding()), (10, view(lighting.maps)), (11, wgpu::BindingResource::Sampler(lighting.compare)), (12, view(lighting.dfg)), (13, wgpu::BindingResource::Sampler(lighting.linear)), (14, self.crossings.0.as_entire_binding()), (15, view(lighting.environment)), (16, view(lighting.occlusion)), (17, view(light_in)), (18, view(lights)), (19, view(light_out)), (20, view(slabs.map_or(&self.empty, |s| s[0]))), (21, view(slabs.map_or(&self.no_slabs, |s| s[1])))],
                 );
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes: None });
                 // the pixels where the group lays something of its own, then (by a lean pass) the others
@@ -1287,6 +1312,18 @@ impl Vector {
                     pass.dispatch_workgroups_indirect(&self.crossings.1, 0);
                 }
             }
+            Out::Bounds { out: bounds, .. } => {
+                let (layouts, pipeline) = self.bounds.as_ref().expect("the slab bounds' pipeline");
+                let (heads, nodes) = listed.map_or((&self.nothing, &self.nothing), |l| (l.heads, l.nodes));
+                let read = bind(&layouts[0], &[(0, view(atlas)), (5, heads.as_entire_binding()), (6, nodes.as_entire_binding()), (9, depths.as_entire_binding())]);
+                let written = bind(&layouts[1], &[(0, view(bounds))]);
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("slab bounds"), timestamp_writes: None });
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &scene, &[]);
+                pass.set_bind_group(1, &read, &[]);
+                pass.set_bind_group(2, &written, &[]);
+                pass.dispatch_workgroups(tiles_x, tiles_y, 1);
+            }
             Out::Depth(map) => nearest(encoder, map, false, &[(0, view(atlas)), (9, depths.as_entire_binding())]),
             Out::Opaque(map) => nearest(encoder, map, true, &[(0, view(atlas)), (9, depths.as_entire_binding())]),
         }
@@ -1294,10 +1331,12 @@ impl Vector {
 }
 
 /// A composite pipeline's key: what the view lays, beyond paths (`vector.wgsl`'s overrides `lighting`, `rasters`,
-/// `lists`): lit content, rasters (a 2D view's points and meshes, a 3D view's raster base), see-through lists.
+/// `lists`, `points`): lit content, rasters (a 2D view's points and meshes, a 3D view's raster base), see-through lists,
+/// see-through points' slabs.
 const LIT: usize = 1;
 const RASTERS: usize = 2;
 const LISTS: usize = 4;
+const POINTS: usize = 8;
 
 /// What group `g` of `groups` lies over and writes: each lies over what the ones before it made (the first over
 /// `first`); the last writes the target, the others alternate with the scratch image behind it.
@@ -1325,12 +1364,17 @@ pub(crate) struct Lighting<'a> {
 pub(crate) enum Out<'a> {
     /// A canvas's color, `target` (the last group covers it entirely): `rasters` the raster atlas, with the group's
     /// rasters drawn in it; `base` a 3D view's raster base (`base`; its depth `resolve_depth`'s), laid among the first
-    /// group's layers at its depth, as are its see-through fragments (`listed`); `light` the base's light where the view
-    /// has lit meshes (`base` its display paint then: `vector.wgsl`'s `base_at`); `lighting` what its paths with a
-    /// material are lit with. `light_out`: where a view with lit content leaves its pixels' light, `target` their paint,
-    /// for its glow to be spread from and shown with (`bloom.rs`), as its groups but the last leave theirs to the next
-    /// (none: the last group shows its pixels).
-    Color { rasters: Option<&'a wgpu::TextureView>, target: &'a wgpu::TextureView, base: Option<&'a wgpu::TextureView>, light: Option<&'a wgpu::TextureView>, listed: Option<&'a Listed<'a>>, lighting: Lighting<'a>, light_out: Option<&'a wgpu::TextureView> },
+    /// group's layers at its depth, as are its see-through fragments (`listed`) and its see-through points' slabs
+    /// (`slabs`: the bounds `Bounds` left, the slabs); `light` the base's light where the view has lit meshes (`base` its
+    /// display paint then: `vector.wgsl`'s `base_at`); `lighting` what its paths with a material are lit with.
+    /// `light_out`: where a view with lit content leaves its pixels' light, `target` their paint, for its glow to be
+    /// spread from and shown with (`bloom.rs`), as its groups but the last leave theirs to the next (none: the last group
+    /// shows its pixels).
+    Color { rasters: Option<&'a wgpu::TextureView>, target: &'a wgpu::TextureView, base: Option<&'a wgpu::TextureView>, light: Option<&'a wgpu::TextureView>, listed: Option<&'a Listed<'a>>, slabs: Option<[&'a wgpu::TextureView; 2]>, lighting: Lighting<'a>, light_out: Option<&'a wgpu::TextureView> },
+    /// A 3D view's slab bounds (`vector.wgsl`'s `bound`), into `out`: at each pixel the depths of its first group's
+    /// nearest layers, its paths' and its see-through fragments' (`listed`), for its see-through points to find their
+    /// slab by before they are drawn.
+    Bounds { out: &'a wgpu::TextureView, listed: Option<&'a Listed<'a>> },
     /// A light's shadow map (its layer, its meshes' depth drawn in it): at each texel, where nearer, the depth of the
     /// nearest layer of the plan (seen from the light) that covers it, half opaque or more (`fs_nearest`).
     Depth(&'a wgpu::TextureView),
