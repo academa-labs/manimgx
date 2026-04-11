@@ -10,7 +10,8 @@
 //! inside it, and composited per pixel in depth order (a 2D view's: its draw order). Point clouds
 //! and meshes are drawn by the raster pipeline (`blend.wgsl`): a 2D view's into layers laid in their
 //! place in the order, a 3D view's into its z-buffered base, which the composite lays at its depth
-//! (its see-through fragments too, through per-pixel lists). Per object the camera is folded into
+//! (its see-through meshes' fragments too, through per-pixel lists, and its see-through points,
+//! through slabs between its layers). Per object the camera is folded into
 //! the blend (C = camera · M, once per object on the CPU): a vertex costs one 4×4 per term.
 //!
 //! The same drawing runs natively (read back, or encoded to MP4: see `export`) and in the
@@ -58,7 +59,7 @@ pub(crate) const VIEW_FLOATS: usize = 44; // projection, overlay (column-major),
 const VIEW_LIGHTING: usize = VIEW_FLOATS + 4;
 const LIGHTS: usize = 8;
 const VIEW_OCCLUSION: usize = VIEW_LIGHTING + 8 + 16 * LIGHTS; // its ambient occlusion: how much (0: none), how far
-const VIEW_LENGTH: usize = VIEW_OCCLUSION + 4;
+pub(crate) const VIEW_LENGTH: usize = VIEW_OCCLUSION + 4;
 
 type Mat4 = [[f32; 4]; 4]; // rows
 pub(crate) type Mat34 = [[f32; 4]; 3];
@@ -168,8 +169,7 @@ struct Shape {
     curves: Curves,
     base: u32,
     count: u32,
-    fill: Range<u32>,   // mesh triangles
-    stroke: Range<u32>, // point quads; a mesh's faces' edges
+    raster: Raster,
     centroid: [f32; 3], // mean of the control points (a mean commutes with every affine map)
     area: [f32; 3],     // Newell area vector (carried by the cofactor of the linear part)
     lo: [f32; 3],       // bounds of what it draws in its own space (a path's control points: its curves lie within)
@@ -189,6 +189,31 @@ struct Curves {
     subpaths: u32,
     flatness: f32, // the largest second difference of a curve's control points (Wang's D)
     miter: f32,    // how far a stroke reaches past the path, in half-widths (its sharpest corner's miter)
+}
+
+/// A point cloud's or mesh's index codes, in the order it is drawn: `count` points, triangles or
+/// (a surface's) faces, u's steps as a path's curves are, each laid out with all it draws, one
+/// after another, in every layer.
+#[derive(Clone, Default)]
+struct Raster {
+    count: u32,
+    fill: Range<u32>,   // mesh triangles
+    stroke: Range<u32>, // point quads; a mesh's faces' edges
+}
+
+impl Raster {
+    /// What a window over u shows: every step it reaches into, whole (a point, a triangle, a face
+    /// with its edges), of every layer the same.
+    fn shown(&self, [lo, hi]: [f32; 2]) -> (Range<u32>, Range<u32>) {
+        let n = self.count;
+        let a = (lo.max(0.0).floor() as u32).min(n);
+        let b = (hi.max(0.0).ceil() as u32).clamp(a, n);
+        let cut = |layer: &Range<u32>| {
+            let per = layer.len() as u32 / n.max(1);
+            layer.start + a * per..layer.start + b * per
+        };
+        (cut(&self.fill), cut(&self.stroke))
+    }
 }
 
 struct Brush {
@@ -350,7 +375,7 @@ impl Store {
     /// mesh's vertices and index codes.
     #[cfg(any(feature = "python", feature = "player"))]
     fn held(s: &Shape) -> usize {
-        s.count as usize * VERTEX_BYTES + (s.fill.len() + s.stroke.len()) * 4 + s.curves.room as usize * CURVE_BYTES + s.curves.subpaths as usize * 16
+        s.count as usize * VERTEX_BYTES + (s.raster.fill.len() + s.raster.stroke.len()) * 4 + s.curves.room as usize * CURVE_BYTES + s.curves.subpaths as usize * 16
     }
 
     /// Forget shapes and brushes; their bytes stay until the arrays are packed.
@@ -376,7 +401,7 @@ impl Store {
         let mut shapes: Vec<(&u64, &Shape)> = old.shapes.iter().collect();
         shapes.sort_by_key(|(_, s)| (s.curves.first, s.base)); // keep their order: packing is a stable move
         for (&key, s) in shapes {
-            let mut shape = Shape { base: 0, count: 0, fill: 0..0, stroke: 0..0, ..*s };
+            let mut shape = Shape { base: 0, count: 0, raster: Raster::default(), ..*s };
             if s.kind == Kind::Path {
                 let c = s.curves;
                 let (a, b) = (4 * c.first as usize, 4 * (c.first + c.count) as usize);
@@ -388,14 +413,16 @@ impl Store {
                 let (a, b) = (s.base as usize, (s.base + s.count) as usize);
                 let base = self.push_vertices(&old.vertices[a..b], Some(&old.extras[a..b]));
                 let moved = |v: u32| v - s.base + base;
-                let linked = s.kind == Kind::Mesh && !s.stroke.is_empty();
+                let r = &s.raster;
+                let linked = s.kind == Kind::Mesh && !r.stroke.is_empty();
                 self.links.extend(old.links[a..b].iter().map(|l| if linked { [moved(l[0]), moved(l[1])] } else { [0, 0] }));
                 let fill_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[s.fill.start as usize..s.fill.end as usize].iter().map(|&i| moved(i)));
+                self.indices.extend(old.indices[r.fill.start as usize..r.fill.end as usize].iter().map(|&i| moved(i)));
                 let stroke_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[s.stroke.start as usize..s.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
+                self.indices.extend(old.indices[r.stroke.start as usize..r.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
                 let end = self.indices.len() as u32;
-                shape = Shape { base, count: s.count, fill: fill_start..stroke_start, stroke: stroke_start..end, ..shape };
+                let raster = Raster { count: r.count, fill: fill_start..stroke_start, stroke: stroke_start..end };
+                shape = Shape { base, count: s.count, raster, ..shape };
             }
             self.shapes.insert(key, shape);
         }
@@ -419,7 +446,7 @@ impl Store {
         let curves = Curves { first, count, room: count, first_subpath, subpaths: ranges.len() as u32, flatness, miter: miter(points, ranges) };
         let (lo, hi) = points.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), p| ([0, 1, 2].map(|i| lo[i].min(p[i] as f32)), [0, 1, 2].map(|i| hi[i].max(p[i] as f32))));
         let (plane, planar) = plane(points);
-        self.shapes.insert(key, Shape { kind: Kind::Path, curves, base: 0, count: 0, fill: 0..0, stroke: 0..0, centroid, area, lo, hi, middle: middle((lo, hi)), plane, planar });
+        self.shapes.insert(key, Shape { kind: Kind::Path, curves, base: 0, count: 0, raster: Raster::default(), centroid, area, lo, hi, middle: middle((lo, hi)), plane, planar });
     }
 
     /// Append curves to a path's last subpath (`closed`: whether it now ends where it begins),
@@ -465,12 +492,14 @@ impl Store {
         let base = self.push_vertices(vertices, None);
         let start = self.indices.len() as u32;
         self.indices.extend((0..vertices.len() as u32).flat_map(|i| (0..6).map(move |corner| ((base + i) << 3) | corner)));
-        self.add_raster(key, Kind::Points, vertices, base, start..start, start..self.indices.len() as u32);
+        let count = vertices.len() as u32;
+        self.add_raster(key, Kind::Points, vertices, base, Raster { count, fill: start..start, stroke: start..self.indices.len() as u32 });
     }
 
-    /// A mesh; with `outline` > 2 its vertices are also blocks of `block` (a surface's faces),
-    /// each beginning with a closed loop of `outline` (the last repeating the first) — the
-    /// face's edges, stroked like a path's.
+    /// A mesh, drawn triangle by triangle; with `outline` > 2 face by face: its vertices are
+    /// blocks of `block` (a surface's faces), each beginning with a closed loop of `outline` (the
+    /// last repeating the first) — the face's edges, stroked like a path's — and its triangles
+    /// are the faces' own, face after face.
     #[allow(clippy::too_many_arguments)]
     fn add_mesh(&mut self, key: u64, vertices: &[[f32; 4]], extras: &[[f32; 4]], triangles: &[u32], outline: u32, block: u32) {
         let base = self.push_vertices(vertices, Some(extras));
@@ -485,17 +514,18 @@ impl Store {
                 self.indices.extend((first..last).flat_map(|v| (0..6).map(move |corner| (v << 3) | corner)));
             }
         }
-        self.add_raster(key, Kind::Mesh, vertices, base, start..end, end..self.indices.len() as u32);
+        let count = if outline > 2 { vertices.len() as u32 / block } else { (triangles.len() / 3) as u32 };
+        self.add_raster(key, Kind::Mesh, vertices, base, Raster { count, fill: start..end, stroke: end..self.indices.len() as u32 });
     }
 
-    /// A point cloud or mesh, its vertices stored from `base` and its index codes at `fill` and
-    /// `stroke` (a vertex without neighbours links nowhere).
-    fn add_raster(&mut self, key: u64, kind: Kind, vertices: &[[f32; 4]], base: u32, fill: Range<u32>, stroke: Range<u32>) {
+    /// A point cloud or mesh, its vertices stored from `base` and its index codes `raster` (a
+    /// vertex without neighbours links nowhere).
+    fn add_raster(&mut self, key: u64, kind: Kind, vertices: &[[f32; 4]], base: u32, raster: Raster) {
         self.links.resize(self.vertices.len(), [0, 0]);
         let (lo, hi) = bounds(vertices);
         let n = vertices.len().max(1) as f32;
         let centroid = [0, 1, 2].map(|k| vertices.iter().map(|v| v[k]).sum::<f32>() / n);
-        self.shapes.insert(key, Shape { kind, curves: Curves::default(), base, count: vertices.len() as u32, fill, stroke, centroid, area: [0.0; 3], lo, hi, middle: middle((lo, hi)), plane: [[0.0; 3]; 3], planar: true });
+        self.shapes.insert(key, Shape { kind, curves: Curves::default(), base, count: vertices.len() as u32, raster, centroid, area: [0.0; 3], lo, hi, middle: middle((lo, hi)), plane: [[0.0; 3]; 3], planar: true });
     }
 
     fn add_rows(&mut self, key: u64, rows: &[[f32; 4]]) {
@@ -554,23 +584,16 @@ fn world_center(shape: &Shape, m: &Mat34) -> [f32; 3] {
     affine(m, shape.middle)
 }
 
-/// The part of a points or mesh range a reveal shows: whole points, triangles rounded outward.
-fn revealed(range: &Range<u32>, per: u32, [lo, hi]: [f32; 2], ceil: bool) -> Range<u32> {
-    let n = (range.end - range.start) / per;
-    let a = ((lo.clamp(0.0, 1.0) * n as f32) as u32).min(n);
-    let b = if ceil { (hi.clamp(0.0, 1.0) * n as f32).ceil() as u32 } else { (hi.clamp(0.0, 1.0) * n as f32) as u32 }.clamp(a, n);
-    range.start + a * per..range.start + b * per
-}
-
-/// CE's light: half the cube of the cosine toward the light, halved again when facing away.
-fn shade(normal: [f32; 3], point: [f32; 3], light: [f32; 3], toward: [f32; 3]) -> f32 {
+/// CE's light: half the cube of the cosine toward the light, halved again when facing away, on the side seen from
+/// `seen` (a direction from the point toward the viewer).
+fn shade(normal: [f32; 3], point: [f32; 3], light: [f32; 3], seen: [f32; 3]) -> f32 {
     let length = dot(normal, normal).sqrt();
     let to_light = sub(light, point);
     let distance = dot(to_light, to_light).sqrt();
     if length < 1e-12 || distance < 1e-12 {
         return 0.0;
     }
-    let facing = if dot(toward, normal) < 0.0 { -1.0 } else { 1.0 };
+    let facing = if dot(seen, normal) < 0.0 { -1.0 } else { 1.0 };
     let cosine = facing * dot(normal, to_light) / (length * distance);
     let amount = 0.5 * cosine.powi(3);
     if amount < 0.0 { amount * 0.5 } else { amount }
@@ -647,6 +670,7 @@ pub(crate) struct Camera {
     light: [f32; 3],
     three_d: bool,
     toward: [f32; 3],
+    eye: [f32; 4], // where it sees from (w = 1: a 3D view's perspective; else it sees along `toward` from everywhere)
     bias: f32, // the share of a depth within which a path lies on the raster base (a few of the depth's f32 steps)
     far: [f32; 4], // its depth from the far plane as a row of its projection: -z (a view's: reversed Z), z - w (`far_row`)
 }
@@ -680,6 +704,7 @@ impl Camera {
             light: [view[36], view[37], view[38]],
             three_d: view[39] > 0.5,
             toward: [view[40], view[41], view[42]],
+            eye: [0, 1, 2, 3].map(|k| view[VIEW_LIGHTING + k]),
             bias: view[43],
         }
     }
@@ -696,8 +721,14 @@ impl Camera {
             light: s.toward,
             three_d: true,
             toward: s.toward,
+            eye: [0.0; 4], // (what its paths cast is their depth alone: no light)
             bias: 0.0,
         }
+    }
+
+    /// From a point in the scene toward the viewer: toward its eye in a 3D view's perspective, else its direction.
+    fn toward_viewer(&self, p: [f32; 3]) -> [f32; 3] {
+        if self.eye[3] > 0.5 { sub([self.eye[0], self.eye[1], self.eye[2]], p) } else { self.toward }
     }
 
     fn pixels(&self, c: [f32; 4]) -> [f32; 2] {
@@ -815,8 +846,8 @@ impl Store {
         Some([lo[0] - margin, camera.size[1] - hi[1] - margin, hi[0] + margin, camera.size[1] - lo[1] + margin])
     }
 
-    /// CE's light on a record in a 3D view: a lit path's, once for its whole area at its centroid; none for anything
-    /// else (a mesh is lit per vertex).
+    /// CE's light on a record in a 3D view: a lit path's, once for its whole area at its centroid, on the side the eye
+    /// sees there (fixed in the frame: the side toward the view); none for anything else (a mesh is lit per vertex).
     pub(crate) fn light(&self, camera: &Camera, r: &Record) -> Result<f32, String> {
         if !camera.three_d || r.flags & LIT == 0 {
             return Ok(0.0);
@@ -832,7 +863,8 @@ impl Store {
             centroid = [0, 1, 2].map(|i| centroid[i] + c2[i]);
             area = [0, 1, 2].map(|i| area[i] + n2[i]);
         }
-        Ok(shade(area, centroid, camera.light, camera.toward))
+        let seen = if r.flags & OVERLAY != 0 { camera.toward } else { camera.toward_viewer(centroid) };
+        Ok(shade(area, centroid, camera.light, seen))
     }
 
     /// A record's paint, seen through `eye` (see `Paint`); its solid colors unlit.
@@ -917,13 +949,13 @@ struct Pipelines {
 }
 
 /// A 3D view's listed see-through layers, each appending its fragments to the lists once (see
-/// `blend.wgsl`; its composite resolves them), and its sprites: appended where the listed layers or
-/// its paths can paint, blended where nothing is listed.
+/// `blend.wgsl`; its composite resolves them), and its sprites among its see-through layers (see
+/// `blend_lists.wgsl`): blended into the base where none lies behind them, else into their slabs.
 struct Appends {
     stroke: [wgpu::RenderPipeline; 2],
     mesh: wgpu::RenderPipeline,
     sprites: wgpu::RenderPipeline,
-    unlisted: wgpu::RenderPipeline,
+    slabs: wgpu::RenderPipeline,
 }
 
 pub(crate) struct Gpu {
@@ -1084,11 +1116,12 @@ impl Gpu {
         let cube = entry(4, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::Cube, multisampled: false });
         let occlusion = entry(5, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false });
         let shadows = layout("lighting", &[maps, compare, dfg, linear, cube, occlusion]);
-        // the scene's arrays; a 3D view's see-through lists, written (with the opaque depth) and read
+        // the scene's arrays; a 3D view's see-through lists, written (with the opaque depth), and its slab bounds
         let written = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None };
         let depth = entry(3, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true });
-        let lists = [layout("append", &[written(0), written(1), written(2), depth]), layout("resolve", &[storage(4), storage(5)])];
-        let raster = RasterLayouts { scene: layout("scene", &[view, storage(1), storage(2), storage(4), storage(5), storage(6), storage(7)]), lists, shadows };
+        let bounds = entry(0, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false });
+        let (lists, slabs) = (layout("append", &[written(0), written(1), written(2), depth]), [layout("slab bounds", &[bounds]), layout("slab bounds and depth", &[bounds, depth])]);
+        let raster = RasterLayouts { scene: layout("scene", &[view, storage(1), storage(2), storage(4), storage(5), storage(6), storage(7)]), lists, slabs, shadows };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("image"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -1102,7 +1135,7 @@ impl Gpu {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        // the split sum's DFG terms (Filament's, with its multiple-scattering term: scripts/dfg_table.py), NoV across,
+        // the split sum's DFG terms (Filament's, with its multiple-scattering term: scripts/engine/dfg_table.py), NoV across,
         // perceptual roughness down: 64 KB, made once
         let size = wgpu::Extent3d { width: 128, height: 128, depth_or_array_layers: 1 };
         let table = device.create_texture(&wgpu::TextureDescriptor { label: Some("dfg"), size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rg16Float, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
@@ -1182,21 +1215,21 @@ impl Gpu {
             })
         };
         let stroke = |vs, fs| Passes {
-            count: p(vs, Some(fs), Stencil::Coverage, false, false), // the reveal window discards
+            count: p(vs, Some("fs_none"), Stencil::Coverage, false, false),
             cover: p(vs, Some(fs), Stencil::Cover, true, true),
         };
         // the see-through layers' appends test the opaque depth themselves (read-only here) and
-        // write no color; what reads the lists blends: the resolve over the opaque samples, a
-        // sprite where nothing is listed over whatever is farther (depth tested)
-        let lists_layout = |group| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), Some(&self.image_layout), Some(group), Some(&raster.shadows)], immediate_size: 0 });
+        // write no color; the sprites blended into the base where no see-through layer lies behind them
+        // are depth tested
+        let group_layout = |group| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), Some(&self.image_layout), Some(group), Some(&raster.shadows)], immediate_size: 0 });
         let blended = targets_for(wgpu::ColorWrites::ALL);
-        let compositing = |layouts: &[wgpu::PipelineLayout; 2], vs: &str, fs: &str, reads: bool, depth_compare: C| {
-            let fs = if reads { entry(fs) } else { fs.to_string() };
+        let compositing = |layout: &wgpu::PipelineLayout, vs: &str, fs: &str, blends: bool, depth_compare: C| {
+            let fs = if blends { entry(fs) } else { fs.to_string() };
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(&fs),
-                layout: Some(&layouts[reads as usize]),
+                layout: Some(layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), compilation_options: Default::default(), buffers: &[] },
-                fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some(&fs), compilation_options: Default::default(), targets: if reads { &blended } else { &[] } }),
+                fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some(&fs), compilation_options: Default::default(), targets: if blends { &blended } else { &[] } }),
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH, depth_write_enabled: Some(false), depth_compare: Some(depth_compare), stencil: Default::default(), bias: Default::default() }),
                 multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
@@ -1205,14 +1238,27 @@ impl Gpu {
             })
         };
         let appends = (samples > 1).then(|| {
-            let [append, resolve] = &raster.lists;
-            let layouts = [lists_layout(append), lists_layout(resolve)];
-            let append = |vs: &str, fs: &str| compositing(&layouts, vs, fs, false, C::Always);
+            let (append, based) = (group_layout(&raster.lists), group_layout(&raster.slabs[0]));
+            let appended = |vs: &str, fs: &str| compositing(&append, vs, fs, false, C::Always);
+            // the slabs, a target each, over the share of each pixel's samples in front of the opaque depth (their
+            // pass tests it, on a single sample)
+            let slab = Some(wgpu::ColorTargetState { format: COLOR, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL });
+            let slabs = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("fs_sprites_slabs"),
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), None, Some(&raster.slabs[1])], immediate_size: 0 })),
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_sprites"), compilation_options: Default::default(), buffers: &[] },
+                fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some("fs_sprites_slabs"), compilation_options: Default::default(), targets: &vec![slab; vector::SLABS] }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
             Appends {
-                stroke: [append("vs_stroke", "fs_stroke_append"), append("vs_stroke", "fs_stroke_gradient_append")],
-                mesh: append("vs_mesh", "fs_mesh_append"),
-                sprites: append("vs_sprites", "fs_points_append"),
-                unlisted: compositing(&layouts, "vs_sprites", "fs_sprites_unlisted", true, C::GreaterEqual),
+                stroke: [appended("vs_stroke", "fs_stroke_append"), appended("vs_stroke", "fs_stroke_gradient_append")],
+                mesh: appended("vs_mesh", "fs_mesh_append"),
+                sprites: compositing(&based, "vs_sprites", "fs_sprites_base", true, C::GreaterEqual),
+                slabs,
             }
         });
         let pipelines = Pipelines {
@@ -1309,6 +1355,17 @@ pub(crate) struct Attachments {
     pub(crate) depth: wgpu::TextureView,
     pub(crate) depth_only: wgpu::TextureView, // its depth, as a see-through layer's appends read it
     pub(crate) append: Option<(u64, wgpu::BindGroup)>, // the appends' bind group, for the lists' generation
+    slabs: Option<Slabs>, // a 3D view's sprites' slabs, once they have see-through layers behind them
+}
+
+/// A 3D view's sprites among its other see-through layers (see `blend_lists.wgsl`): the depths of each pixel's nearest
+/// layers (`vector::Out::Bounds`), and the slabs between them, a target each and all together (as the composite reads
+/// them); the bounds as its sprites' passes read them (into the base; into the slabs, with the opaque depth).
+struct Slabs {
+    bounds: wgpu::TextureView,
+    layers: [wgpu::TextureView; vector::SLABS],
+    slabs: wgpu::TextureView,
+    groups: [wgpu::BindGroup; 2],
 }
 
 /// How a raster pass uses depth and stencil: fresh (cleared, then dropped), kept for the passes
@@ -1322,12 +1379,13 @@ enum Depth {
     Shared, // the kept depth, kept again with the samples for the composite to read
 }
 
-/// The raster pipeline's bind group layouts: the scene's arrays, and a 3D view's see-through lists: written (with the
-/// opaque depth), and read.
+/// The raster pipeline's bind group layouts: the scene's arrays, a 3D view's see-through lists (written, with the
+/// opaque depth) and its slab bounds (as its sprites read them: into the base; into the slabs, with the opaque depth).
 struct RasterLayouts {
     scene: wgpu::BindGroupLayout,
-    lists: [wgpu::BindGroupLayout; 2], // append, resolve
-    shadows: wgpu::BindGroupLayout,          // what the lit passes read: the shadow maps and their comparison, the DFG table
+    lists: wgpu::BindGroupLayout,
+    slabs: [wgpu::BindGroupLayout; 2],
+    shadows: wgpu::BindGroupLayout, // what the lit passes read: the shadow maps and their comparison, the DFG table
 }
 
 /// A pass's color cleared to a premultiplied color.
@@ -1360,11 +1418,31 @@ impl Canvas {
                 depth_only: depth.create_view(&wgpu::TextureViewDescriptor { aspect: wgpu::TextureAspect::DepthOnly, ..Default::default() }),
                 depth: depth.create_view(&Default::default()),
                 append: None,
+                slabs: None,
             }
         });
         if light && samples > 1 && attached.msaa_light.is_none() {
             attached.msaa_light = Some(texture(RADIANCE, usage).create_view(&Default::default()));
         }
+    }
+
+    /// Give it a 3D view's slabs (once; it has the raster pipeline's attachments).
+    fn attach_slabs(&mut self, gpu: &Gpu) {
+        let attached = self.raster.as_mut().expect("the raster pipeline's attachments");
+        if attached.slabs.is_some() {
+            return;
+        }
+        let size = wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
+        let texture = |label, size, format, usage| gpu.device.create_texture(&wgpu::TextureDescriptor { label: Some(label), size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format, usage, view_formats: &[] });
+        let bounds = texture("slab bounds", size, wgpu::TextureFormat::Rgba32Float, wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING).create_view(&Default::default());
+        let slabs = texture("slabs", wgpu::Extent3d { depth_or_array_layers: vector::SLABS as u32, ..size }, COLOR, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
+        let layers = std::array::from_fn(|k| slabs.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2), base_array_layer: k as u32, array_layer_count: Some(1), ..Default::default() }));
+        let read = wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&bounds) };
+        let depth = wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) };
+        let group = |layout, entries: &[wgpu::BindGroupEntry]| gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("slab bounds"), layout, entries });
+        let groups = [group(&gpu.raster.slabs[0], std::slice::from_ref(&read)), group(&gpu.raster.slabs[1], &[read, depth])];
+        let slabs = slabs.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        attached.slabs = Some(Slabs { bounds, layers, slabs, groups });
     }
 
     /// A raster pass over it: its color loaded as `color` says, and resolved into the image, or `into`
@@ -1427,7 +1505,6 @@ pub(crate) struct Lists {
     pub(crate) pixels: u64,
     pub(crate) capacity: u64,
     pub(crate) generation: u64, // made anew this many times (the canvases' groups follow)
-    pub(crate) resolve: wgpu::BindGroup,
 }
 
 const NODE_BYTES: u64 = 16;
@@ -1574,12 +1651,12 @@ enum Drawing {
     Raster {
         offset: u32,
         draws: Vec<Draw>,
-        listed: [u32; 4],     // where its listed see-through layers and its paths can paint (x, y, width, height)
-        sprites: Range<u32>,  // its sprites among the frame's, far to near
-        appended: Range<u32>, // those that can reach there
-        lists: bool,          // whether its listed layers and those sprites are appended to the lists
-        light: bool,          // whether it has lit meshes, their light kept apart in its base (`blend.wgsl`'s `Base`)
-        glow: Option<f32>,    // its bloom, where it has lit content to spread (`bloom`)
+        listed: [u32; 4],    // where its listed see-through layers can paint (x, y, width, height)
+        sprites: Range<u32>, // its sprites among the frame's, far to near
+        lists: bool,         // whether its listed layers are appended to the lists
+        slabs: bool,         // whether its sprites are blended between its other see-through layers, in slabs
+        light: bool,         // whether it has lit meshes, their light kept apart in its base (`blend.wgsl`'s `Base`)
+        glow: Option<f32>,   // its bloom, where it has lit content to spread (`bloom`)
         // its composite's plan: its paths, exact, laid in depth order with its raster base and listed fragments
         // (none: the raster base is the view)
         plan: Option<vector::Plan>,
@@ -1810,9 +1887,9 @@ impl Player {
         // pixels per scene unit at w = 1, for points sized in scene units
         let scale = (eye[0][0] * eye[0][0] + eye[0][1] * eye[0][1] + eye[0][2] * eye[0][2]).sqrt() * camera.size[0] / 2.0;
         // lit by its material where it has one (a 3D view's mesh, in the scene: not fixed in the frame), else by CE's
-        // light
+        // light (on the side the eye sees; fixed in the frame, the side toward the view)
         let material = camera.three_d && a.kind == Kind::Mesh && r.material[3] > 0.0 && r.flags & OVERLAY == 0;
-        let flags = if material { MATERIAL } else if lit && a.kind == Kind::Mesh { LIT } else { 0 } | if r.texture != 0 { TEXTURED | (r.flags & (NEAREST | CUBIC)) } else { 0 };
+        let flags = if material { MATERIAL } else if lit && a.kind == Kind::Mesh { LIT } else { 0 } | if r.texture != 0 { TEXTURED | (r.flags & (NEAREST | CUBIC)) } else { 0 } | (r.flags & OVERLAY);
         let instance = Instance {
             c1,
             c2,
@@ -1825,11 +1902,7 @@ impl Player {
             material: if material { r.material } else { [0.0; 4] },
         };
         // which passes change pixels
-        let window = [r.params[0], r.params[1]];
-        let (fill, stroke) = match a.kind {
-            Kind::Points => (a.fill.clone(), revealed(&a.stroke, 6, window, false)),
-            _ => (revealed(&a.fill, 3, window, true), a.stroke.clone()), // (a path has no raster form: nothing)
-        };
+        let (fill, stroke) = a.raster.shown([r.params[0], r.params[1]]); // (a path has no raster form: nothing)
         // a mesh's faces' edges blend and write depth once per pixel, by the stencil: even opaque,
         // where blending twice is invisible, the first fragment's depth must be the one kept
         let stroked = a.kind == Kind::Mesh && !stroke.is_empty() && r.params[2] > 0.0 && (paint.stroke[3] > 0.0 || many_stroke);
@@ -1857,15 +1930,11 @@ impl Player {
 
     /// A 3D view's sprites, appended to `sprites`: every see-through point of `draws` (their
     /// instances from `offset`) that can be seen, as (instance, vertex), far to near — the order
-    /// they blend in; among equal depths, the view's order — and after them again those whose disk
-    /// can reach `listed` (x, y, width, height, pixels from the top left), to be appended there.
-    /// Their two ranges.
-    fn sprites(&self, camera: &Camera, instances: &[Instance], draws: &[Draw], offset: u32, listed: [u32; 4], sprites: &mut Vec<[u32; 2]>) -> (Range<u32>, Range<u32>) {
+    /// they blend in; among equal depths, the view's order. Their range.
+    fn sprites(&self, instances: &[Instance], draws: &[Draw], offset: u32, sprites: &mut Vec<[u32; 2]>) -> Range<u32> {
         // the clouds in the view's order: their records' places
         let mut clouds: Vec<(u32, usize)> = (0..draws.len()).filter(|&j| draws[j].sprites()).map(|j| (instances[j].ids[2] >> PLACE, j)).collect();
         clouds.sort_unstable();
-        let [x0, y0, x1, y1] = [listed[0], listed[1], listed[0] + listed[2], listed[1] + listed[3]].map(|p| p as f32);
-        let listing = listed[2] > 0 && listed[3] > 0;
         let mut far_first = Vec::new();
         for (_, j) in clouds {
             let quads = &self.store.indices[draws[j].stroke.start as usize..draws[j].stroke.end as usize];
@@ -1876,20 +1945,13 @@ impl Player {
                 if c[3] <= 1e-6 || !(0.0..=1.0).contains(&depth) {
                     continue; // behind the camera, or nearer than the near plane or farther than the far one
                 }
-                // its disk's square, as `disk` in `blend.wgsl` draws it, and a pixel more
-                let [x, y] = camera.pixels(c);
-                let (y, r) = (camera.size[1] - y, instances[j].extra[0] / c[3] + 2.0);
-                let reaches = listing && x + r > x0 && x - r < x1 && y + r > y0 && y - r < y1;
                 // keyed far first (reversed Z: far is small): a depth's bits order it once −0 is +0
-                far_first.push((depth.abs().to_bits(), ([offset + j as u32, vertex], reaches)));
+                far_first.push((depth.abs().to_bits(), [offset + j as u32, vertex]));
             }
         }
-        let sorted = radix_sort(far_first);
         let first = sprites.len() as u32;
-        sprites.extend(sorted.iter().map(|(_, (sprite, _))| *sprite));
-        let blended = first..sprites.len() as u32;
-        sprites.extend(sorted.iter().filter(|(_, (_, reaches))| *reaches).map(|(_, (sprite, _))| *sprite));
-        (blended.clone(), blended.end..sprites.len() as u32)
+        sprites.extend(radix_sort(far_first).into_iter().map(|(_, sprite)| sprite));
+        first..sprites.len() as u32
     }
 
     /// Encode views in order — camera views first, the frame (key 0) last; each view is
@@ -1925,13 +1987,10 @@ impl Player {
                 let mut draws = Vec::with_capacity(f.records.len());
                 let background = [0, 1, 2, 3].map(|k| f.view[VIEW_FLOATS + k]);
                 let mut plan = if paths.is_empty() { None } else { Some(gpu.vector.plan(&self.store, &camera, &f.records, &paths, background)?) };
-                // where its listed see-through layers and its paths can paint: their footprints and boxes
-                // together (the whole view where one cannot be bounded)
+                // where its listed see-through layers can paint: their footprints together (the whole view where one
+                // cannot be bounded)
                 let mut listed: Option<[f32; 4]> = None;
                 let join = |a: Option<[f32; 4]>, b: [f32; 4]| Some(a.map_or(b, |a| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]));
-                for o in plan.iter().flat_map(|p| p.boxes()) {
-                    listed = join(listed, o);
-                }
                 // what casts shadows (its meshes and paths, but those fixed in the frame) and what they fall on (those
                 // with a material): their boxes in the world
                 let (mut casters, mut receivers): (Option<Box3>, Option<Box3>) = (None, None);
@@ -1977,14 +2036,11 @@ impl Player {
                 // its see-through points are sprites, unless the listed layers need lists it
                 // cannot have (one sample): then everything is drawn as given
                 let at = sprites.len() as u32;
-                let (sprites_here, appended) = if samples > 1 || !draws.iter().any(Draw::listed) {
-                    self.sprites(&camera, &instances[offset as usize..], &draws, offset, listed, &mut sprites)
-                } else {
-                    (at..at, at..at)
-                };
-                // its listed layers, and the sprites that reach where they or its paths paint, are composited per
-                // pixel, in depth order, through the lists (with multisamples), by its composite
-                let lists = samples > 1 && (draws.iter().any(Draw::listed) || !appended.is_empty());
+                let sprites_here = if samples > 1 || !draws.iter().any(Draw::listed) { self.sprites(&instances[offset as usize..], &draws, offset, &mut sprites) } else { at..at };
+                // its listed layers are composited per pixel, in depth order, through the lists (with multisamples),
+                // by its composite; and among them and its paths in the scene, its sprites, through slabs
+                let lists = samples > 1 && draws.iter().any(Draw::listed);
+                let slabs = samples > 1 && !sprites_here.is_empty() && (lists || !casting.is_empty());
                 // its lit meshes' light, kept apart from its paint in its base and shown once by its composite (a
                 // camera's integration of what is lit)
                 let light = draws.iter().any(|d| d.lit && !d.overlay);
@@ -1996,7 +2052,7 @@ impl Player {
                 }
                 // its glow, spread from its lit content's light (without any, there is none to spread)
                 let glow = bloom_of(&f.view).filter(|_| light || plan.as_ref().is_some_and(|p| p.lit));
-                Drawing::Raster { offset, draws, listed, sprites: sprites_here, appended, lists, light, glow, plan, shadows, cast }
+                Drawing::Raster { offset, draws, listed, sprites: sprites_here, lists, slabs, light, glow, plan, shadows, cast }
             } else {
                 let background = [0, 1, 2, 3].map(|k| f.view[VIEW_FLOATS + k]);
                 let plan = gpu.vector.plan(&self.store, &camera, &f.records, &self.order(&camera, &f.records)?, background)?;
@@ -2046,9 +2102,12 @@ impl Player {
         let mut need = [0u32; 2];
         for (f, d) in frames.iter().zip(&drawings) {
             match d {
-                Drawing::Raster { light, glow, .. } => {
+                Drawing::Raster { light, glow, slabs, .. } => {
                     let canvas = if f.key == 0 { &mut self.targets.as_mut().expect("targets").frame } else { self.canvases.get_mut(&f.key).expect("canvas") };
                     canvas.attach(gpu, samples, *light);
+                    if *slabs {
+                        canvas.attach_slabs(gpu);
+                    }
                     // and where its ambient occlusion is found, if it has some
                     if occlusion_of(&f.view).is_some() && canvas.occluded.is_none() {
                         let occlusion = gpu.occlusion.get_or_insert_with(|| occlusion::Occlusion::new(&gpu.device, gpu.blend.as_ref().expect("the raster pipeline's shader"), &gpu.raster.scene));
@@ -2082,7 +2141,7 @@ impl Player {
                 if attached.append.as_ref().is_none_or(|(generation, _)| *generation != lists.generation) {
                     let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("append"),
-                        layout: &gpu.raster.lists[0],
+                        layout: &gpu.raster.lists,
                         entries: &[whole(0, &lists.heads), whole(1, &lists.nodes), whole(2, &lists.appended), wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) }],
                     });
                     attached.append = Some((lists.generation, group));
@@ -2147,7 +2206,7 @@ impl Player {
             let canvas = if f.key == 0 { &targets.frame } else { &self.canvases[&f.key] };
             let slot = [(i * VIEW_STRIDE) as u32];
             match d {
-                Drawing::Raster { offset, draws, listed, sprites, appended, light, glow, plan, shadows, cast, .. } => {
+                Drawing::Raster { offset, draws, listed, sprites, lists: listing, slabs, light, glow, plan, shadows, cast } => {
                     // its lights' shadow maps first: its meshes' depth seen from each, then its paths' where nearer
                     for (layer, s) in shadows.iter().enumerate() {
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2228,13 +2287,14 @@ impl Player {
                     // listed fragments; then, where it glows, its glow spread from the light it leaves, and its pixels
                     // shown with it
                     let bloomed = canvas.bloomed.as_ref().zip(*glow);
-                    let layered = |encoder: &mut wgpu::CommandEncoder, vector: &mut vector::Vector, listed: Option<&vector::Listed>| {
+                    let layered = |encoder: &mut wgpu::CommandEncoder, vector: &mut vector::Vector, listed: Option<&vector::Listed>, slabs: Option<&Slabs>| {
                         let Some(plan) = plan else { return };
                         let statics = buffers.vector_statics();
                         let (target, light_out) = bloomed.map_or((&canvas.color, None), |(b, _)| (&b.paint, Some(&b.light)));
                         for g in 0..plan.groups.len() {
                             let lighting = vector::Lighting { maps: &buffers.shadow_maps.array, compare: &gpu.shadow_compare, dfg: &gpu.dfg, linear: &gpu.linear, environment: &cube, occlusion };
-                            let out = vector::Out::Color { rasters: None, target, base: base.as_ref(), light: base_light.as_ref(), listed, lighting, light_out };
+                            let slabs = slabs.map(|s| [&s.bounds, &s.slabs]);
+                            let out = vector::Out::Color { rasters: None, target, base: base.as_ref(), light: base_light.as_ref(), listed, slabs, lighting, light_out };
                             vector.encode(&gpu.device, &gpu.queue, encoder, plan, g, &statics, out);
                         }
                         if let Some((b, strength)) = bloomed {
@@ -2242,7 +2302,7 @@ impl Player {
                             gpu.bloom.as_ref().expect("the bloom's passes").encode(&gpu.queue, encoder, b, strength, tone);
                         }
                     };
-                    let (Some(lists), Some(appends), true) = (lists, pipelines.appends.as_ref(), composite[i]) else {
+                    let (Some(appends), true) = (pipelines.appends.as_ref(), *listing || *slabs) else {
                         if rasterized || plan.is_none() {
                             let mut pass = canvas.pass(&mut encoder, Some((cleared, true)), if plan.is_some() { Depth::Kept } else { Depth::Fresh }, base.as_ref(), base_light.as_ref());
                             pass.set_bind_group(0, buffers.group.as_ref(), &slot);
@@ -2260,48 +2320,64 @@ impl Player {
                             let attached = canvas.raster.as_ref().expect("the raster pipeline's attachments");
                             gpu.vector.resolve_depth(&gpu.device, &mut encoder, &attached.depth_only, samples, [canvas.width, canvas.height]);
                         }
-                        layered(&mut encoder, &mut gpu.vector, None);
+                        layered(&mut encoder, &mut gpu.vector, None, None);
                         continue;
                     };
-                    // the opaque layers, their samples and depth kept; the listed see-through
-                    // layers appended to the lists, and the sprites where those or the paths can paint
-                    // (only there are heads cleared and read); the sprites blended where nothing is
-                    // listed, and what is fixed in the frame drawn over them; then the composite
+                    // the opaque layers, their samples and depth kept
                     {
                         let mut pass = canvas.pass(&mut encoder, Some((cleared, false)), Depth::Kept, base.as_ref(), base_light.as_ref());
                         pass.set_bind_group(0, buffers.group.as_ref(), &slot);
                         pass.set_bind_group(3, lighting_group, &[]);
                         self.draw(&mut pass, pipelines, indices, draws, *offset, Phase::Opaque);
                     }
-                    let ([_, y, _, h], row) = (*listed, canvas.width as u64 * 4);
-                    if h > 0 {
-                        encoder.clear_buffer(&lists.heads, y as u64 * row, Some(h as u64 * row));
-                    }
-                    {
-                        let append = &canvas.raster.as_ref().and_then(|a| a.append.as_ref()).expect("the appends' group").1;
+                    let attached = canvas.raster.as_ref().expect("the raster pipeline's attachments");
+                    let colors = attached.msaa.as_ref().expect("multisamples");
+                    let [_, y, _, h] = *listed;
+                    let listed = lists.filter(|_| *listing).map(|l| vector::Listed { heads: &l.heads, nodes: &l.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref() });
+                    // the listed see-through layers appended to the lists (only in their rows are heads cleared and read)
+                    if let Some(l) = &listed {
+                        let row = canvas.width as u64 * 4;
+                        if h > 0 {
+                            encoder.clear_buffer(l.heads, y as u64 * row, Some(h as u64 * row));
+                        }
+                        let append = &attached.append.as_ref().expect("the appends' group").1;
                         let mut pass = canvas.pass(&mut encoder, None, Depth::Read, None, None);
                         pass.set_bind_group(0, buffers.group.as_ref(), &slot);
                         pass.set_bind_group(3, lighting_group, &[]);
                         pass.set_bind_group(2, append, &[]);
                         self.draw(&mut pass, pipelines, indices, draws, *offset, Phase::SeeThrough);
-                        let [lx, ly, lw, lh] = *listed;
-                        pass.set_scissor_rect(lx, ly, lw, lh);
-                        draw_sprites(&mut pass, &appends.sprites, appended);
                     }
-                    // sprites blend depth tested, against the opaque depth kept for them (and kept again, with the
-                    // samples, for the composite)
+                    // the sprites among its other see-through layers: the depths of each pixel's nearest found (its
+                    // paths' and its listed fragments'), then each sprite blended into the slab between them it lies in
+                    let slabs = attached.slabs.as_ref().filter(|_| *slabs);
+                    if let Some(s) = slabs {
+                        let plan = plan.as_ref().expect("a plan: its paths', or its lists'");
+                        let statics = buffers.vector_statics();
+                        gpu.vector.encode(&gpu.device, &gpu.queue, &mut encoder, plan, 0, &statics, vector::Out::Bounds { out: &s.bounds, listed: listed.as_ref() });
+                        let targets: Vec<_> = s.layers.iter().map(|view| Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } })).collect();
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor { label: Some("slabs"), color_attachments: &targets, depth_stencil_attachment: None, occlusion_query_set: None, timestamp_writes: None, multiview_mask: None });
+                        pass.set_bind_group(0, buffers.group.as_ref(), &slot);
+                        pass.set_bind_group(2, &s.groups[1], &[]);
+                        draw_sprites(&mut pass, &appends.slabs, sprites);
+                    }
+                    // the sprites behind no other see-through layer blended into the base, depth tested against the
+                    // opaque depth kept for them (and kept again, with the samples, for the composite), and what is
+                    // fixed in the frame drawn over them; then the composite
                     let mut pass = canvas.pass(&mut encoder, Some((wgpu::LoadOp::Load, true)), Depth::Shared, base.as_ref(), base_light.as_ref());
                     pass.set_bind_group(0, buffers.group.as_ref(), &slot);
                     pass.set_bind_group(3, lighting_group, &[]);
                     pass.set_bind_group(1, &self.image_groups[&0], &[]);
-                    pass.set_bind_group(2, &lists.resolve, &[]);
-                    draw_sprites(&mut pass, &appends.unlisted, sprites);
+                    match slabs {
+                        Some(s) => {
+                            pass.set_bind_group(2, &s.groups[0], &[]);
+                            draw_sprites(&mut pass, &appends.sprites, sprites);
+                        }
+                        None => draw_sprites(&mut pass, &pipelines.sprites, sprites),
+                    }
                     self.draw(&mut pass, pipelines, indices, draws, *offset, Phase::Overlay);
                     drop(pass);
-                    let attached = canvas.raster.as_ref().expect("the raster pipeline's attachments");
                     gpu.vector.resolve_depth(&gpu.device, &mut encoder, &attached.depth_only, samples, [canvas.width, canvas.height]);
-                    let colors = attached.msaa.as_ref().expect("multisamples");
-                    layered(&mut encoder, &mut gpu.vector, Some(&vector::Listed { heads: &lists.heads, nodes: &lists.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref() }));
+                    layered(&mut encoder, &mut gpu.vector, listed.as_ref(), slabs);
                 }
                 Drawing::Vector(plan, groups) => {
                     grouped |= f.key == 0 && plan.groups.len() > 1;
@@ -2320,7 +2396,7 @@ impl Player {
                         }
                         let statics = buffers.vector_statics();
                         let lighting = vector::Lighting { maps: &buffers.shadow_maps.array, compare: &gpu.shadow_compare, dfg: &gpu.dfg, linear: &gpu.linear, environment: &cube, occlusion: &gpu.no_occlusion };
-                        let out = vector::Out::Color { rasters: atlas.map(|a| &a.color), target: &canvas.color, base: None, light: None, listed: None, lighting, light_out: None };
+                        let out = vector::Out::Color { rasters: atlas.map(|a| &a.color), target: &canvas.color, base: None, light: None, listed: None, slabs: None, lighting, light_out: None };
                         gpu.vector.encode(&gpu.device, &gpu.queue, &mut encoder, plan, g, &statics, out);
                     }
                 }
@@ -2342,9 +2418,8 @@ impl Player {
         let heads = buffer("heads", pixels * 4, wgpu::BufferUsages::COPY_DST);
         let nodes = buffer("nodes", self.list_capacity * NODE_BYTES, wgpu::BufferUsages::empty());
         let appended = buffer("appended", 16, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC);
-        let resolve = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("resolve"), layout: &gpu.raster.lists[1], entries: &[whole(4, &heads), whole(5, &nodes)] });
         let generation = self.lists.as_ref().map_or(0, |l| l.generation + 1);
-        self.lists = Some(Lists { heads, nodes, appended, pixels, capacity: self.list_capacity, generation, resolve });
+        self.lists = Some(Lists { heads, nodes, appended, pixels, capacity: self.list_capacity, generation });
     }
 
     /// A frame's lists held `appended` nodes: whether they overflowed (then they are given room
@@ -2516,6 +2591,12 @@ impl Player {
         let block = if block == 0 { outline } else { block };
         if outline > 2 && (block < outline || !p.len().is_multiple_of(block as usize)) {
             return Err("an outlined mesh is whole faces of vertices, each beginning with its loop".into());
+        }
+        // a reveal shows a surface face by face (`Raster`): each face's triangles are its own, in its turn
+        let faces = (p.len() / block.max(1) as usize).max(1);
+        let own = |(k, face): (usize, &[u32])| face.iter().all(|&i| i as usize / block as usize == k);
+        if outline > 2 && (!t.len().is_multiple_of(3 * faces) || (!t.is_empty() && !t.chunks(t.len() / faces).enumerate().all(own))) {
+            return Err("an outlined mesh's triangles are its faces' own, face after face, as many each".into());
         }
         // what the shaders read: (x, y, z, v) and (normal, u)
         let v: Vec<[f32; 4]> = p.iter().zip(&uv).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
