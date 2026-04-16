@@ -43,6 +43,7 @@ struct Instance {
 };
 
 const NONE: u32 = 0xffffffffu;
+const OVERLAY: u32 = 1u; // fixed in the frame
 const LIT: u32 = 4u;
 const TEXTURED: u32 = 8u;
 const NEAREST: u32 = 16u;
@@ -182,13 +183,12 @@ fn fs_none() -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
 }
 
+// A face's edges show as its face does: the record's draw holds the faces a reveal shows (`Raster::shown`).
 struct Stroked {
     @builtin(position) @invariant position: vec4<f32>, // counted and covered alike, to the bit
     @location(0) @interpolate(flat) color: vec4<f32>,
-    @location(1) u: f32,
-    @location(2) t: f32,
-    @location(3) @interpolate(flat) window: vec2<f32>,
-    @location(4) @interpolate(flat) i: u32,
+    @location(1) t: f32,
+    @location(2) @interpolate(flat) i: u32,
 };
 
 // Offset of a joint between a segment with normal n and its neighbour with normal m (miter, limit 10).
@@ -244,12 +244,10 @@ fn ribbon(code: u32, i: u32, width: f32, color: vec4<f32>) -> Stroked {
     }
     out.position = to_clip(vec3<f32>(px, z));
     out.color = color;
-    out.u = select(vertex(a).w, vertex(b).w, at_b);
     out.t = 0.0;
     if (color.a < 0.0) {
         out.t = along(i, px);
     }
-    out.window = params_of(i).xy;
     out.i = i;
     return out;
 }
@@ -259,19 +257,11 @@ fn vs_stroke(@builtin(vertex_index) code: u32, @builtin(instance_index) i: u32) 
     return ribbon(code, i, params_of(i).z, stroke_of(i));
 }
 
-
-
 fn stroked(in: Stroked) -> vec4<f32> {
-    if (in.u < in.window.x || in.u > in.window.y) {
-        discard;
-    }
     return premultiplied(in.color);
 }
 
 fn stroked_gradient(in: Stroked) -> vec4<f32> {
-    if (in.u < in.window.x || in.u > in.window.y) {
-        discard;
-    }
     return premultiplied(gradient(in.i, brush_of(in.i).z, brush2_of(in.i).y, brush_of(in.i).w, in.t, extra_of(in.i).y));
 }
 
@@ -386,9 +376,11 @@ fn carry(r0: vec4<f32>, r1: vec4<f32>, r2: vec4<f32>, n: vec3<f32>) -> vec3<f32>
     return vec3<f32>(dot(cross(r1.xyz, r2.xyz), n), dot(cross(r2.xyz, r0.xyz), n), dot(cross(r0.xyz, r1.xyz), n));
 }
 
-// CE's light: half the cube of the cosine toward the light, halved again when facing away.
-fn shade(normal: vec3<f32>, p: vec3<f32>) -> f32 {
-    let n = normalize(select(normal, -normal, dot(view.toward.xyz, normal) < 0.0));
+// CE's light: half the cube of the cosine toward the light, halved again when facing away, on the side the eye sees
+// from p (a 3D view's perspective; else, or `fixed` in the frame, the side toward the view).
+fn shade(normal: vec3<f32>, p: vec3<f32>, fixed: bool) -> f32 {
+    let seen = select(view.toward.xyz, view.eye.xyz - p, view.eye.w > 0.5 && !fixed);
+    let n = normalize(select(normal, -normal, dot(seen, normal) < 0.0));
     let l = normalize(view.light.xyz - p);
     let amount = 0.5 * pow(dot(n, l), 3.0);
     return select(amount, amount * 0.5, amount < 0.0);
@@ -414,7 +406,7 @@ fn vs_mesh(@builtin(vertex_index) index: u32, @builtin(instance_index) i: u32) -
         }
         // CE's light, once a vertex (a material's lights are the fragment's)
         if ((flags & LIT) != 0u && dot(n, n) > 1e-20) {
-            light = shade(n, p);
+            light = shade(n, p, (flags & OVERLAY) != 0u);
             color = vec4<f32>(clamp(color.rgb + light, vec3<f32>(0.0), vec3<f32>(1.0)), color.a);
         }
     }

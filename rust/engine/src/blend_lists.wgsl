@@ -29,15 +29,18 @@ fn vs_sprites(@builtin(vertex_index) v: u32) -> Dotted {
 //
 // See-through points need no lists to be in depth order: disks facing the camera, sorted far to
 // near (`sprites`: among equal depths, the view's order), they composite exactly by blending in
-// that order, however many a pixel stacks. So only where the other see-through layers can paint
-// (their footprints together) or its paths can (their boxes) are they appended too, and there the
-// lists hold every see-through fragment; everywhere else they blend over the opaque samples. A
-// view whose only see-through layers are points has no lists.
+// that order, however many a pixel stacks. Among the view's other see-through layers (its paths',
+// its listed fragments') they keep that order by slabs: a pass of the composite's (`vector.wgsl`'s
+// `bound`) leaves the depths of each pixel's nearest layers, and a point's fragment counts those
+// farther than it. With none, it blends into the base over the opaque samples, as everywhere
+// where nothing else is see-through; else into its slab, the pixel's points between two of those
+// layers, which the composite lays between them. So a point is never listed, and a pixel's points
+// cost the composite a few slabs, however many there are.
 
 struct Node {
     depth: f32,
     color: u32, // straight RGBA8
-    key: u32,   // record << 11 | samples covered << 3 | winding sign << 2 | kind (0 mesh or points, 3 a mesh's edges)
+    key: u32,   // record << 11 | samples covered << 3 | winding sign << 2 | kind (0 mesh, 3 a mesh's edges)
     next: u32,  // the next node + 1 (0: none)
 };
 
@@ -45,8 +48,6 @@ struct Node {
 @group(2) @binding(1) var<storage, read_write> nodes: array<Node>;
 @group(2) @binding(2) var<storage, read_write> appended: atomic<u32>;
 @group(2) @binding(3) var opaque_depth: texture_depth_multisampled_2d;
-@group(2) @binding(4) var<storage, read> heads_in: array<u32>;
-@group(2) @binding(5) var<storage, read> nodes_in: array<Node>;
 
 // Where sample s of n lies from its pixel's center (the standard patterns; others: the center).
 fn sample_offset(n: u32, s: u32) -> vec2<f32> {
@@ -100,21 +101,13 @@ fn straight(c: vec4<f32>) -> vec4<f32> {
 
 @fragment
 fn fs_stroke_append(in: Stroked, @builtin(sample_mask) mask: u32, @builtin(sample_index) sample: u32) {
-    let slope = slopes(in.position);
-    if (in.u < in.window.x || in.u > in.window.y) {
-        return;
-    }
-    append(in.i, in.position, slope, mask, sample, in.color, 3u, true);
+    append(in.i, in.position, slopes(in.position), mask, sample, in.color, 3u, true);
 }
 
 @fragment
 fn fs_stroke_gradient_append(in: Stroked, @builtin(sample_mask) mask: u32, @builtin(sample_index) sample: u32) {
-    let slope = slopes(in.position);
-    if (in.u < in.window.x || in.u > in.window.y) {
-        return;
-    }
     let c = gradient(in.i, brush_of(in.i).z, brush2_of(in.i).y, brush_of(in.i).w, in.t, extra_of(in.i).y);
-    append(in.i, in.position, slope, mask, sample, c, 3u, true);
+    append(in.i, in.position, slopes(in.position), mask, sample, c, 3u, true);
 }
 
 @fragment
@@ -122,28 +115,67 @@ fn fs_mesh_append(in: Shaded, @builtin(sample_mask) mask: u32, @builtin(sample_i
     append(in.i, in.position, slopes(in.position), mask, sample, straight(shaded(in)), 0u, true);
 }
 
-@fragment
-fn fs_points_append(in: Dotted, @builtin(sample_mask) mask: u32, @builtin(sample_index) sample: u32) {
-    append(in.i, in.position, slopes(in.position), mask, sample, dot_color(in), 0u, true);
+// ── slabs ─────────────────────────────────────────────────────────────────────
+
+// the depths of each pixel's nearest layers, far to near (`vector.wgsl`'s `bound`)
+@group(2) @binding(0) var slab_bounds: texture_2d<f32>;
+
+// The slab a see-through point's fragment blends into: how many of its pixel's nearest layers lie
+// farther than it, its depth taken as the composite takes a listed fragment's (`node_layer`:
+// pushed back by the bias, so that a layer through it shows).
+fn slab_of(in: Dotted) -> u32 {
+    let bounds = textureLoad(slab_bounds, vec2<u32>(in.position.xy), 0);
+    let z = -in.position.z * (1.0 - view.toward.w);
+    return u32(bounds.x > z) + u32(bounds.y > z) + u32(bounds.z > z) + u32(bounds.w > z);
 }
 
-// A sprite where no see-through fragment is listed: blended over whatever is farther (a read of
-// the heads, not an atomic: a shader with side effects would run per sample).
-fn sprite_unlisted(in: Dotted) -> vec4<f32> {
-    let c = dot_color(in);
-    let pixel = vec2<u32>(in.position.xy);
-    if (c.a <= 0.0 || heads_in[pixel.y * u32(view.pixels.x) + pixel.x] != 0u) {
+// A see-through point with no layer behind it: blended into the base (depth tested), as dotted.
+fn in_base(in: Dotted) -> vec4<f32> {
+    if (slab_of(in) != 0u) {
         discard;
     }
-    return premultiplied(c);
+    return dotted(in);
 }
 
 @fragment
-fn fs_sprites_unlisted(in: Dotted) -> @location(0) vec4<f32> {
-    return sprite_unlisted(in);
+fn fs_sprites_base(in: Dotted) -> @location(0) vec4<f32> {
+    return in_base(in);
 }
 
 @fragment
-fn fs_sprites_unlisted_with_light(in: Dotted) -> Base {
-    return painted(sprite_unlisted(in));
+fn fs_sprites_base_with_light(in: Dotted) -> Base {
+    return painted(in_base(in));
+}
+
+// The slabs, one target each: slab j's in target j - 1.
+struct Slabs {
+    @location(0) first: vec4<f32>,
+    @location(1) second: vec4<f32>,
+    @location(2) third: vec4<f32>,
+    @location(3) fourth: vec4<f32>,
+};
+
+// A see-through point with layers behind it: blended into its slab, over the share of the pixel's
+// samples where it is in front of the opaque depth (as the base's pass tests them, one by one).
+@fragment
+fn fs_sprites_slabs(in: Dotted) -> Slabs {
+    let j = slab_of(in);
+    let c = dot_color(in);
+    let n = u32(view.pixels.z);
+    var front = 0u;
+    for (var s = 0u; s < n; s += 1u) {
+        front += u32(in.position.z >= textureLoad(opaque_depth, vec2<u32>(in.position.xy), s));
+    }
+    if (j == 0u || c.a <= 0.0 || front == 0u) {
+        discard;
+    }
+    let p = premultiplied(c) * (f32(front) / f32(n));
+    var out = Slabs(vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0));
+    switch j {
+        case 1u: { out.first = p; }
+        case 2u: { out.second = p; }
+        case 3u: { out.third = p; }
+        default: { out.fourth = p; }
+    }
+    return out;
 }
