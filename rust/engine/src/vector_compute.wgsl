@@ -1,6 +1,6 @@
 // `vector.wgsl`'s compute passes: the flatten, a thread per slot, writing the
 // records to storage; the composite, a thread per pixel, writing the view as a storage texture, and (a 3D view's)
-// the pixels where depths cross, a thread each.
+// the pixels where depths cross, a thread each; and a 3D view's slab bounds, a thread per pixel.
 
 @group(1) @binding(3) var view_out: texture_storage_2d<rgba8unorm, write>;
 @group(1) @binding(19) var light_out: texture_storage_2d<rgba16float, write>; // (1x1 where the group shows its pixels)
@@ -74,6 +74,17 @@ fn keep(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     let b = begin(gid.xy);
     store(gid.xy, finish(b.fresh, b, gid.xy));
+}
+
+// A 3D view's slab bounds (`bound`), for its see-through points to find their slab by, before they are drawn.
+@group(2) @binding(0) var bounds_out: texture_storage_2d<rgba32float, write>;
+
+@compute @workgroup_size(16, 16)
+fn bound_slabs(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= u32(frame.size.x) || gid.y >= u32(frame.size.y)) {
+        return;
+    }
+    textureStore(bounds_out, gid.xy, bound(gid.xy));
 }
 
 @compute @workgroup_size(1)
