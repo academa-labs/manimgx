@@ -91,12 +91,16 @@ const NONE: u32 = 0xffffffffu;
 // where what lies under carries light (`frame.counts.w` bit 1): the raster base's light (`blend.wgsl`'s `Base`), or
 // what the group before left; `base` its paint then (1x1 where none)
 @group(1) @binding(17) var base_light: texture_2d<f32>;
+// a 3D view's see-through points among its layers (`points_before`): the depths of each pixel's nearest layers
+// (`bound`), and its slabs, layer j - 1 the points between the j-th and the (j+1)-th of them (else 1x1)
+@group(1) @binding(20) var slab_bounds: texture_2d<f32>;
+@group(1) @binding(21) var slabs: texture_2d_array<f32>;
 
 // A 3D view's see-through fragments (`blend.wgsl` appends them): per pixel a list, its head's index + 1 (0: none)
 struct Node {
     depth: f32, // at the pixel's centre
     color: u32, // straight RGBA8
-    key: u32,   // record << 11 | samples covered << 3 | winding sign << 2 | kind (0 mesh or points, 3 stroke)
+    key: u32,   // record << 11 | samples covered << 3 | winding sign << 2 | kind (0 mesh, 3 stroke)
     next: u32,  // the next node + 1 (0: none)
 };
 
@@ -1314,11 +1318,13 @@ fn painted(o: u32, layer: u32, up: vec2<f32>) -> vec4<f32> {
 // without the light's code and a mix's light (whose registers it would pay for unused).
 override lighting: bool = false;
 
-// Whether the view lays rasters (a 2D view's points and meshes, a 3D view's raster base) and see-through fragments'
-// lists: a view without them composites by a pipeline without their code, whose registers (as many as the pixel's
-// longest path through the composite needs) every pixel of the view would pay for unused.
+// Whether the view lays rasters (a 2D view's points and meshes, a 3D view's raster base), see-through fragments'
+// lists and see-through points' slabs: a view without them composites by a pipeline without their code, whose
+// registers (as many as the pixel's longest path through the composite needs) every pixel of the view would pay for
+// unused.
 override rasters: bool = true;
 override lists: bool = true;
+override points: bool = false;
 
 // A layer's paint as a mix: a fill with a material lit.
 fn paint_of(o: u32, layer: u32, up: vec2<f32>) -> Mix {
@@ -1482,41 +1488,71 @@ fn node_layer(f: Found) -> Layer {
     return Layer(1u, f.node.depth * (1.0 - frame.depth.x), 1.0);
 }
 
-// What `slab` leaves: the pixel, the first fragment it did not lay (at 0: none left), the base's samples it did not.
-struct Slab {
-    px: Pixel,
-    next: Found,
-    samples: u32,
-};
-
 const SAME_LAYER: f32 = 1e-5; // a stroke's own fragments this close are one layer (its joints)
 const FEW: u32 = 8u;          // layers a pixel where depths cross sorts at once
+const SLABS: u32 = 4u;        // a pixel's nearest layers its see-through points are laid among (`bound`)
+const NO_LAYER: f32 = -3.0e38; // nearer than every layer: where a pixel has fewer than SLABS (`bound`)
 
-// The pixel with what comes before `until` of its fragments from `first` on and of its base's `samples` (a bit
-// each: not laid yet) laid over it as one layer: composited sample by sample (a base sample under its fragments,
-// nearest last; a stroke's overlapping pieces once), then the samples' mean, so no seam shows where a mesh's
-// triangles meet inside the pixel, nor where the base and the fragments share it.
-fn slab(px: Pixel, head: u32, first: Found, samples: u32, until: Layer, gid: vec2<u32>) -> Slab {
-    if (!lists || ((first.at == 0u || !before(node_layer(first), until)) && samples == 0u)) {
-        return Slab(px, first, samples);
+// A pixel's see-through points that come before a layer at depth z, from slab `first` on, composited in their order,
+// and the first slab still to come. Slab j holds its points between the j-th and the (j+1)-th of its nearest layers
+// (`bound`), blended in their order (`blend_lists.wgsl`): it comes before the (j+1)-th, wherever the composite meets
+// that depth (a layer it hides, it never meets: the slab comes before the next it lays); the last, after everything.
+struct Points {
+    mix: Mix,
+    next: u32,
+};
+
+fn points_before(first: u32, z: f32, gid: vec2<u32>) -> Points {
+    var out = Points(Mix(), first);
+    if (!points || first > SLABS) {
+        return out;
     }
+    let bounds = textureLoad(slab_bounds, gid, 0);
+    for (var j = first; j <= SLABS; j++) {
+        if (j < SLABS && z > bounds[j]) {
+            break; // farther than the layer after slab j
+        }
+        if (bounds[j - 1u] > NO_LAYER) {
+            out.mix = over(painted_mix(textureLoad(slabs, gid, i32(j - 1u), 0)), out.mix);
+        }
+        out.next = j + 1u;
+    }
+    return out;
+}
+
+// The pixel with what comes before `until` of its fragments from `u.next` on, of its base's `u.samples` (a bit each:
+// not laid yet) and of its points laid over it as one layer: composited sample by sample (a base sample under its
+// fragments, nearest last; a stroke's overlapping pieces once; points over every sample), then the samples' mean, so
+// no seam shows where a mesh's triangles meet inside the pixel, nor where the base and the fragments share it.
+fn slab(u: Under, head: u32, until: Layer, gid: vec2<u32>) -> Under {
+    if (!lists || ((u.next.at == 0u || !before(node_layer(u.next), until)) && u.samples == 0u)) {
+        return u;
+    }
+    var out = u;
     var acc: array<Mix, 8>;
     var kept: array<vec2<u32>, 8>; // per sample, the last fragment laid: its layer (record and kind), its depth
-    var left = samples;
     var laid = false;
     for (var s = 0u; s < 8u; s++) {
         acc[s] = Mix();
         kept[s] = vec2<u32>(NONE, 0u);
-        if ((samples & (1u << s)) != 0u && before(Layer(0u, base_sample_depth(gid, s) * (1.0 - frame.depth.x), 1.0), until)) {
+        if ((u.samples & (1u << s)) != 0u && before(Layer(0u, base_sample_depth(gid, s) * (1.0 - frame.depth.x), 1.0), until)) {
             acc[s] = base_sample(gid, s);
-            left &= ~(1u << s);
+            out.samples &= ~(1u << s);
             laid = true;
         }
     }
-    var f = first;
+    var f = u.next;
     loop {
         if (f.at == 0u || !before(node_layer(f), until)) {
             break;
+        }
+        let farther = points_before(out.slab, node_layer(f).z, gid);
+        out.slab = farther.next;
+        if (farther.mix[1].a > 0.0) {
+            for (var s = 0u; s < frame.lists.w; s++) {
+                acc[s] = over(farther.mix, acc[s]);
+            }
+            out.shown += 1u;
         }
         let c = rgba8(f.node.color);
         let p = painted_mix(vec4<f32>(c.rgb * c.a, c.a));
@@ -1532,37 +1568,44 @@ fn slab(px: Pixel, head: u32, first: Found, samples: u32, until: Layer, gid: vec
         laid = true;
         f = next_node(head, f);
     }
-    var out = Slab(px, f, left);
+    out.next = f;
     if (laid) {
         var sum = Mix();
         for (var s = 0u; s < 8u; s++) {
             sum += acc[s];
         }
-        out.px = lay(px, divided(sum, f32(frame.lists.w)), 1.0, vec2<u32>(0u), vec2<i32>(0), vec2<i32>(0));
+        out.px = lay(out.px, divided(sum, f32(frame.lists.w)), 1.0, vec2<u32>(0u), vec2<i32>(0), vec2<i32>(0));
     }
     return out;
 }
 
-// What lies under the layers from `until` on: the base and the see-through fragments.
+// What lies under the layers from `until` on: the base, the see-through fragments and points.
 struct Under {
     px: Pixel,
     next: Found,     // the first fragment not laid
     base_left: bool, // the base (as one layer) not laid
     samples: u32,    // where the pixel has fragments, the base's samples not laid (instead)
+    slab: u32,       // the first of its points' slabs not laid (`points_before`)
+    shown: u32,      // how many times points were laid
 };
 
-// The pixel with the base and the see-through fragments (its list from `head`) that come before `until` laid over
-// it, in their order.
+// The pixel with the base, the see-through fragments (its list from `head`) and points that come before `until` laid
+// over it, in their order: the points once the base is (they lie in front of its opaque samples).
 fn under(u: Under, head: u32, base: Layer, until: Layer, gid: vec2<u32>, up: vec2<f32>) -> Under {
     var out = u;
     if (u.base_left && before(base, until)) {
         out.px = settle(out.px, base, gid, up);
         out.base_left = false;
     }
-    let s = slab(out.px, head, out.next, out.samples, until, gid);
-    out.px = s.px;
-    out.next = s.next;
-    out.samples = s.samples;
+    out = slab(out, head, until, gid);
+    if (!out.base_left) {
+        let farther = points_before(out.slab, until.z, gid);
+        out.slab = farther.next;
+        if (farther.mix[1].a > 0.0) {
+            out.px = lay(out.px, farther.mix, 1.0, vec2<u32>(0u), vec2<i32>(0), vec2<i32>(0));
+            out.shown += 1u;
+        }
+    }
     return out;
 }
 
@@ -1589,8 +1632,15 @@ struct Begun {
     up: vec2<f32>,
 };
 
+// Pixel gid's see-through fragments' list (only in the listed rows are the heads this frame's): its head (0: none).
+fn head_at(gid: vec2<u32>) -> u32 {
+    if (lists && frame.lists.x == 1u && gid.y >= frame.lists.y && gid.y < frame.lists.z) {
+        return list_head(gid.y * u32(frame.size.x) + gid.x);
+    }
+    return 0u;
+}
+
 fn begin(gid: vec2<u32>) -> Begun {
-    let size = vec2<u32>(frame.size.xy);
     let tile = (gid.y / TILE) * frame.tiles.x + gid.x / TILE;
     let pixel = vec2<f32>(gid);
     let centre = pixel + 0.5;
@@ -1612,24 +1662,20 @@ fn begin(gid: vec2<u32>) -> Begun {
     if ((frame.counts.z == 1u && base_at(gid)[1].a >= 1.0) || frame.counts.z == 2u) {
         hidden = base_layer.z;
     }
-    // its see-through fragments (only in the listed rows are the heads this frame's)
-    var head = 0u;
-    if (lists && frame.lists.x == 1u && gid.y >= frame.lists.y && gid.y < frame.lists.z) {
-        head = list_head(gid.y * size.x + gid.x);
-    }
-    // where it has fragments, its base sample by sample among them; elsewhere one layer
+    // its see-through fragments: where it has some, its base sample by sample among them; elsewhere one layer
+    let head = head_at(gid);
     let none = Found(Node(0.0, 0u, 0u, 0u), 0u);
     let all = (1u << frame.lists.w) - 1u;
-    let fresh = Under(start, next_node(head, none), frame.counts.z == 1u && head == 0u, select(0u, all, frame.counts.z == 1u && head != 0u));
+    let fresh = Under(start, next_node(head, none), frame.counts.z == 1u && head == 0u, select(0u, all, frame.counts.z == 1u && head != 0u), 1u, 0u);
     let first = tile_entry(tile);
     let end = tile_entry(tile + 1u);
     let entries = frame.tiles.x * frame.tiles.y + 1u; // where the tiles' entries begin
     return Begun(fresh, base_layer, hidden, head, first, end, entries, pixel, centre, up);
 }
 
-// The pixel's mix once what lies under nothing more (the base, the fragments left) is laid.
+// The pixel's mix once what lies under nothing more (the base, the fragments and points left) is laid.
 fn finish(u0: Under, b: Begun, gid: vec2<u32>) -> Mix {
-    let u = under(u0, b.head, b.base_layer, Layer(NONE, -3.0e38, 0.0), gid, b.up);
+    let u = under(u0, b.head, b.base_layer, Layer(NONE, NO_LAYER, 0.0), gid, b.up);
     return u.px.s.a * u.px.s.inside + (1.0 - u.px.s.a) * u.px.s.outside;
 }
 
@@ -1712,8 +1758,7 @@ fn laid(gid: vec2<u32>, b: Begun) -> Laid {
     return Laid(true, finish(u, b, gid));
 }
 
-// The pixel where depths cross: every layer again, in their order: gathered (up to FEW, sorted as they come), else
-// taken one at a time.
+// The pixel where depths cross: every layer again, in their order.
 fn crossed(gid: vec2<u32>, b: Begun) -> Mix {
     let base_layer = b.base_layer;
     let hidden = b.hidden;
@@ -1725,45 +1770,44 @@ fn crossed(gid: vec2<u32>, b: Begun) -> Mix {
     let centre = b.centre;
     let up = b.up;
     var u = b.fresh;
-    var last = Layer(0u, 3.0e38, 0.0);
-    var few: array<Layer, FEW>;
-    var n = 0u;
-    for (var k = first; k < end && n <= FEW; k++) {
-        let e = tile_entry(entries + k);
-        let o = e & 0xffffffu;
-        let mask = e >> 24u;
-        let local = vec2<i32>(pixel - rect_of(o).xy);
-        let bsize = vec2<i32>(rect_of(o).zw);
-        if (local.x < 0 || local.y < 0 || local.x >= bsize.x || local.y >= bsize.y) {
-            continue;
-        }
-        for (var step = 0u; step < 3u && n <= FEW; step++) {
-            let l = layer_at(o, mask, step, local, centre);
-            if (l.c <= 1e-5 || l.z > hidden) {
+    // its layers in their order, FEW at a time: one pass over its tile's list keeps the FEW first after the last laid,
+    // sorted as they come (a pixel where n layers cross costs n / FEW passes, not n)
+    var last = Layer(0u, 3.0e38, 0.0); // nothing laid yet: before everything
+    // the last laid, if a whole path layer and nothing since: its paint, and the pixel before it
+    var prev = Layer(NONE, 0.0, 0.0);
+    var prev_paint = Mix();
+    var prev_under = u.px;
+    loop {
+        var few: array<Layer, FEW>;
+        var n = 0u;
+        for (var k = first; k < end; k++) {
+            let e = tile_entry(entries + k);
+            let o = e & 0xffffffu;
+            let mask = e >> 24u;
+            let local = vec2<i32>(pixel - rect_of(o).xy);
+            let bsize = vec2<i32>(rect_of(o).zw);
+            if (local.x < 0 || local.y < 0 || local.x >= bsize.x || local.y >= bsize.y) {
                 continue;
             }
-            if (n == FEW) {
-                n = FEW + 1u; // too many: one at a time
-                break;
+            for (var step = 0u; step < 3u; step++) {
+                let l = layer_at(o, mask, step, local, centre);
+                if (l.c <= 1e-5 || l.z > hidden || !before(last, l) || (n == FEW && !before(l, few[FEW - 1u]))) {
+                    continue;
+                }
+                var j = min(n, FEW - 1u);
+                for (; j > 0u && before(l, few[j - 1u]); j--) {
+                    few[j] = few[j - 1u];
+                }
+                few[j] = l;
+                n = min(n + 1u, FEW);
             }
-            var j = n;
-            for (; j > 0u && before(l, few[j - 1u]); j--) {
-                few[j] = few[j - 1u];
-            }
-            few[j] = l;
-            n++;
         }
-    }
-    if (n <= FEW) {
-        // the last laid, if a whole path layer and nothing since: its paint, and the pixel before it
-        var prev = Layer(NONE, 0.0, 0.0);
-        var prev_paint = Mix();
-        var prev_under = u.px;
         for (var i = 0u; i < n; i++) {
             let before_under = u.base_left;
             let next_before = u.next.at;
+            let shown_before = u.shown;
             u = under(u, head, base_layer, few[i], gid, up);
-            if (u.base_left != before_under || u.next.at != next_before) {
+            if (u.base_left != before_under || u.next.at != next_before || u.shown != shown_before) {
                 prev = Layer(NONE, 0.0, 0.0);
             }
             let path = few[i].key != 0u && atlas_of((few[i].key >> 2u) - 1u).w == NONE;
@@ -1796,35 +1840,67 @@ fn crossed(gid: vec2<u32>, b: Begun) -> Mix {
                 prev_under = laid_before;
             }
         }
-    } else {
-        last = Layer(0u, 3.0e38, 0.0);
-        loop {
-            var next = Layer(NONE, -3.0e38, 0.0);
-            for (var k = first; k < end; k++) {
-                let e = tile_entry(entries + k);
-        let o = e & 0xffffffu;
-        let mask = e >> 24u;
-                let local = vec2<i32>(pixel - rect_of(o).xy);
-                let bsize = vec2<i32>(rect_of(o).zw);
-                if (local.x < 0 || local.y < 0 || local.x >= bsize.x || local.y >= bsize.y) {
-                    continue;
-                }
-                for (var step = 0u; step < 3u; step++) {
-                    let l = layer_at(o, mask, step, local, centre);
-                    if (l.c > 1e-5 && l.z <= hidden && before(last, l) && before(l, next)) {
-                        next = l;
-                    }
-                }
-            }
-            if (next.key == NONE) {
-                break;
-            }
-            u = under(u, head, base_layer, next, gid, up);
-            u.px = settle(u.px, next, gid, up);
-            last = next;
+        if (n < FEW) {
+            break;
         }
+        last = few[FEW - 1u];
     }
     return finish(u, b, gid);
+}
+
+// A pixel's nearest layers' depths met so far, far to near (NO_LAYER past the last), with a layer at depth z among them:
+// where all SLABS are met, only if it is nearer than the farthest, which makes room.
+fn nearer(k: vec4<f32>, z: f32) -> vec4<f32> {
+    var out = k;
+    if (out.w > NO_LAYER) {
+        if (z >= out.x) {
+            return out;
+        }
+        out = vec4<f32>(out.yzw, NO_LAYER);
+    }
+    var j = SLABS - 1u;
+    for (; j > 0u && out[j - 1u] < z; j--) {
+        out[j] = out[j - 1u];
+    }
+    out[j] = z;
+    return out;
+}
+
+// A 3D view's slab bounds: the depths of pixel gid's SLABS nearest layers, far to near (NO_LAYER where it has fewer),
+// its paths' and its see-through fragments', as the composite takes them (`layer_at`, `node_layer`), but what is fixed
+// in the frame (in front of everything, it parts no points). A see-through point counts those farther than it
+// (`blend_lists.wgsl`'s `slab_of`): with none, it is blended into the base; else into the slab between two of them,
+// which the composite lays between them (`points_before`). A point behind SLABS layers is behind them all: the base.
+fn bound(gid: vec2<u32>) -> vec4<f32> {
+    let tile = (gid.y / TILE) * frame.tiles.x + gid.x / TILE;
+    let entries = frame.tiles.x * frame.tiles.y + 1u;
+    let pixel = vec2<f32>(gid);
+    var k = vec4<f32>(NO_LAYER);
+    for (var i = tile_entry(tile); i < tile_entry(tile + 1u); i++) {
+        let e = tile_entry(entries + i);
+        let o = e & 0xffffffu;
+        let local = vec2<i32>(pixel - rect_of(o).xy);
+        let size = vec2<i32>(rect_of(o).zw);
+        if (local.x < 0 || local.y < 0 || local.x >= size.x || local.y >= size.y) {
+            continue;
+        }
+        for (var step = 0u; step < 3u; step++) {
+            let l = layer_at(o, e >> 24u, step, local, pixel + 0.5);
+            if (l.c > 1e-5 && l.z > -1.0) {
+                k = nearer(k, l.z);
+            }
+        }
+    }
+    var at = head_at(gid);
+    loop {
+        if (at == 0u) {
+            break;
+        }
+        let f = Found(list_node(at - 1u), at);
+        k = nearer(k, node_layer(f).z);
+        at = f.node.next;
+    }
+    return k;
 }
 
 const TILE: u32 = 16u;
