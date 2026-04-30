@@ -39,8 +39,3 @@ fn agx(c: vec3<f32>) -> vec3<f32> {
 fn toned(c: vec3<f32>, tone: u32) -> vec3<f32> {
     return gamma(select(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), clamp(agx(c), vec3<f32>(0.0), vec3<f32>(1.0)), tone == 1u));
 }
-
-// What a radiance shows as: scaled by the exposure, then shown.
-fn displayed(radiance: vec3<f32>, exposure: f32, tone: u32) -> vec3<f32> {
-    return toned(radiance * exposure, tone);
-}
