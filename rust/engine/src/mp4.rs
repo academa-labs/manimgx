@@ -2,7 +2,10 @@
 //! faststart.
 //!
 //! A video sample is a picture as x264 writes it (NAL units, each prefixed by its 4-byte size) and a
-//! held picture is one sample that lasts longer — times are in frames (timescale = fps). An audio
+//! held picture is one sample that lasts longer — times are in frames (timescale = fps). With
+//! B-frames (the slower presets), a picture can be decoded before the one it follows: the samples
+//! are in decode order, each shown at its own time, and an edit list starts the track at the
+//! first picture shown. An audio
 //! sample is an AAC access unit of 1024 samples; the encoder's priming before the sound's first
 //! sample is skipped by an edit list, so the sound starts with the film, to the sample. Video
 //! samples stream to a temporary file; `finish` writes the header (`moov`), then the samples,
@@ -166,15 +169,20 @@ impl Mp4 {
 
     /// The header, with the samples starting at byte `offset` of the file.
     fn moov(&self, end: i64, audio: Option<&Audio>, layout: &Layout, offset: u64, wide: bool) -> Vec<u8> {
+        // The media's clock starts at the first decode. With B-frames, x264 decodes ahead of
+        // what it shows (its first dts is negative), so a picture shows at its pts minus that
+        // first dts: an offset of pts − dts (never negative) from its decode, and an edit list
+        // that starts the track at the first picture shown.
         let first = self.samples.first().map_or(0, |s| s.dts);
+        let start = self.samples.iter().map(|s| s.pts).min().map_or(0, |pts| pts - first);
         let decode: Vec<i64> = self.samples.iter().map(|s| s.dts - first).collect();
         let duration = end.max(1) as u32;
+        let media = (end - first).max(1) as u32;
         let mut deltas: Vec<u32> = decode.windows(2).map(|w| (w[1] - w[0]) as u32).collect();
         if let Some(&last) = decode.last() {
-            deltas.push((end - last).max(1) as u32);
+            deltas.push((end - first - last).max(1) as u32);
         }
-        // composition = decode + offset: the offsets make a sample show at its pts
-        let offsets: Vec<u32> = self.samples.iter().zip(&decode).map(|(s, d)| (s.pts - d).max(0) as u32).collect();
+        let offsets: Vec<u32> = self.samples.iter().map(|s| (s.pts - s.dts).max(0) as u32).collect();
         let [(video_at, video_counts), (audio_at, audio_counts)] = self.chunks(audio, layout, offset);
         // the sound's length in the movie's timescale (frames)
         let heard = audio.map_or(0, |a| (a.length * self.fps as u64).div_ceil(a.rate as u64) as u32);
@@ -208,12 +216,23 @@ impl Mp4 {
                     w.u32(self.width << 16);
                     w.u32(self.height << 16);
                 });
+                if start > 0 {
+                    w.boxed(b"edts", |w| {
+                        w.full(b"elst", 0, 0, |w| {
+                            w.u32(1);
+                            w.u32(duration); // in the movie's timescale (frames, as the track's)
+                            w.u32(start as u32); // where the first picture shows, in the track's
+                            w.u16(1);
+                            w.u16(0);
+                        });
+                    });
+                }
                 w.boxed(b"mdia", |w| {
                     w.full(b"mdhd", 0, 0, |w| {
                         w.u32(0);
                         w.u32(0);
                         w.u32(self.fps);
-                        w.u32(duration);
+                        w.u32(media);
                         w.u16(0x55c4); // "und"
                         w.u16(0);
                     });
