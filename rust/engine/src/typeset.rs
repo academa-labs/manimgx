@@ -1,7 +1,7 @@
 //! Typst as a library: a document in, its layout out, read straight off Typst's frames. Every
 //! glyph comes with its outline's key, its placement, its paint and the source bytes it draws
-//! (its cluster, through its span); every shape as cubic curves; every labelled group as the
-//! items inside it.
+//! (its cluster, through its span); every shape as cubic curves; each item with the source node
+//! it came from; every labelled group as the items inside it.
 //!
 //! Coordinates: a glyph's placement maps its outline (font units, y up) to the page in points
 //! with y up (Typst's page is y down; the flip is folded in here). Shapes come in page points,
@@ -13,8 +13,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use typst::diag::{FileError, FileResult, Severity, SourceDiagnostic};
 use typst::foundations::{Bytes, Datetime, Duration};
+use typst::introspection::{Location, Tag};
 use typst::layout::{Abs, Frame, FrameItem, Point, Transform};
-use typst::syntax::{FileId, RootedPath, Source, SyntaxKind, VirtualPath, VirtualRoot};
+use typst::syntax::{FileId, RootedPath, Source, Span, SyntaxKind, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook, FontInstance};
 use typst::utils::LazyHash;
 use typst::visualize::{Curve, CurveItem, FixedStroke, Geometry, Paint};
@@ -25,11 +26,12 @@ use typst_layout::PagedDocument;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// One item's row: kind, key, placement (6), fill (4), stroke (4), stroke width, advance, and
-/// where a glyph came from: its node in the source (start, end), the bytes of the node's text its
-/// cluster draws (start, end) and the node's kind (`NODE_*`).
+/// where the item came from (see `Walk::origin`): its node in the source (start, end), the bytes
+/// of the node's text a glyph's cluster draws (start, end) and the node's kind (`NODE_*`).
 const ROW: usize = 23;
-/// A glyph's node: none (not from the main source), markup text (its text is its source), a
-/// string literal (its text is the string's value), or another node (an escape, a shorthand…).
+/// An item's node: none (nothing in the main source made it), markup text (its text is its
+/// source), a string literal (its text is the string's value), or another node (an escape, a
+/// shorthand, an element around the item…).
 const NODE_NONE: f64 = 0.0;
 const NODE_TEXT: f64 = 1.0;
 const NODE_STR: f64 = 2.0;
@@ -330,6 +332,9 @@ struct Walk<'a> {
     shapes: Vec<Vec<f64>>,
     labels: Vec<(String, Vec<usize>)>,
     open: Vec<usize>, // the labelled groups the walk is inside
+    // the elements the walk is inside, by their tags (an equation, a labelled element…), the
+    // innermost last
+    around: Vec<(Location, Span)>,
 }
 
 impl Walk<'_> {
@@ -341,22 +346,32 @@ impl Walk<'_> {
         self.rows.extend_from_slice(&row);
     }
 
-    /// Where a glyph came from: its node's source range, the bytes of the node's text its
-    /// cluster draws (`offset`, and `len` more) and the node's kind.
-    fn origin(&self, span: typst::syntax::Span, offset: u16, len: usize) -> [f64; 5] {
-        let node = (span.id() == Some(self.doc.main.id()))
-            .then(|| self.doc.main.find(span))
-            .flatten();
-        let Some(node) = node else {
-            return [-1.0, -1.0, -1.0, -1.0, NODE_NONE];
+    /// Where an item came from: the main source's node that made it, its range and kind. That
+    /// is its own (its span's) if the main source has it; else the innermost element around it
+    /// that the main source has, so a mark a package drew (mitex's fraction bar or radical) is
+    /// the equation's that holds it. For a glyph from its own node, `cluster` (its offset in the
+    /// node's text, and its length) gives the bytes it draws; -1, -1 otherwise.
+    fn origin(&self, span: Span, cluster: Option<(u16, usize)>) -> [f64; 5] {
+        let main = |span: Span| {
+            (span.id() == Some(self.doc.main.id())).then(|| self.doc.main.find(span)).flatten()
+        };
+        let (node, cluster) = match main(span) {
+            Some(node) => (node, cluster),
+            None => match self.around.iter().rev().find_map(|&(_, span)| main(span)) {
+                Some(node) => (node, None),
+                None => return [-1.0, -1.0, -1.0, -1.0, NODE_NONE],
+            },
         };
         let kind = match node.kind() {
             SyntaxKind::Text => NODE_TEXT,
             SyntaxKind::Str => NODE_STR,
             _ => NODE_OTHER,
         };
-        let (range, start) = (node.range(), usize::from(offset));
-        [range.start as f64, range.end as f64, start as f64, (start + len) as f64, kind]
+        let (from, to) = cluster.map_or((-1.0, -1.0), |(offset, len)| {
+            let start = usize::from(offset);
+            (start as f64, (start + len) as f64)
+        });
+        [node.range().start as f64, node.range().end as f64, from, to, kind]
     }
 
     fn frame(&mut self, frame: &Frame, ts: Transform) {
@@ -393,7 +408,7 @@ impl Walk<'_> {
                                 typst::layout::Ratio::new(-scale),
                             ));
                         let [node_start, node_end, from, to, kind] =
-                            self.origin(glyph.span.0, glyph.span.1, glyph.range().len());
+                            self.origin(glyph.span.0, Some((glyph.span.1, glyph.range().len())));
                         let [a, b, c, d, e, f] = affine(placement);
                         let advance = glyph.x_advance.get() * text.font.units_per_em();
                         self.item([
@@ -410,7 +425,7 @@ impl Walk<'_> {
                         y += glyph.y_advance.at(text.size);
                     }
                 }
-                FrameItem::Shape(shape, _) => {
+                FrameItem::Shape(shape, span) => {
                     let curve = match &shape.geometry {
                         Geometry::Line(to) => {
                             let mut c = Curve::new();
@@ -427,16 +442,26 @@ impl Walk<'_> {
                     }
                     let fill = shape.fill.as_ref().map_or([-1.0; 4], rgba);
                     let (stroke, width) = stroke(&shape.stroke);
+                    let [node_start, node_end, from, to, kind] = self.origin(*span, None);
                     let index = self.shapes.len() as f64;
                     self.shapes.push(points);
                     self.item([
                         SHAPE, index, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0,
                         fill[0], fill[1], fill[2], fill[3],
                         stroke[0], stroke[1], stroke[2], stroke[3],
-                        width, 0.0, -1.0, -1.0, -1.0, -1.0, NODE_NONE,
+                        width, 0.0, node_start, node_end, from, to, kind,
                     ]);
                 }
-                FrameItem::Image(..) | FrameItem::Link(..) | FrameItem::Tag(..) => {}
+                FrameItem::Tag(tag @ Tag::Start(elem, _)) => {
+                    self.around.push((tag.location(), elem.span()));
+                }
+                FrameItem::Tag(tag @ Tag::End(..)) => {
+                    let location = tag.location();
+                    if let Some(i) = self.around.iter().rposition(|&(at, _)| at == location) {
+                        self.around.remove(i);
+                    }
+                }
+                FrameItem::Image(..) | FrameItem::Link(..) => {}
             }
         }
     }
@@ -542,8 +567,14 @@ pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>) ->
         }
         let document = compiled.map_err(|errors| message(&errors, &doc))?;
         let page = document.pages().first().ok_or("Typst produced no page")?;
-        let mut walk =
-            Walk { doc: &doc, rows: Vec::new(), shapes: Vec::new(), labels: Vec::new(), open: Vec::new() };
+        let mut walk = Walk {
+            doc: &doc,
+            rows: Vec::new(),
+            shapes: Vec::new(),
+            labels: Vec::new(),
+            open: Vec::new(),
+            around: Vec::new(),
+        };
         walk.frame(&page.frame, Transform::identity());
         Ok((walk.rows, walk.shapes, walk.labels, system))
     }
