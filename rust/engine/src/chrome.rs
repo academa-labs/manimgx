@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::render::{Frame, Gpu, Mat34, Player, Record, VIEW_FLOATS};
+use crate::render::{Frame, Gpu, Mat34, Player, Record, VIEW_LENGTH};
 use crate::text::{Family, Fonts, Line};
 
 /// The shapes every control is made of, uploaded once: a unit square, a unit disk, a triangle.
@@ -483,7 +483,7 @@ impl Chrome {
         let (w, h) = (size.0 as f32, size.1 as f32);
         // pixels, y up: x ∈ [0, w] → [−1, 1], y ∈ [0, h] → [−1, 1] (WGSL: column-major); a
         // clear background
-        let mut view = vec![0.0f32; VIEW_FLOATS + 4];
+        let mut view = vec![0.0f32; VIEW_LENGTH];
         let projection = [[2.0 / w, 0.0, 0.0, -1.0], [0.0, 2.0 / h, 0.0, -1.0], [0.0, 0.0, 0.0, 0.5], [0.0, 0.0, 0.0, 1.0]];
         for (r, row) in projection.iter().enumerate() {
             for (c, value) in row.iter().enumerate() {
