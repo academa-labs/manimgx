@@ -1,0 +1,160 @@
+// The director's worker: Python (Pyodide) running scenes, their takes sent to the page's players.
+// manimgx comes from PyPI (micropip), and with it the player's engine, which is handed on.
+//
+// In: {boot: {pyodide, manimgx}} once; {film, run: {source, scene}}.
+// Out: {status} while it boots (what it waits for); {engine: {js, wasm, fonts}} once (the
+// player: its JS and WebAssembly, and the fonts its face is set in); then each film's take stream,
+// {film, feed}: its takes, and between them the director's notes (the file's scenes, an error),
+// which the player reads like every other note.
+
+import { message } from "./protocol.js";
+import type { Boot, FromDirector, Run, ToDirector } from "./protocol.js";
+
+interface PythonValue {
+  toJs(): unknown;
+  destroy(): void;
+}
+
+interface Micropip {
+  install(requirement: string): Promise<void>;
+}
+
+interface Pyodide {
+  loadPackage(name: string): Promise<void>;
+  loadPackagesFromImports(source: string): Promise<void>;
+  pyimport(name: string): unknown;
+  runPython(source: string): unknown;
+}
+
+interface PyodideModule {
+  loadPyodide(options: { indexURL: string }): Promise<Pyodide>;
+}
+
+type Runner = (
+  film: number,
+  source: string,
+  scene: string | null,
+  send: (bytes: Uint8Array<ArrayBuffer>) => void,
+  tried: string[],
+) => string | null;
+
+interface Python {
+  py: Pyodide;
+  micropip: Micropip;
+  runner: Runner;
+}
+
+const queue = new Map<number, Run>(); // film → the latest run asked for, not begun (an edit replaces it)
+let booted: Promise<Python | null> | undefined;
+let busy = false;
+
+function send(data: FromDirector, transfer: Transferable[] = []): void {
+  postMessage(data, transfer);
+}
+
+onmessage = ({ data }: MessageEvent<ToDirector>) => {
+  if ("boot" in data) {
+    booted = boot(data.boot).catch((error: unknown) => {
+      send({ status: `manimgx could not start: ${message(error)}` });
+      return null;
+    });
+    return;
+  }
+  if ("run" in data) {
+    queue.set(data.film, data.run);
+    drain();
+  }
+};
+
+async function boot({ pyodide, manimgx }: Boot): Promise<Python> {
+  send({ status: "Loading Python…" });
+  const { loadPyodide } = (await import(`${pyodide}pyodide.mjs`)) as PyodideModule;
+  const py = await loadPyodide({ indexURL: pyodide });
+  send({ status: "Installing manimgx…" });
+  await py.loadPackage("micropip");
+  const micropip = py.pyimport("micropip") as Micropip;
+  await micropip.install(manimgx);
+  // the player's engine, in the engine the wheel holds, beside the Python it plays for
+  const built = py.runPython(`
+from manimgx import _engine
+from manimgx.drawing.typesetting import FONTS
+(*_engine.web(), _engine.face_fonts(list(FONTS)))`) as PythonValue;
+  const [js, wasm, fonts] = built.toJs() as [
+    string,
+    Uint8Array<ArrayBuffer>,
+    Uint8Array<ArrayBuffer>[],
+  ];
+  built.destroy();
+  send({ engine: { js, wasm, fonts } }, [wasm.buffer, ...fonts.map((f) => f.buffer)]);
+  const runner = py.runPython(RUNNER) as Runner;
+  return { py, micropip, runner };
+}
+
+async function drain(): Promise<void> {
+  const python = await booted;
+  if (!python || busy) return;
+  const { py, micropip, runner } = python;
+  busy = true;
+  for (const [film, { source, scene }] of queue) {
+    queue.delete(film);
+    const feed = (bytes: Uint8Array<ArrayBuffer>): void =>
+      send({ film, feed: bytes.buffer }, [bytes.buffer]);
+    await py.loadPackagesFromImports(source); // what the scene imports from Pyodide's own packages
+    // a module the scene misses (its own import, or one manimgx imports when needed: networkx
+    // for a Graph) is installed, and the scene run again
+    const tried: string[] = [];
+    for (let missing; (missing = runner(film, source, scene ?? null, feed, tried));) {
+      tried.push(missing);
+      await micropip.install(missing).catch(() => {});
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve)); // let newer runs in
+  }
+  busy = false;
+  if (queue.size) drain();
+}
+
+// Python: a film's source run as a scene file, like `manimgx render` runs one, its take sent on.
+const RUNNER = `
+import dataclasses, importlib.util, json, sys, traceback
+from pathlib import Path
+from pyodide.ffi import to_js
+from manimgx import _engine
+from manimgx.config import Config, config
+from manimgx.scene import Scene
+
+def run(film, source, name, send, tried):
+    out = lambda data: send(to_js(data))
+    path = Path(f"/home/pyodide/films/{film}/scene.py")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+        defaults = Config()
+        for field in dataclasses.fields(Config):
+            setattr(config, field.name, getattr(defaults, field.name))
+        spec = importlib.util.spec_from_file_location("scene", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["scene"] = module
+        spec.loader.exec_module(module)
+        scenes = [v for v in vars(module).values() if isinstance(v, type) and issubclass(v, Scene) and v.__module__ == "scene"]
+        names = [s.__name__ for s in scenes]
+        if not scenes:
+            raise ValueError("the source defines no scene (a subclass of manimgx.Scene)")
+        kind = scenes[names.index(name)] if name in names else scenes[0]
+        out(_engine.note(json.dumps({"scenes": names, "scene": kind.__name__})))
+        kind().render(take=out)
+    except ModuleNotFoundError as error:
+        if error.name and error.name not in list(tried):
+            return error.name  # installed, then run again
+        report(out, path, error)
+    except Exception as error:
+        report(out, path, error)
+
+def report(out, path, error):
+    # the scene's own frames, not manimgx's or Pyodide's
+    frames = [f for f in traceback.extract_tb(error.__traceback__) if f.filename == str(path)]
+    trace = "".join(traceback.format_list(frames) + traceback.format_exception_only(error))
+    line = frames[-1].lineno if frames else getattr(error, "lineno", None)
+    out(_engine.note(json.dumps({"error": {"message": str(error), "type": type(error).__name__, "trace": trace, "line": line}})))
+
+run
+`;
