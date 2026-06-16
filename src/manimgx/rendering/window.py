@@ -22,6 +22,7 @@ import threading
 from collections.abc import Sequence
 from types import TracebackType
 from typing import Self
+from warnings import deprecated
 
 from manimgx import _engine
 from manimgx.rendering.film import Cut
@@ -34,8 +35,7 @@ class Window:
     [`Scene.render`][manimgx.Scene.render] as `take`, and it plays the film as it is recorded.
     Once it is closed, a film sent to it is cut (see [`Cut`][manimgx.rendering.film.Cut]).
 
-    Its viewer can ask for another of the file's scenes (N and P): see
-    [`scenes`][manimgx.Window.scenes] and [`asked`][manimgx.Window.asked].
+    Its viewer can ask for another of the file's scenes (N and P).
 
     Args:
         title: The window's title.
@@ -76,6 +76,7 @@ class Window:
                 pipe.close()
             raise Cut from None
 
+    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
     def scenes(self, names: Sequence[str], playing: str) -> None:
         """Tell the window the file's scenes, and the one it plays: its viewer can ask for
         the others (N, P; see [`asked`][manimgx.Window.asked]).
@@ -86,6 +87,7 @@ class Window:
         """
         self._say({"scenes": list(names), "scene": playing})
 
+    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
     def failed(self, error: BaseException, trace: str, line: int | None = None) -> None:
         """Show the scene's error over the last picture it made, until the next take.
 
@@ -107,6 +109,7 @@ class Window:
         """Whether the window is open: until its viewer closes it, or it is closed."""
         return self._process.poll() is None
 
+    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
     def asked(self) -> str | None:
         """The scene the viewer asked for last, if they asked since (N, P: the next or the
         previous of the file's scenes)."""
@@ -147,19 +150,20 @@ class Window:
 
     def _listen(self) -> None:
         """What the window says, a line of JSON each, as it comes: a scene its viewer asks
-        for, or why it failed."""
+        for, or why it failed; its end of the pipe closed once it has said all."""
         assert self._process.stdout is not None
-        for line in self._process.stdout:
-            try:
-                said = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(said, dict):
-                continue
-            if isinstance(scene := said.get("scene"), str):
-                self._asked.put(scene)
-            if isinstance(failure := said.get("failure"), str):
-                self.failure = failure
+        with self._process.stdout as lines:
+            for line in lines:
+                try:
+                    said = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(said, dict):
+                    continue
+                if isinstance(scene := said.get("scene"), str):
+                    self._asked.put(scene)
+                if isinstance(failure := said.get("failure"), str):
+                    self.failure = failure
 
 
 def _main() -> None:
