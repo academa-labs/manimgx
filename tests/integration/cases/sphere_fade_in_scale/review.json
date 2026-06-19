@@ -1,0 +1,8 @@
+{
+  "verdict": "working",
+  "note": "Codex visual review of the compact Surface topology reference update: unique sample positions and derived cell topology preserve the reviewed geometry, lighting and color behavior; changed floating-point packing produces sparse raster/edge/stroke differences. Baseline and candidate movies were compared across all 8 frames; frame count, duration and timeline are unchanged. Largest changed area: 20 pixels/frame out of 518400; maximum channel delta 28/255; maximum frame RMSE 0.051107/255. This is a new review, not an attribution to an earlier reviewer, and it does not assert Manim CE equivalence. CE comparisons were recomputed from this movie and the existing unchanged CE movie; the automatic CE verdict remains authoritative. Evidence: topology-v3 proof sha256:91f4ac3378af19d1782176eade8c2868aa74fa1a4e10cd124400c35886c55929.",
+  "source": "sha256:f43c875da1e1ee874c5b29ad1b8b18ca1e7ac892dede604b50fc2d380de705c4",
+  "manimgx": "sha256:0025dc9b746dfc3268dfced70af82de3cd3bf7366f9696a7e6e160f845a5aac1",
+  "ce": "sha256:040d11ebe8041502deedebc0505748ddfbde841c407de50be88d6bfa31ab093f",
+  "at": "2026-10-04"
+}
