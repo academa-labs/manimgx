@@ -69,7 +69,7 @@ from manimgx.drawing.geometry import (
     z_to_vector,
 )
 from manimgx.drawing.paint import *
-from manimgx.drawing.paint import stretch_array as stretch_array_to_length
+from manimgx.drawing.paint import stretch_array_to_length
 from manimgx.mobject import (
     ComplexValueTracker,
     Group,
