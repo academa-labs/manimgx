@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from warnings import deprecated
+
 __all__ = ["ManimBanner"]
 from typing import ClassVar, Literal, Unpack
 
@@ -115,6 +117,7 @@ MANIM_SVG_PATHS = (
 )
 
 
+@deprecated("Manim's logo, kept for Manim CE's examples", category=None)
 class ManimBanner(VGroup):
     """The Manim logo: a large "M" beside a green circle, a blue square and a red
     triangle, which [create][manimgx.ManimBanner.create] brings in and
