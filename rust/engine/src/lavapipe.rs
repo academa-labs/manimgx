@@ -1,6 +1,6 @@
 //! Mesa's lavapipe, Vulkan on the CPU, for a Linux machine with no GPU driver: the Linux wheels
 //! bundle it beside the engine (`manimgx/lavapipe/libvulkan_lvp.so`, made by
-//! `scripts/build_lavapipe.sh`). The engine loads it itself, as Vulkan's loader loads a driver,
+//! `scripts/release/build_lavapipe.sh`). The engine loads it itself, as Vulkan's loader loads a driver,
 //! and gives wgpu an instance of it: neither the system's loader nor the environment is involved.
 
 /// An instance of the bundled lavapipe; None where there is none (not Linux, or an engine built
