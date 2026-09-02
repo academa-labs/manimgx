@@ -13,6 +13,7 @@ This module only checks. `python -m tests.integration.corpus` renders and review
 """
 
 import ast
+import re
 import tempfile
 from pathlib import Path
 
@@ -61,7 +62,17 @@ def test_same_source(case: Case) -> None:
     assert (facts.size, facts.fps) == (SIZE, FPS), "rendered at another size or rate"
     for engine in ("manimgx", "ce"):
         if isinstance(facts.render(engine), Frames):
-            assert case.video(engine).exists(), f"{engine}.mkv is missing"
+            video = case.video(engine)
+            sidecar = case.video_hash(engine)
+            assert sidecar.exists(), f"{sidecar.name} is missing"
+            digest, separator, filename = (
+                sidecar.read_text(encoding="ascii").strip().partition("  ")
+            )
+            assert separator == "  ", f"{sidecar.name} is malformed"
+            assert filename == video.name, f"{sidecar.name} is malformed"
+            assert re.fullmatch(r"[0-9a-f]{64}", digest) is not None, (
+                f"{sidecar.name} is malformed"
+            )
 
 
 def _imported(tree: ast.Module) -> list[tuple[int, str]]:
@@ -119,6 +130,7 @@ def _explain(case: Case, expected: Frames, fresh: Frames) -> str:
         lines.append(
             f"  {len(changed)} frames differ, first {changed[0]}, last {changed[-1]}"
         )
+    if changed and case.video("manimgx").exists():
         with tempfile.TemporaryDirectory() as tmp:
             video = Path(tmp) / "fresh.mkv"
             engines.run(case, "manimgx", video=video)
@@ -143,6 +155,10 @@ def _explain(case: Case, expected: Frames, fresh: Frames) -> str:
         sheet.save(out / f"reference_vs_today_{worst:04d}.png")
         lines.append(
             f"  reference | today: {out / f'reference_vs_today_{worst:04d}.png'}"
+        )
+    elif changed:
+        lines.append(
+            "  reference video unavailable; regenerate it for a frame comparison"
         )
     lines.append(
         f"  intended? just corpus render {case.name} (its review then needs renewing)"

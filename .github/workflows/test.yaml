@@ -1,0 +1,232 @@
+# The checks every change must pass: the pre-commit checks, and the tests on each OS and Python
+# manimgx supports. Their coverage is combined into one report on Cloudflare: main's at
+# https://coverage.manimgx.academa.ai, a pull request's on its preview URL, and each commit's
+# linked from its "coverage" status. The release runs this workflow before it builds anything.
+
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  # a newer commit supersedes a pull request's run; main's runs all finish
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  WRANGLER_VERSION: "4.141.0"
+
+jobs:
+  pre-commit:
+    name: Run pre-commit checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # the engine's dependencies, compiled; only main's runs save them, for everyone's runs
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: engine
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Run pre-commit checks
+        run: just check
+
+  typescript:
+    name: Test the browser package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Test the browser package
+        run: just test-typescript
+
+  test:
+    name: Test with Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26, windows-2025]
+        python-version: ["3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      # the job's coverage data, named after the job (its subprocesses add suffixes)
+      COVERAGE_FILE: ${{ github.workspace }}/.coverage.${{ matrix.os }}-python${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      # the GPU the tests draw with on Linux, on the CPU: Mesa's lavapipe (macOS has Metal,
+      # Windows WARP)
+      - name: Install a GPU driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: engine
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Test
+        run: just test-coverage
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ matrix.os }}-python${{ matrix.python-version }}
+          path: .coverage.*
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  coverage:
+    name: Combine the coverage
+    needs: test
+    # a job that failed leaves the others' coverage to report
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      total: ${{ steps.combine.outputs.total }}
+    steps:
+      # the report shows the source
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-*
+          path: coverage
+          merge-multiple: true
+
+      - name: Combine the coverage
+        id: combine
+        run: |
+          just combine-coverage coverage >> "$GITHUB_STEP_SUMMARY"
+          total="$(uvx coverage report --format=total --precision=1)"
+          # the README's badge: https://shields.io/badges/endpoint-badge
+          jq --null-input --arg total "$total" '{
+            schemaVersion: 1, label: "coverage", message: "\($total)%",
+            color: (($total | tonumber) as $t | if $t >= 90 then "brightgreen"
+                    elif $t >= 75 then "yellow" else "red" end)
+          }' > htmlcov/badge.json
+          echo "total=${total}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: |
+            htmlcov/
+            .github/deploy/coverage.jsonc
+          # the deployment config lives in .github/, a hidden directory
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-coverage:
+    name: Publish the coverage
+    needs: coverage
+    # main's pushes, and pull requests from this repository: pull requests from forks and from
+    # Dependabot get no secrets
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      statuses: write
+    environment:
+      name: ${{ github.event_name == 'push' && 'coverage' || 'coverage-preview' }}
+      url: ${{ steps.publish.outputs.url }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-report
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      # main's report goes to its domain; every commit's report is also a deployment of its own
+      # (in the Worker's preview "main", or "pr-<number>"), which its status links to
+      - name: Publish the report
+        id: publish
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == push ]]; then
+            bunx "wrangler@${WRANGLER_VERSION}" deploy --config .github/deploy/coverage.jsonc \
+              --message "${SHA}"
+            url="https://coverage.manimgx.academa.ai"
+            preview="main"
+          else
+            preview="pr-${PR_NUMBER}"
+          fi
+          bunx "wrangler@${WRANGLER_VERSION}" preview --config .github/deploy/coverage.jsonc \
+            --name "${preview}" --message "${SHA}"
+          deployment="$(jq -er 'select(.type == "preview") | .deployment_urls[0]' "${WRANGLER_OUTPUT_FILE_PATH}")"
+          url="${url:-$(jq -er 'select(.type == "preview") | .preview_urls[0]' "${WRANGLER_OUTPUT_FILE_PATH}")}"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" --field state=success \
+            --field context=coverage --field description="${TOTAL}% of lines run" \
+            --field target_url="${deployment}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler.ndjson
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TOTAL: ${{ needs.coverage.outputs.total }}

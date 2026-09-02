@@ -190,7 +190,7 @@ A case is a folder in
 
 - `scene.py`: the only source. It is Manim code, and it reaches the engine only through
   `import manimgx`. A file the scene reads (an SVG, a sound) sits beside it.
-- `manimgx.mkv` and `ce.mkv`: each engine's frames, lossless.
+- `manimgx.mkv` and `ce.mkv`: each engine's lossless frames, generated locally and ignored by Git. Their `.sha256` sidecars record the exact reviewed video files.
 - `case.json`: the facts, written by the tools. The hash of the source both renders came
   from, the hash of every frame, and how the two engines' frames compare.
 - `review.json`, once a person has reviewed the case: their verdict and note, pinned to the
@@ -208,11 +208,7 @@ Both engines run the same bytes. manimgx runs `scene.py` as it is. Manim runs it
 ([`run_ce.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integration/corpus/run_ce.py)).
 Each render runs in a process of its own, with a fixed hash seed.
 
-A frame is identified by the hash of its pixels, and stored in lossless video (x264 in
-RGB, written and read with [PyAV](https://pyav.basswood-io.com), FFmpeg's libraries in a
-wheel). A video is rewritten only when its pixels change, so
-rendering an unchanged scene again changes no file. The corpus renders at 960 × 540, 10
-frames per second.
+A frame is identified by the hash of its pixels, and locally stored in lossless video (x264 in RGB, written and read with [PyAV](https://pyav.basswood-io.com), FFmpeg's libraries in a wheel). A video is rewritten only when its pixels change, so rendering an unchanged scene again changes no file. The committed `.sha256` sidecars identify each reviewed video without putting the video in clone history. The corpus renders at 960 × 540, 10 frames per second.
 
 ### Comparing at the same scene time
 
@@ -263,20 +259,16 @@ checks every case three ways:
    duration and timeline. This check covers every case, including those that differ from
    Manim or await review.
 
-When `test_regression` fails, it reports changes to the duration, timeline or frames. For
-changed frames it measures the difference and writes the worst pair, the reference's frame
-beside today's, into `tests/integration/_diffs/<case>/`.
+When `test_regression` fails, it reports changes to the duration, timeline or frames. If the local reference video is present, it measures the difference and writes the worst pair, the reference's frame beside today's, into `tests/integration/_diffs/<case>/`. A fresh clone can still check every stored frame hash without those videos.
 
 ### Working with the corpus
 
 `test_corpus.py` only checks; `just corpus` renders and reviews. A reference changes only
 when a change means it to, and after someone has looked at the new frames.
 
-- **A new case** is a folder in `cases/` holding its `scene.py`. Render it with
-  `just corpus render CASE`, which renders it in both engines and compares them; look at
-  it (`just review`); and record your verdict with `just corpus review CASE working` (or
-  `not_matching`, or `not_working`; `--note` says why). Commit the folder as the tools left
-  it.
+On a fresh clone, run `just corpus render CASE` before opening a case in the review panel or running `just corpus diff CASE`; those views need the locally generated videos. The regression test uses the committed frame hashes without them.
+
+- **A new case** is a folder in `cases/` holding its `scene.py`. Render it with `just corpus render CASE`, which renders it in both engines and compares them; look at it (`just review`); and record your verdict with `just corpus review CASE working` (or `not_matching`, or `not_working`; `--note` says why). Commit the scene, facts, review and video hash sidecars; Git ignores the videos.
 - **A change that is meant to change how cases look** renders their references again with
   `just corpus render CASE…`. A case's review is pinned to the renders it was given for,
   so it no longer speaks for the new ones: look at the new frames before you commit them,
@@ -300,10 +292,7 @@ when a change means it to, and after someone has looked at the new frames.
 | `types` | The type report for every scene |
 | `leaks` | Scenes that render differently after others, in one process |
 
-`render` rewrites a video only when its pixels change, and a `case.json` only when its
-facts do. Rendering Manim's references (the `ce` engine, and both engines when a scene
-changed) needs Manim Community Edition: `uv sync --group ce` (see
-[Setup](index.md#manim-community-edition)).
+`render` rewrites a local video only when its pixels change, updating that video's SHA-256 sidecar, and a `case.json` only when its facts do. Rendering Manim's references (the `ce` engine, and both engines when a scene changed) needs Manim Community Edition: `uv sync --group ce` (see [Setup](index.md#manim-community-edition)).
 
 ### The review panel
 

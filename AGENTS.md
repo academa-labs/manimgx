@@ -80,9 +80,7 @@ is published apart from it has a folder of its own, with its own tests.
 - `docker/`: the Docker image, manimgx from PyPI.
 - `tests/unit/`: properties of each module, mirroring `src/manimgx/`, drawn
   with Hypothesis (the shared kit: `tests/strategies.py`, `tests/oracles.py`, `tests/scenes.py`).
-- `tests/integration/`: stories per subject (`test_*.py`) and the corpus, `cases/` (per case:
-  `scene.py`, its reference `manimgx.mkv`, Manim CE's `ce.mkv`, `case.json`, and once reviewed
-  `review.json`), with its tools in `corpus/` and the review panel in `review/`.
+- `tests/integration/`: stories per subject (`test_*.py`) and the corpus, `cases/` (per case: `scene.py`, hashes of the local `manimgx.mkv` and `ce.mkv` references, `case.json`, and once reviewed `review.json`), with its tools in `corpus/` and the review panel in `review/`.
   `tests/docs/`: `llms.txt`'s hand-written primer for agents, checked against the API, and
   the narrated examples, which say what `docs/voice/` keeps (the site is built with no key).
 - `tests/benchmarks/`: laws of what work costs (with the suite) and timed benchmarks against

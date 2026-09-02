@@ -1,6 +1,7 @@
 """Making a case's references: render each engine, keep a video only when its pixels change,
 compare the two, and record the facts."""
 
+import hashlib
 import importlib.metadata
 import importlib.util
 import shutil
@@ -55,6 +56,7 @@ def render(case: Case, wanted: set[Engine]) -> tuple[Facts, str]:
             video = case.video(engine)
             if isinstance(result.frames, Failure):
                 video.unlink(missing_ok=True)
+                case.video_hash(engine).unlink(missing_ok=True)
                 notes.append(f"{engine} failed: {result.frames.error}")
             elif (
                 isinstance(previous, Frames)
@@ -64,6 +66,12 @@ def render(case: Case, wanted: set[Engine]) -> tuple[Facts, str]:
                 notes.append(f"{engine} unchanged")
             else:
                 shutil.move(fresh, video)
+                if previous != result.frames or not case.video_hash(engine).exists():
+                    digest = hashlib.sha256(video.read_bytes()).hexdigest()
+                    case.video_hash(engine).write_text(
+                        f"{digest}  {video.name}\n",
+                        encoding="ascii",
+                    )
                 notes.append(f"{engine} {'new' if previous is None else 'changed'}")
     kept = None if old is None or changed else old.comparison
     facts = _facts(case, source, renders["manimgx"], renders["ce"], ce_version, kept)
@@ -93,6 +101,14 @@ def _facts(
 ) -> Facts:
     comparison = None
     if isinstance(manimgx, Frames) and isinstance(ce, Frames):
+        if kept is None:
+            missing = [engine for engine in ENGINES if not case.video(engine).exists()]
+            if missing:
+                msg = (
+                    f"{case.name}: reference video(s) missing ({', '.join(missing)}); "
+                    f"run `just corpus render {case.name}` to regenerate them"
+                )
+                raise FileNotFoundError(msg)
         comparison = kept or comparing.compare(
             ce, manimgx, case.video("ce"), case.video("manimgx"), SIZE, FPS
         )
