@@ -51,26 +51,16 @@ sudo apt-get install libvulkan1 mesa-vulkan-drivers
 
 ### Manim Community Edition
 
-The integration corpus compares every case with Manim Community Edition's rendering of it.
-CE's references are in the repository; rendering them again (a new case, or a changed
-scene) needs CE, which is in its own dependency group: `uv sync --group ce` (`just sync`
-leaves it out again). Its bindings to Cairo and Pango build from source where they have no
-wheels (pycairo on macOS and Linux, ManimPango on Linux), so that needs those libraries:
-`brew install cairo pkg-config` on macOS, `apt-get install libcairo2-dev libpango1.0-dev
-pkg-config` on Debian or Ubuntu.
+The integration corpus compares every case with Manim Community Edition's rendering of it. CE's reference hashes and frame data are in the repository; the videos are generated locally when needed. Rendering them (a new case, or a changed scene) needs CE, which is in its own dependency group: `uv sync --group ce` (`just sync` leaves it out again). Its bindings to Cairo and Pango build from source where they have no wheels (pycairo on macOS and Linux, ManimPango on Linux), so that needs those libraries: `brew install cairo pkg-config` on macOS, `apt-get install libcairo2-dev libpango1.0-dev pkg-config` on Debian or Ubuntu.
 
 ## Setting up the development environment
 
 1. Clone the repository and enter it:
 
     ```sh
-    git clone --filter=blob:none https://github.com/academa-labs/manimgx.git
+    git clone https://github.com/academa-labs/manimgx.git
     cd manimgx
     ```
-
-    The integration corpus's reference videos make the full history large.
-    `--filter=blob:none` makes a partial clone: it downloads every commit, but an old
-    version of a file only when a command needs it (checking out an old commit, say).
 
 2. Make the environment:
 

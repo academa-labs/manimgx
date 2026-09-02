@@ -5,7 +5,8 @@ A case is a directory under `cases/`:
 - `scene.py`: the only source. It is Manim CE's code, and it reaches the engine only through
   `manimgx`'s top level (and its types, `manimgx.typing`): manimgx runs it as written, and CE
   runs the same bytes with `manimgx` resolving to `manim` (`run_ce.py`).
-- `manimgx.mkv`, `ce.mkv`: each engine's frames, lossless.
+- `manimgx.mkv`, `ce.mkv`: each engine's lossless frames, generated locally and ignored by Git.
+- `manimgx.mkv.sha256`, `ce.mkv.sha256`: hashes of the reviewed reference videos.
 - `case.json`: facts, written by the tool — the source both renders came from, every frame's
   hash (so a change is found without decoding video), and how the two compare, frame by frame,
   in every metric.
@@ -224,6 +225,9 @@ class Case:
 
     def video(self, engine: Engine) -> Path:
         return self.dir / f"{engine}.mkv"
+
+    def video_hash(self, engine: Engine) -> Path:
+        return self.dir / f"{engine}.mkv.sha256"
 
     @property
     def facts_path(self) -> Path:

@@ -35,6 +35,7 @@ htmlcov/
 # Render output (media/: Manim CE's, from the corpus's CE runs)
 media/
 *.mp4
+*.mkv
 *.wav
 !tests/integration/cases/*/*.wav
 tests/**/_testoutput/

@@ -313,10 +313,7 @@ the project works. When a command or a rule changes, `AGENTS.md` changes with th
 
 ### [`.gitignore`](https://github.com/academa-labs/manimgx/blob/main/.gitignore)
 
-What is made, not written, stays out of git: the environment, the compiled engine,
-`rust/target/`, `dist/`, the built site, the docs' rendered films and generated reference,
-the coverage data and report, and render output (`media/`, `*.mp4`). The corpus's reference
-videos are `.mkv` files, and are committed.
+What is made, not written, stays out of git: the environment, the compiled engine, `rust/target/`, `dist/`, the built site, the docs' rendered films and generated reference, the coverage data and report, and render output (`media/`, `*.mp4`). The corpus's reference videos are `.mkv` files and are ignored by Git; their SHA-256 sidecars are committed.
 
 ## The package
 
