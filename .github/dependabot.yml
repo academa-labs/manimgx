@@ -1,0 +1,83 @@
+# One pull request per ecosystem, grouping its updates. A release waits a week first: most
+# compromised releases are caught within days. Security updates don't wait.
+version: 2
+updates:
+  # The workflows pin their actions by commit; Dependabot moves the pins to new releases. A
+  # pinned action gets no security alerts, so its updates are checked every week.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # uv.lock follows new releases; a requirement in pyproject.toml changes only when a new
+  # release falls outside it
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: increase-if-necessary
+    cooldown:
+      default-days: 7
+    groups:
+      python:
+        patterns: ["*"]
+
+  # the engine's crates
+  - package-ecosystem: cargo
+    directory: /rust
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      rust:
+        patterns: ["*"]
+
+  # the hooks' repositories (the local hooks run the locked tools, and are skipped)
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit:
+        patterns: ["*"]
+
+  # the Docker image's base and its uv (docker/Dockerfile)
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # the browser package's compiler, bundler types, and formatter
+  - package-ecosystem: bun
+    directory: /browser
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      browser-package:
+        patterns: ["*"]
+
+  # the corpus review panel's web app
+  - package-ecosystem: bun
+    directory: /tests/integration/review/web
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      review-panel:
+        patterns: ["*"]
