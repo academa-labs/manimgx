@@ -1,0 +1,70 @@
+# The executables, one per platform: manimgx as one file that holds a Python with manimgx
+# installed (PyApp; see scripts/release/create_executable.py). The release makes them from its wheels;
+# run by hand, this workflow builds the wheels first.
+
+name: Create executables
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  wheels:
+    # only when run by hand: a workflow that calls this one has built them already
+    if: github.workflow == 'Create executables'
+    uses: $/.github/workflows/create-wheels.yaml
+    permissions:
+      contents: read
+
+  executable:
+    name: Executable for ${{ matrix.platform }}
+    needs: wheels
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, runner: ubuntu-24.04 }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: macos-arm64, runner: macos-26 }
+          - { platform: windows-x86_64, runner: windows-2025 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.platform }}
+          path: dist
+
+      # the executable renders a scene before it is kept: Linux draws it with Mesa's lavapipe
+      # (macOS has Metal, Windows WARP)
+      - name: Install a GPU driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
+
+      - name: Create the executable
+        run: just create-executable
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: executable-${{ matrix.platform }}
+          path: |
+            dist/manimgx-*.tar.gz
+            dist/manimgx-*.zip
+          if-no-files-found: error
