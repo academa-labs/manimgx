@@ -1,0 +1,321 @@
+# A release: pushing the tag vX.Y.Z (`just release`) builds, tests and publishes manimgx X.Y.Z.
+# Everything is built before anything is published. A draft GitHub release gets the wheels, the
+# source distribution, the wheels' complete source (the source distribution with every crate
+# and each archive the engine is built from, x264's and FFmpeg's among them, whose licenses ask
+# for it beside the wheels) and the executables; PyPI gets the wheels (the browser's too), the
+# source distribution, and the font packages' versions it doesn't have yet (the fonts change
+# rarely, and are released with the manimgx that first requires them); npm gets the package for
+# the browser, which installs that PyPI release; ghcr.io gets the Docker image; then the GitHub
+# release is published, which makes it immutable. On a pull request that changes how releases
+# are made, it builds everything and publishes nothing.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yaml
+      - .github/workflows/create-wheels.yaml
+      - .github/workflows/create-executables.yaml
+      - scripts/release/**
+      - pyproject.toml
+      - fonts/*/pyproject.toml
+      - browser/**
+      - rust/Cargo.toml
+      - rust/*/Cargo.toml
+      - rust/*/build.rs
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # what a release publishes is built from nothing cached
+  ACTIONS_CACHE_MODE: none
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # a tag is manimgx's version, and the changelog says what it changes
+      - name: Check the version
+        id: version
+        run: |
+          version="$(uv version --short --package manimgx)"
+          if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
+            if [[ "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+              echo "::error::The tag is ${GITHUB_REF_NAME}, but manimgx's version is ${version}"
+              exit 1
+            fi
+            if [[ -z "$(just release-notes "${version}" | tr -d '[:space:]')" ]]; then
+              echo "::error::docs/content/changelog.md has no section for ${version}"
+              exit 1
+            fi
+          fi
+          prerelease=false
+          if [[ "${version}" =~ (a|b|rc)[0-9]+$ ]]; then prerelease=true; fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+
+  test:
+    name: Test
+    if: github.ref_type == 'tag'
+    uses: $/.github/workflows/test.yaml
+    permissions:
+      contents: read
+      statuses: write
+
+  wheels:
+    name: Wheels
+    uses: $/.github/workflows/create-wheels.yaml
+    permissions:
+      contents: read
+
+  sdist:
+    name: Source distributions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # the source distribution, and the wheels' complete source made from it: a wheel is built
+      # from that with Rust and a C compiler alone, the crates read from it, the archives the
+      # engine's build fetches downloaded into it, so it holds all the wheels are built from
+      - name: Build the source distribution and the complete source
+        run: just build-source
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist
+          path: dist/manimgx-*.tar.gz
+          if-no-files-found: error
+
+      # for the GitHub release, beside the wheels, not for PyPI
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: source
+          path: dist/manimgx-*-source.tar.xz
+          if-no-files-found: error
+
+      # the font packages: their wheels and source distributions, for PyPI alone
+      - name: Build the font packages
+        run: just build-fonts
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fonts
+          path: dist/manimgx_fonts*
+          if-no-files-found: error
+
+  executables:
+    name: Executables
+    needs: wheels
+    uses: $/.github/workflows/create-executables.yaml
+    permissions:
+      contents: read
+
+  github-release:
+    name: Draft the GitHub release
+    needs: [version, test, wheels, sdist, executables]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the release
+      id-token: write # the attestations' signatures
+      attestations: write
+      artifact-metadata: write
+    steps:
+      # for the changelog
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "{wheel-*,sdist,source,executable-*}"
+          path: assets
+          merge-multiple: true
+
+      # each file's provenance, signed: the workflow, commit and run that built it
+      # (`gh attestation verify FILE --repo academa-labs/manimgx`)
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: assets/*
+
+      # its notes: the changelog's section, then where the wheels' complete source is, which
+      # x264's and FFmpeg's licenses ask for beside the wheels (FFmpeg's, in its own words)
+      - name: Draft the release
+        run: |
+          source="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/manimgx-${VERSION}-source.tar.xz"
+          {
+            just release-notes "${VERSION}"
+            printf '\n---\n\n'
+            echo "The wheels and executables hold FFmpeg, under the LGPL, and all but the" \
+              "browser's wheel hold x264, under the GPL, which makes them, as a whole," \
+              "GPL-3.0-or-later. Their complete source, which builds them offline, is" \
+              "[manimgx-${VERSION}-source.tar.xz](${source}): the source of manimgx, of every" \
+              "crate, and of each library the engine is built from. This software uses code of" \
+              "[FFmpeg](https://ffmpeg.org) licensed under the LGPLv2.1 and its source can be" \
+              "downloaded [here](${source})."
+          } > "${RUNNER_TEMP}/notes.md"
+          flags=()
+          if [[ "${PRERELEASE}" == true ]]; then flags+=(--prerelease); fi
+          gh release create "${GITHUB_REF_NAME}" assets/* --draft --verify-tag \
+            --title "manimgx ${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" "${flags[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+
+  pypi:
+    name: Publish to PyPI
+    needs: [version, github-release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/manimgx/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write # trusted publishing, and the attestations' signatures
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "{wheel-*,sdist,fonts}"
+          path: dist
+          merge-multiple: true
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # each file's PEP 740 attestation, which `uv publish` uploads beside it
+      - uses: astral-sh/attest-action@f589a42a7efb6fe400b4f400de60b4bc90390027 # v0.0.6
+
+      # a file PyPI has already (a font package's version released before) is skipped
+      - name: Publish to PyPI
+        run: uv publish --check-url https://pypi.org/simple/
+
+  docker:
+    name: Publish the Docker image
+    needs: [version, pypi]
+    uses: docker/github-builder/.github/workflows/build.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    permissions:
+      contents: read
+      id-token: write # the provenance's signature
+      packages: write # ghcr.io
+    with:
+      context: docker
+      output: image
+      push: true
+      platforms: linux/amd64,linux/arm64
+      build-args: VERSION=${{ needs.version.outputs.version }}
+      meta-images: ghcr.io/${{ github.repository }}
+      # the OCI labels and annotations: the image's source, version and description, and its
+      # licenses, which are not the repository's alone: manimgx's code is MIT, and the engine the
+      # image installs holds x264, which makes it, as a whole, GPL-3.0-or-later (as the release's
+      # notes say)
+      set-meta-labels: true
+      set-meta-annotations: true
+      meta-labels: org.opencontainers.image.licenses=MIT AND GPL-3.0-or-later
+      meta-annotations: org.opencontainers.image.licenses=MIT AND GPL-3.0-or-later
+      # an SBOM beside the provenance: each package the image holds, with its license (manimgx's
+      # as its wheel's metadata states it)
+      sbom: true
+      meta-tags: |
+        type=pep440,pattern={{version}}
+        type=pep440,pattern={{major}}.{{minor}}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+  npm:
+    name: Publish to npm
+    # after PyPI: the package installs this release of manimgx from there
+    needs: [version, pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/manimgx/v/${{ needs.version.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write # trusted publishing, and the provenance's signature
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: just
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      # what is published is built from nothing cached
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
+      # trusted publishing needs npm 11.5.1 or later
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Build the package
+        run: just build-npm
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        working-directory: browser
+
+  publish:
+    name: Publish the GitHub release
+    needs: [pypi, npm, docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false --repo "${GITHUB_REPOSITORY}"
+        env:
+          GH_TOKEN: ${{ github.token }}
