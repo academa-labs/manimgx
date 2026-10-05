@@ -7,7 +7,7 @@
 # is its context, as it installs manimgx from PyPI.
 
 # uv as a stage: Dependabot bumps FROM lines only
-FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
 FROM python:3.14-slim-trixie
 
 # Vulkan's loader and Mesa's drivers (lavapipe on the CPU; RADV, ANV, NVK on /dev/dri); NVIDIA's
