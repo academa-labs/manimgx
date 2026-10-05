@@ -1020,8 +1020,8 @@ fn storage(binding: u32) -> wgpu::BindGroupLayoutEntry {
     entry(binding, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None })
 }
 
-/// How a pass uses the stencil: count a stroke's coverage, cover once where counted (zeroing it,
-/// even where depth rejects), or leave it alone.
+/// How a pass uses the stencil: count a stroke's coverage, cover once where visible (zeroing it
+/// only when depth passes), or leave it alone.
 #[derive(Clone, Copy)]
 enum Stencil {
     Coverage,
@@ -1189,7 +1189,7 @@ impl Gpu {
         let p = |vs: &str, fs: Option<&str>, stencil: Stencil, write: bool, color: bool| {
             let (front, back) = match stencil {
                 Stencil::Coverage => (face(C::Always, Op::IncrementClamp, Op::Keep), face(C::Always, Op::IncrementClamp, Op::Keep)),
-                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Zero), face(C::NotEqual, Op::Zero, Op::Zero)),
+                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Keep), face(C::NotEqual, Op::Zero, Op::Keep)),
                 Stencil::Ignore => (face(C::Always, Op::Keep, Op::Keep), face(C::Always, Op::Keep, Op::Keep)),
             };
             let targets = targets_for(if color { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() });
@@ -1215,7 +1215,7 @@ impl Gpu {
             })
         };
         let stroke = |vs, fs| Passes {
-            count: p(vs, Some("fs_none"), Stencil::Coverage, false, false),
+            count: p(vs, Some("fs_none"), Stencil::Coverage, true, false),
             cover: p(vs, Some(fs), Stencil::Cover, true, true),
         };
         // the see-through layers' appends test the opaque depth themselves (read-only here) and
@@ -1903,8 +1903,8 @@ impl Player {
         };
         // which passes change pixels
         let (fill, stroke) = a.raster.shown([r.params[0], r.params[1]]); // (a path has no raster form: nothing)
-        // a mesh's faces' edges blend and write depth once per pixel, by the stencil: even opaque,
-        // where blending twice is invisible, the first fragment's depth must be the one kept
+        // a mesh's edges first find their nearest covered depth, then blend once per sample:
+        // a hidden ribbon cannot consume another ribbon's visible coverage
         let stroked = a.kind == Kind::Mesh && !stroke.is_empty() && r.params[2] > 0.0 && (paint.stroke[3] > 0.0 || many_stroke);
         // a layer can be seen through where its color is, or a row of its brushes (a tween's
         // either paint); a textured mesh also where its picture can be

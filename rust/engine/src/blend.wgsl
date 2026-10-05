@@ -177,7 +177,7 @@ fn along(i: u32, px: vec2<f32>) -> f32 {
 
 // ── edges ─────────────────────────────────────────────────────────────────────
 
-// A count writes only the stencil: the least fragment work a pass with a color target allows.
+// A count writes depth and stencil: the least fragment work a pass with a color target allows.
 @fragment
 fn fs_none() -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
