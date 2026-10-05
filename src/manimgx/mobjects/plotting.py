@@ -34,7 +34,6 @@ from typing import (
     ClassVar,
     Literal,
     Self,
-    TypedDict,
     Unpack,
     cast,
     overload,
@@ -43,6 +42,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 from isosurfaces import plot_isoline
+from typing_extensions import TypedDict
 
 from manimgx.config import config
 from manimgx.constants import (
@@ -80,6 +80,7 @@ from manimgx.drawing.paint import (
     ParsableManimColor,
     Style,
     StyleBase,
+    _Style,
     color_gradient,
     colors_by_value,
     invert_color,
@@ -94,10 +95,12 @@ from manimgx.mobjects.shapes import (
     DashedLineOptions,
     Dot,
     Line,
+    LineOptions,
     Polygon,
     Rectangle,
     RegularPolygon,
     Tipped,
+    _Tipped,
 )
 from manimgx.mobjects.text import MathTex, MathTexOptions, Tex, Typst
 from manimgx.typing import ManimTextLabel, Vector3D
@@ -323,10 +326,8 @@ class LogBase(_ScaleBase):
 _CURVE_LINEAR = LinearBase()  # a default (never changed)
 
 
-class CurveOptions(Style, total=False):
-    """How a curve is sampled and smoothed, with the style keywords: the keywords of
-    [plot][manimgx.Axes.plot] and the other curves, for the methods that
-    pass them on."""
+class _CurveOptions(_Style, total=False):
+    """CurveOptions's keys, open, for the keywords that add to them."""
 
     dt: float
     """How far short of each discontinuity the curve's pieces stop, in units of its
@@ -339,7 +340,13 @@ class CurveOptions(Style, total=False):
     straight segments (default True)."""
 
 
-class ParametricOptions(CurveOptions, total=False):
+class CurveOptions(_CurveOptions, total=False, closed=True):
+    """How a curve is sampled and smoothed, with the style keywords: the keywords of
+    [plot][manimgx.Axes.plot] and the other curves, for the methods that
+    pass them on."""
+
+
+class ParametricOptions(_CurveOptions, total=False):
     """A [ParametricFunction][manimgx.ParametricFunction]'s keywords but its function:
     its parameter's range and spacing, with the curve keywords."""
 
@@ -565,7 +572,7 @@ class FunctionGraph(ParametricFunction):
         return self.parametric_function(x)
 
 
-class ImplicitOptions(Style, total=False):
+class ImplicitOptions(_Style, total=False, closed=True):
     """An [ImplicitFunction][manimgx.ImplicitFunction]'s smoothing, with the style
     keywords, for the methods that pass them on
     ([plot_implicit_curve][manimgx.Axes.plot_implicit_curve])."""
@@ -667,7 +674,7 @@ default)."""
 _AXIS_LINEAR = LinearBase()  # a default (never changed)
 
 
-class NumberLineOptions(Tipped, total=False):
+class NumberLineOptions(_Tipped, total=False, closed=True):
     """A [NumberLine][manimgx.NumberLine]'s keywords but its range, for the configs that
     pass them on (a coordinate system's axes): its size, ticks, tip and numbers, with
     the style and tip keywords."""
@@ -1333,6 +1340,13 @@ type Coordinates = (
 points at once."""
 
 
+def _halved(opacity: float | Sequence[float]) -> float | list[float]:
+    """An opacity, or one for each part, at half strength."""
+    if isinstance(opacity, int | float):
+        return opacity * 0.5
+    return [o * 0.5 for o in opacity]
+
+
 def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
     """Merge axis configs: later ones win, key by key, and inside their
     `decimal_number_config` too. An iterator among the values is read into a list: the
@@ -1365,7 +1379,7 @@ def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
     return merged
 
 
-class AxisLine(TypedDict, total=False):
+class AxisLine(TypedDict, total=False, closed=True):
     """The keywords of a line from an axis to a point
     ([get_vertical_line][manimgx.Axes.get_vertical_line] and the like): its class, its
     keywords, its color and its width."""
@@ -1383,7 +1397,7 @@ class AxisLine(TypedDict, total=False):
     """The line's width, in hundredths of a scene unit (default 2)."""
 
 
-class PlotOptions(CurveOptions, total=False):
+class PlotOptions(_CurveOptions, total=False, closed=True):
     """[plot][manimgx.Axes.plot]'s keywords but its function, for the methods that pass
     them on ([plot_derivative_graph][manimgx.Axes.plot_derivative_graph],
     [plot_antiderivative_graph][manimgx.Axes.plot_antiderivative_graph]): the range of
@@ -1884,12 +1898,18 @@ class Axes(VGroup):
         Returns:
             A new line, not added to the axes.
         """
+        start = self.get_axis(index).get_projection(point)
         style = (line_config or DashedLineOptions()).copy()
         style["color"], style["stroke_width"] = (
             ManimColor(WHITE if color is None else color),
             stroke_width,
         )
-        return line_func(self.get_axis(index).get_projection(point), point, **style)
+        if issubclass(line_func, DashedLine):
+            return line_func(start, point, **style)
+        # a solid line has no dashes: it takes the line keywords without them
+        style.pop("dash_length", None)
+        style.pop("dashed_ratio", None)
+        return line_func(start, point, **cast("LineOptions", style))
 
     def get_vertical_line(self, point: Point3DLike, **kwargs: Unpack[AxisLine]) -> Line:
         """Make a line from the x-axis up (or down) to a point: dashed, white and thin
@@ -2918,11 +2938,8 @@ def _origin_shift(axis_range: Sequence[float]) -> float:
     return 0
 
 
-class AxesOptions(Style, total=False):
-    """[Axes][manimgx.Axes]' keywords but their ranges and lengths, for the classes that
-    pass them on ([ThreeDAxes][manimgx.ThreeDAxes], the planes,
-    [BarChart][manimgx.BarChart]): their axes' configs and tips, with the style
-    keywords."""
+class _AxesOptions(_Style, total=False):
+    """AxesOptions's keys, open, for the keywords that add to them."""
 
     axis_config: NumberLineOptions | None
     """[Number line keywords][manimgx.NumberLine]
@@ -2936,6 +2953,13 @@ class AxesOptions(Style, total=False):
     tips: bool
     """Whether each axis ends in an arrow tip (default True; a plane's axes have none,
     unless `axis_config` includes `include_tip`)."""
+
+
+class AxesOptions(_AxesOptions, total=False, closed=True):
+    """[Axes][manimgx.Axes]' keywords but their ranges and lengths, for the classes that
+    pass them on ([ThreeDAxes][manimgx.ThreeDAxes], the planes,
+    [BarChart][manimgx.BarChart]): their axes' configs and tips, with the style
+    keywords."""
 
 
 def _origin_tick(config_: NumberLineOptions) -> NumberLineOptions:
@@ -3180,10 +3204,12 @@ class _Plane(Axes):
         )
         if faded_line_style is None:  # the background lines at half strength
             faded = background_line_style.copy()
-            for key in ("stroke_width", "stroke_opacity", "fill_opacity"):
-                value = faded.get(key)
-                if value is not None:
-                    faded[key] = value * 0.5
+            if (width := faded.get("stroke_width")) is not None:
+                faded["stroke_width"] = width * 0.5
+            if (opacity := faded.get("stroke_opacity")) is not None:
+                faded["stroke_opacity"] = _halved(opacity)
+            if (opacity := faded.get("fill_opacity")) is not None:
+                faded["fill_opacity"] = _halved(opacity)
             faded_line_style = faded
         self.background_lines, self.faded_lines = self._get_lines(faded_line_ratio)
         for lines, style in (
@@ -3239,7 +3265,7 @@ class _Plane(Axes):
         return self
 
 
-class NumberPlaneOptions(AxesOptions, total=False):
+class NumberPlaneOptions(_AxesOptions, total=False, closed=True):
     """A [NumberPlane][manimgx.NumberPlane]'s keywords, for the scenes that pass them on
     ([LinearTransformationScene][manimgx.LinearTransformationScene], …): its ranges,
     sizes and grid, with the axes' keywords."""

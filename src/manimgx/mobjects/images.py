@@ -16,6 +16,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Style,
+    _Style,
 )
 from manimgx.mobject import MeshMobject
 
@@ -237,7 +238,7 @@ def _to_rgba(pixels: np.ndarray) -> np.ndarray:
     return pixels.astype(np.uint8)
 
 
-class ImageCameraOptions(Style, total=False):
+class ImageCameraOptions(_Style, total=False):
     """A camera picture's keywords, for the scenes that pass them on: a
     [ZoomedScene][manimgx.ZoomedScene]'s display.
 

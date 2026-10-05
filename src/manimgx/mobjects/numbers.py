@@ -15,7 +15,7 @@ import numpy as np
 from manimgx.caches import Memo
 from manimgx.constants import DEFAULT_FONT_SIZE, DOWN, LEFT, ORIGIN, RIGHT, UP
 from manimgx.drawing.geometry import Blend
-from manimgx.drawing.paint import BLACK, Paint, Style
+from manimgx.drawing.paint import BLACK, Paint, Style, _Style
 from manimgx.mobject import Mobject, ValueTracker, VGroup, VMobject, copied, prototype
 from manimgx.mobjects.text import MathTex, SingleStringMathTex, Text
 from manimgx.typing import ManimTextLabel, Vector3DLike
@@ -26,12 +26,8 @@ _ROWS: Memo[tuple[object, ...], dict[str, object]] = Memo(1 << 12)
 _ROW = ("submobjects", "initial_height", "background_rectangle")
 
 
-class NumberStyle(Style, total=False):
-    """How a number is written: [DecimalNumber][manimgx.DecimalNumber]'s keywords but
-    its number of decimal places, for the classes that pass them on.
-
-    Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
-    """
+class _NumberStyle(_Style, total=False):
+    """NumberStyle's keys, open, for the keywords that add to them."""
 
     mob_class: type[ManimTextLabel]
     """The class each character is typeset with (default [MathTex][manimgx.MathTex])."""
@@ -61,7 +57,15 @@ class NumberStyle(Style, total=False):
     """The characters' font size, as `mob_class` measures it (default 48)."""
 
 
-class DecimalNumberOptions(NumberStyle, total=False):
+class NumberStyle(_NumberStyle, total=False, closed=True):
+    """How a number is written: [DecimalNumber][manimgx.DecimalNumber]'s keywords but
+    its number of decimal places, for the classes that pass them on.
+
+    Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
+    """
+
+
+class DecimalNumberOptions(_NumberStyle, total=False, closed=True):
     """[DecimalNumber][manimgx.DecimalNumber]'s keywords, for the classes that pass them
     on: a number line's labels.
 

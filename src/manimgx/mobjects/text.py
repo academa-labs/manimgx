@@ -74,6 +74,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Repaint,
+    _Look,
     color_gradient,
 )
 from manimgx.drawing.typesetting import (
@@ -112,14 +113,8 @@ def _hex(rgba: np.ndarray) -> str:
     return color
 
 
-class TypstOptions(Look, Repaint, total=False):
-    """[Typst][manimgx.Typst]'s keywords, for the classes that pass them on: text and
-    LaTeX.
-
-    Beyond these, they take the [look keywords][manimgx.drawing.paint.Look], and the
-    [paint keywords][manimgx.drawing.paint.Repaint], which paint over the colors the
-    typesetting gives the parts.
-    """
+class _TypstOptions(_Look, Repaint, total=False):
+    """TypstOptions's keys, open, for the keywords that add to them."""
 
     font_size: float
     """The size of the text: an em is `font_size / 96` scene units, 0.5 at the default,
@@ -145,6 +140,16 @@ class TypstOptions(Look, Repaint, total=False):
     `namespace/name/version` directories: `#import "@preview/name:1.0.0"` reads
     `preview/name/1.0.0` (default None: none but mitex, which manimgx's engine holds).
     Nothing is downloaded."""
+
+
+class TypstOptions(_TypstOptions, total=False, closed=True):
+    """[Typst][manimgx.Typst]'s keywords, for the classes that pass them on: text and
+    LaTeX.
+
+    Beyond these, they take the [look keywords][manimgx.drawing.paint.Look], and the
+    [paint keywords][manimgx.drawing.paint.Repaint], which paint over the colors the
+    typesetting gives the parts.
+    """
 
 
 class TypstGlyph(VMobject):
@@ -234,6 +239,9 @@ class Typst(VMobject):
             typeset ones.
         stroke_width: A stroke width for every part, in hundredths of a scene unit;
             None keeps the typeset ones, which scale with the mobject.
+        opacity: The opacity of every part's fill and stroke, from 0 to 1, where
+            `fill_opacity` or `stroke_opacity` doesn't give one; None keeps the
+            typeset ones.
 
     Examples:
         ```python
@@ -271,6 +279,7 @@ class Typst(VMobject):
         stroke_color: Colors | None = None,
         stroke_opacity: float | Sequence[float] | None = None,
         stroke_width: float | None = None,
+        opacity: float | None = None,
         **kwargs: Unpack[Look],
     ):
         super().__init__(stroke_color=None, fill_color=None, **kwargs)
@@ -296,6 +305,9 @@ class Typst(VMobject):
             ),
             font_size * font_scale * SCALE_FACTOR_PER_FONT_POINT if placed else None,
         )
+        if opacity is not None:  # both, where one isn't given its own
+            fill_opacity = opacity if fill_opacity is None else fill_opacity
+            stroke_opacity = opacity if stroke_opacity is None else stroke_opacity
         self.set_style(
             fill_color=fill_color,
             fill_opacity=fill_opacity,
@@ -714,7 +726,7 @@ def _calibration(font: str, kwargs: TypstOptions) -> float:
     return target / probe.height if probe.height > 0 else 1.0
 
 
-class TextOptions(TypstOptions, total=False):
+class TextOptions(_TypstOptions, total=False, closed=True):
     """[Text][manimgx.Text]'s keywords, for the classes that pass them on:
     [Paragraph][manimgx.Paragraph].
 
@@ -878,8 +890,8 @@ class Text(Typst):
         disable_ligatures: bool = False,
         **kwargs: Unpack[TypstOptions],
     ) -> None:
-        if kwargs.get("fill_opacity") is None:  # not given, None too
-            kwargs["fill_opacity"] = 1.0
+        if kwargs.get("fill_opacity") is None and kwargs.get("opacity") is None:
+            kwargs["fill_opacity"] = 1.0  # filled, unless an opacity is given
         self.text = text
         """The text, as it was written."""
         self.original_text = text
@@ -1314,7 +1326,7 @@ class MathTexPart(VGroup):
         """The LaTeX the part was typeset from."""
 
 
-class MathTexOptions(TypstOptions, total=False):
+class MathTexOptions(_TypstOptions, total=False, closed=True):
     """[MathTex][manimgx.MathTex]'s keywords, for the classes that pass them on:
     [Tex][manimgx.Tex], [BulletedList][manimgx.BulletedList], [Title][manimgx.Title] and
     labels.

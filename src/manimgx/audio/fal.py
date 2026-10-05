@@ -23,14 +23,16 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict, Unpack, overload
+from typing import Literal, Unpack, overload
+
+from typing_extensions import TypedDict
 
 from manimgx.audio.sound import Speech, timed
 
 # ── the models' settings, as their schemas on fal have them ────────────────────────────────
 
 
-class ElevenV3(TypedDict, total=False):
+class ElevenV3(TypedDict, total=False, closed=True):
     """The settings of ElevenLabs' Eleven v3 (`fal-ai/elevenlabs/tts/eleven-v3`), which times
     its words. Its text may carry audio tags: `[whispers]`, `[laughs]`, `[excited]`…"""
 
@@ -115,7 +117,7 @@ class MiniMaxPronunciation(TypedDict, total=False):
     `"燕少飞/(yan4)(shao3)(fei1)"`)."""
 
 
-class MiniMax(TypedDict, total=False):
+class MiniMax(TypedDict, total=False, closed=True):
     """The settings of MiniMax Speech 2.8 HD (`fal-ai/minimax/speech-2.8-hd`). Its text may
     carry pauses, `<#0.5#>` (in seconds), and interjections: `(laughs)`, `(sighs)`, `(coughs)`,
     `(clears throat)`, `(gasps)`, `(sniffs)`, `(groans)`, `(yawns)`."""
@@ -178,7 +180,7 @@ class MiniMax(TypedDict, total=False):
     ([`MiniMaxPronunciation`][manimgx.audio.fal.MiniMaxPronunciation])."""
 
 
-class Gemini(TypedDict, total=False):
+class Gemini(TypedDict, total=False, closed=True):
     """The settings of Google's Gemini 3.8 Flash TTS (`google/gemini-3.8-flash-tts`). Its text
     may carry vocal events: `<laugh>`, `<sigh>`."""
 
@@ -220,7 +222,7 @@ class Gemini(TypedDict, total=False):
     none)."""
 
 
-class Inworld(TypedDict, total=False):
+class Inworld(TypedDict, total=False, closed=True):
     """The settings of Inworld TTS-1.5 Max (`fal-ai/inworld-tts`), which speaks up to 2,000
     characters a line."""
 
@@ -344,7 +346,7 @@ class Inworld(TypedDict, total=False):
     """Samples a second (default 48000)."""
 
 
-class Qwen(TypedDict, total=False):
+class Qwen(TypedDict, total=False, closed=True):
     """The settings of Alibaba's Qwen3-TTS 1.7B (`fal-ai/qwen-3-tts/text-to-speech/1.7b`)."""
 
     voice: (

@@ -18,6 +18,7 @@ from manimgx.animation.timeline import (
     Animation,
     AnimationOptions,
     Key,
+    _AnimationOptions,
     _updating,
     keyframe_at,
 )
@@ -136,7 +137,7 @@ if TYPE_CHECKING:
 __all__ = ["Animate", "Transform"]
 
 
-class TransformOptions(AnimationOptions, total=False):
+class TransformOptions(_AnimationOptions, total=False, closed=True):
     """The options a transform takes, by keyword: the animation options and its path."""
 
     path_func: PathFunc | None

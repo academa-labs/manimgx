@@ -91,6 +91,7 @@ its style.
 ::: manimgx.mobjects.shapes.TippedBase
     options:
       heading_level: 3
+      inherited_members: [tip_length, normal_vector, tip_style]
 
 ### Tip shapes
 

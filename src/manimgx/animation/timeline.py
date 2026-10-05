@@ -15,13 +15,13 @@ from typing import (
     Literal,
     NamedTuple,
     Self,
-    TypedDict,
     TypeIs,
     Unpack,
 )
 from warnings import deprecated
 
 import numpy as np
+from typing_extensions import TypedDict
 
 from manimgx.animation import clock
 from manimgx.animation.easing import linear, smooth
@@ -58,9 +58,8 @@ __all__ = [
 ]
 
 
-class Untimed(TypedDict, total=False):
-    """Every animation option but `run_time`, which [`Wait`][manimgx.Wait] takes by
-    position."""
+class _Untimed(TypedDict, total=False):
+    """Untimed's keys, open, for the keywords that add to them."""
 
     lag_ratio: float
     """How the parts of the mobject are staggered: each begins this fraction of its run
@@ -88,15 +87,24 @@ class Untimed(TypedDict, total=False):
     does so (default True)."""
 
 
-class AnimationOptions(Untimed, total=False):
+class Untimed(_Untimed, total=False, closed=True):
+    """Every animation option but `run_time`, which [`Wait`][manimgx.Wait] takes by
+    position."""
+
+
+class _AnimationOptions(_Untimed, total=False):
+    """AnimationOptions's keys, open, for the keywords that add to them."""
+
+    run_time: float
+    """How long the animation plays, in seconds (default 1)."""
+
+
+class AnimationOptions(_AnimationOptions, total=False, closed=True):
     """The options every animation takes, by keyword.
 
     Each animation class sets its own defaults for them: [`Create`][manimgx.Create], for
     instance, draws the parts of a mobject one after another (`lag_ratio=1`).
     """
-
-    run_time: float
-    """How long the animation plays, in seconds (default 1)."""
 
 
 _CASCADES: Memo[type, AnimationOptions] = Memo(1 << 12)

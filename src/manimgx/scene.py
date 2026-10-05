@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal, overload
 
+from typing_extensions import TypedDict
+
 from manimgx.config import config
 from manimgx.constants import DEGREES, DOWN, LEFT, OUT, RIGHT, UP
 from manimgx.drawing.paint import ManimColor, ParsableManimColor
@@ -22,7 +24,7 @@ import os
 import pathlib
 from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, NamedTuple, Self, Unpack, cast
 from warnings import deprecated
 
 import numpy as np
@@ -2285,8 +2287,8 @@ Y_COLOR = RED_C
 Z_COLOR = BLUE_D
 
 
-class LabelPlacement(TypedDict, total=False):
-    """Where a vector's label sits (for the methods that pass it on)."""
+class _LabelPlacement(TypedDict, total=False):
+    """LabelPlacement's keys, open, for the keywords that add to them."""
 
     at_tip: bool
     """Whether the label goes beyond the vector's tip, rather than beside its middle
@@ -2299,7 +2301,11 @@ class LabelPlacement(TypedDict, total=False):
     False)."""
 
 
-class VectorLabelOptions(LabelPlacement, total=False):
+class LabelPlacement(_LabelPlacement, total=False, closed=True):
+    """Where a vector's label sits (for the methods that pass it on)."""
+
+
+class VectorLabelOptions(_LabelPlacement, total=False, closed=True):
     """Where a vector's label sits, its color and its size (for the methods that pass
     them on)."""
 
@@ -2309,7 +2315,7 @@ class VectorLabelOptions(LabelPlacement, total=False):
     """How much the label is scaled (default 0.8)."""
 
 
-class UnitSquareOptions(TypedDict, total=False):
+class UnitSquareOptions(TypedDict, total=False, closed=True):
     """The unit square's look (for the methods that pass it on)."""
 
     color: Colors

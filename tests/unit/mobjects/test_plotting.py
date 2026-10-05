@@ -449,6 +449,17 @@ def test_a_plane_fills_the_frame_it_is_made_in(size: tuple[int, int]) -> None:
     assert m.PolarPlane().width == pytest.approx(2 * min(w, h))
 
 
+def test_a_planes_faded_lines_halve_each_of_several_opacities() -> None:
+    # an opacity can be one for each part of a stroke: each is halved
+    plane = m.NumberPlane(
+        faded_line_ratio=2, background_line_style={"stroke_opacity": [1.0, 0.5]}
+    )
+    full = plane.background_lines[0].get_stroke_opacity()
+    assert len(plane.faded_lines) > 0
+    for line in plane.faded_lines:
+        assert line.get_stroke_opacity() == pytest.approx(full * 0.5)
+
+
 @pytest.mark.parametrize("plane_type", [m.NumberPlane, m.ComplexPlane, m.PolarPlane])
 def test_plane_faded_lines_use_half_the_background_width_and_opacity(
     plane_type: type[m.NumberPlane] | type[m.PolarPlane],

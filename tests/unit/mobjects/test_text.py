@@ -21,6 +21,8 @@
   set to. Its rules' widths scale with it unless set; fitted before coloring, a text keeps its
   ligatures' shapes.
 - A title's color is its underline's too.
+- `opacity` is every part's fill and stroke opacity, where `fill_opacity` or
+  `stroke_opacity` doesn't give one, in each of Typst's front ends.
 
 Baselines are read off capitals "H", whose ink sits on the baseline.
 """
@@ -89,6 +91,21 @@ def test_a_paragraph_is_one_text_its_lines_aligned(
     assert {id(glyph) for glyph in glyphs} == {
         id(glyph) for glyph in paragraph.lines_text
     }
+
+
+@pytest.mark.parametrize("kind", [m.Text, m.MathTex, m.Tex, m.Typst])
+def test_opacity_is_each_parts_where_no_other_is_given(
+    kind: type[m.Typst] | type[m.Text],
+) -> None:
+    faint = kind("x", opacity=0.3)
+    parts = faint.family_members_with_points()
+    assert parts
+    for part in parts:
+        assert part.get_fill_opacity() == pytest.approx(0.3)
+        assert part.get_stroke_opacity() == pytest.approx(0.3)
+    filled = kind("x", opacity=0.3, fill_opacity=0.8)
+    for part in filled.family_members_with_points():
+        assert part.get_fill_opacity() == pytest.approx(0.8)
 
 
 def test_a_titles_color_is_its_underlines_too() -> None:

@@ -10,7 +10,8 @@ Not what is `@deprecated` (`docs/deprecated.py` takes it out as griffe loads the
 deprecated class stays in its module, for the classes made from it, but leaves the reference
 with its members, what those classes inherit from it among them. Nor what is listed in
 `UNDOCUMENTED`: what can't carry the decorator (an attribute, a constant, a type alias) and no
-scene needs.
+scene needs. And keywords a page shows (a TypedDict, such as `Style`) are shown whole: every
+key, the ones its bases give it too.
 """
 
 import re
@@ -188,21 +189,26 @@ def shown(package: "griffe.Module") -> dict[str, list[str]]:
                 continue
             options = match[2]
             listed = re.search(r"(?<!inherited_)members:\s*(false|\[.*?\])", options)
-            own = {
-                name: target
-                for name, member in obj.members.items()
-                if not name.startswith("_")
-                and (target := real(member)) is not None
-                and documented(target)
-            }
+            inherited = re.search(r"inherited_members:\s*(true|\[.*?\])", options)
+            # `inherited_members: true` makes every inherited member one to pick
+            own = (
+                members(obj, set())
+                if inherited and inherited[1] == "true"
+                else {
+                    name: target
+                    for name, member in obj.members.items()
+                    if not name.startswith("_")
+                    and (target := real(member)) is not None
+                    and documented(target)
+                }
+            )
             if listed is None:
                 chosen = own
             elif listed[1] == "false":
                 chosen = {}
             else:
                 chosen = {n: own[n] for n in re.findall(r"\w+", listed[1]) if n in own}
-            inherited = re.search(r"inherited_members:\s*(\[.*?\])", options)
-            if inherited:
+            if inherited and inherited[1] != "true":
                 every = members(obj, set())
                 chosen |= {n: every[n] for n in re.findall(r"\w+", inherited[1])}
             for member in chosen.values():
@@ -271,6 +277,27 @@ def test_nothing_is_shown_twice(package: "griffe.Module") -> None:
         if len(where) > 1 and obj is not None and isinstance(obj.parent, griffe.Module):
             twice[path] = where
     assert not twice, f"shown on more than one page, or twice on one: {twice}"
+
+
+def keywords(cls: "griffe.Class") -> bool:
+    """Whether a class is a TypedDict: keywords, which a signature unpacks."""
+    return any(
+        "TypedDict" in str(base) for owner in [cls, *cls.mro()] for base in owner.bases
+    )
+
+
+def test_keywords_shown_show_every_key(package: "griffe.Module") -> None:
+    """A page that shows keywords shows each of their keys: there, or with other keywords
+    (`TippedBase`'s style keys are `Style`'s)."""
+    seen = shown(package)
+    missing = sorted(
+        f"{path}.{name}"
+        for path in seen
+        if isinstance(cls := resolve(package, path), griffe.Class) and keywords(cls)
+        for name, key in members(cls, set()).items()
+        if key.path not in seen
+    )
+    assert not missing, f"keys not shown: {missing}"
 
 
 def test_undocumented_names_exist(package: "griffe.Module") -> None:

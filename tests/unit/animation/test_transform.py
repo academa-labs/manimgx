@@ -163,8 +163,9 @@ REPLACING: dict[str, Callable[[m.Square, m.Circle], m.Transform]] = {
     "MoveAlongPath": lambda sq, c: m.MoveAlongPath(
         sq, m.Line(m.LEFT, m.RIGHT), **REPLACE
     ),
-    "Create": lambda sq, c: m.Create(sq, **REPLACE),
-    "DrawBorderThenFill": lambda sq, c: m.DrawBorderThenFill(sq, **REPLACE),
+    # not transforms: they have no target, and leave the square where it is
+    "Create": lambda sq, c: m.Create(sq),
+    "DrawBorderThenFill": lambda sq, c: m.DrawBorderThenFill(sq),
     "CyclicReplace": lambda sq, c: m.CyclicReplace(sq, **REPLACE),
 }
 

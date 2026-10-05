@@ -23,6 +23,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Style,
+    _Style,
 )
 from manimgx.mobject import (
     GridArrangement,
@@ -59,7 +60,7 @@ with the keywords of `element_to_mobject_config` (a class, as
 [MathTex][manimgx.MathTex], or any function)."""
 
 
-class MatrixOptions(Style, total=False):
+class MatrixOptions(_Style, total=False, closed=True):
     """A [Matrix][manimgx.Matrix]'s keywords but its entries, for the methods that pass
     them on (a [vector's coordinate label][manimgx.Vector.coordinate_label]): its
     entries' kind, with its layout, brackets and style."""

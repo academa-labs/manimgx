@@ -300,9 +300,7 @@ MOBJECTS: dict[str, Callable[[], m.Mobject]] = {
     "ValueTracker": lambda: m.ValueTracker(2.5),
     "Variable": lambda: m.Variable(1.5, "x"),
     "Vector": lambda: m.Vector(m.UP),
-    "VectorField": lambda: m.VectorField(
-        lambda p: p, x_range=[-1, 1, 1], y_range=[-1, 1, 1]
-    ),
+    "VectorField": lambda: m.VectorField(lambda p: p),
     "VectorizedPoint": lambda: m.VectorizedPoint(m.UR),
 }
 mobjects = st.sampled_from(sorted(MOBJECTS)).map(lambda name: MOBJECTS[name]())
