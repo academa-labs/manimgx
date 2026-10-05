@@ -379,10 +379,15 @@ fn carry(r0: vec4<f32>, r1: vec4<f32>, r2: vec4<f32>, n: vec3<f32>) -> vec3<f32>
 // CE's light: half the cube of the cosine toward the light, halved again when facing away, on the side the eye sees
 // from p (a 3D view's perspective; else, or `fixed` in the frame, the side toward the view).
 fn shade(normal: vec3<f32>, p: vec3<f32>, fixed: bool) -> f32 {
+    let toward_light = view.light.xyz - p;
+    if (dot(normal, normal) == 0.0 || dot(toward_light, toward_light) == 0.0) {
+        return 0.0;
+    }
     let seen = select(view.toward.xyz, view.eye.xyz - p, view.eye.w > 0.5 && !fixed);
     let n = normalize(select(normal, -normal, dot(seen, normal) < 0.0));
-    let l = normalize(view.light.xyz - p);
-    let amount = 0.5 * pow(dot(n, l), 3.0);
+    let cosine = dot(n, normalize(toward_light));
+    // WGSL pow excludes negative bases; the signed cube is defined on both sides of a face.
+    let amount = 0.5 * cosine * cosine * cosine;
     return select(amount, amount * 0.5, amount < 0.0);
 }
 
