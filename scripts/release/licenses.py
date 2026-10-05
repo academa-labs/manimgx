@@ -248,7 +248,7 @@ def write(
         " manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's source distribution"
         " with every crate rust/Cargo.lock names and each archive a workspace's crate"
         " fetches. The Linux wheels' lavapipe is in LICENSE-LAVAPIPE. Written by"
-        " scripts/release/licenses.py."
+        " scripts/release/licenses.py. The Windows wheels' DXC is in LICENSE-DXC."
     )
     parts = [textwrap.fill(header, 84, break_on_hyphens=False) + "\n"]
     for written, users in sorted(found.items(), key=lambda item: item[1][0]):

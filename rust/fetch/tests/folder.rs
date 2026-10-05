@@ -62,7 +62,8 @@ fn success(output: Output) {
 fn build_script() {
     // Children exercise the public API without mutating the test runner's environment.
     if let Ok(url) = std::env::var("FETCH_TEST_URL") {
-        fetch::tree(&url, &std::env::var("FETCH_TEST_HASH").unwrap());
+        let acquire = if std::env::var("FETCH_TEST_KIND").as_deref() == Ok("file") { fetch::file } else { fetch::tree };
+        acquire(&url, &std::env::var("FETCH_TEST_HASH").unwrap());
     }
 }
 
@@ -234,4 +235,59 @@ fn an_offline_source_store_can_be_read_only() {
     fs::set_permissions(source.path("sources"), fs::Permissions::from_mode(0o755)).unwrap();
     success(output);
     source.check("second");
+}
+
+#[test]
+fn an_immutable_file_is_verified_collected_and_reused_offline() {
+    use sha2::{Digest, Sha256};
+    let mut source = Source::new();
+    let bytes = fs::read(source.path("served/tree.tar.gz")).unwrap();
+    source.hash = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+    success(source.build("first").env("FETCH_TEST_KIND", "file").env_remove("MANIMGX_SOURCES").output().unwrap());
+    success(source.build("first").env("FETCH_TEST_KIND", "file").output().unwrap());
+    fs::remove_file(source.path("served/tree.tar.gz")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(source.path("sources"), fs::Permissions::from_mode(0o555)).unwrap();
+    }
+    let offline = source.build("offline").env("FETCH_TEST_KIND", "file").output().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(source.path("sources"), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    success(offline);
+    assert_eq!(fs::read(source.path("offline").join(&source.hash)).unwrap(), bytes);
+    assert_eq!(entries(&source.path("sources")), ["tree.tar.gz"]);
+}
+
+#[test]
+fn immutable_file_cache_corruption_is_repaired_only_by_verified_bytes() {
+    use sha2::{Digest, Sha256};
+    let mut source = Source::new();
+    let bytes = fs::read(source.path("served/tree.tar.gz")).unwrap();
+    source.hash = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+    success(source.build("first").env("FETCH_TEST_KIND", "file").output().unwrap());
+    fs::write(source.path("sources/tree.tar.gz"), "corrupt cache").unwrap();
+    fs::write(source.path("served/tree.tar.gz"), "invalid response").unwrap();
+    let output = source.build("second").env("FETCH_TEST_KIND", "file").output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("its bytes hash to"));
+    assert_eq!(fs::read_to_string(source.path("sources/tree.tar.gz")).unwrap(), "corrupt cache");
+    assert!(entries(&source.path("second")).is_empty());
+    fs::write(source.path("served/tree.tar.gz"), &bytes).unwrap();
+    success(source.build("second").env("FETCH_TEST_KIND", "file").output().unwrap());
+    assert_eq!(fs::read(source.path("sources/tree.tar.gz")).unwrap(), bytes);
+}
+
+#[test]
+fn concurrent_builds_publish_whole_immutable_files() {
+    use sha2::{Digest, Sha256};
+    let mut source = Source::new();
+    let bytes = fs::read(source.path("served/tree.tar.gz")).unwrap();
+    source.hash = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect();
+    let children: Vec<_> = (0..12).map(|i| source.build(&format!("build-{}", i % 3)).env("FETCH_TEST_KIND", "file").spawn().unwrap()).collect();
+    for child in children { success(child.wait_with_output().unwrap()); }
+    for i in 0..3 { assert_eq!(fs::read(source.path(&format!("build-{i}")).join(&source.hash)).unwrap(), bytes); }
 }

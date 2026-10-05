@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 [features]
 default = ["python", "render", "export", "typeset", "window"]
 python = ["dep:pyo3", "dep:ffmpeg", "dep:wasm-bindgen-cli-support", "dep:zstd"]
-render = ["dep:wgpu", "dep:ash", "dep:libc"]
+render = ["dep:wgpu", "dep:ash", "dep:libc", "dep:dxc", "dep:windows-sys"]
 export = ["render", "dep:rusty_aac", "dep:x264"]
 typeset = ["dep:typst", "dep:typst-kit", "dep:typst-layout", "dep:ttf-parser", "dep:unicode-segmentation", "dep:mitex", "dep:mitex-spec-gen", "dep:bincode", "dep:memmap2"]
 # the player (src/player.rs): takes played on a clock, with a face and a sound, on any screen
@@ -79,11 +79,16 @@ cpal = { version = "0.18.2", optional = true }
 ash = { version = "0.38", optional = true }
 libc = { version = "0.2", optional = true }
 
+# Find the engine's own module, so DXC is loaded beside it rather than searched for on PATH.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader"], optional = true }
+
 [dev-dependencies]
 zstd = { version = "0.14", default-features = false }
 ruzstd = "0.9"
 
 [build-dependencies]
+dxc = { path = "../dxc", optional = true }
 wasm-bindgen-cli-support = { version = "=0.2.128", optional = true }
 
 [lints.clippy]

@@ -22,6 +22,7 @@ docs/content/reference/rendering/command-line.md
 # Compiled extension module (rebuilt by maturin; never committed)
 *.so
 *.pyd
+/src/manimgx/dxcompiler.dll
 
 # Test / lint / type-check caches
 .pytest_cache/

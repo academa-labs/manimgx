@@ -50,3 +50,16 @@ def test_code_ported_from_manim_ce_says_whose_it_is() -> None:
     gone = [f for f in PORTED_FROM_CE if not any(f in text for text in texts.values())]
     assert not unsaid, f"Manim CE's code without its copyright lines: {unsaid}"
     assert not gone, f"no module holds {gone} any more: drop it from PORTED_FROM_CE"
+
+
+def test_the_dxc_notice_describes_the_pinned_compiler_and_source() -> None:
+    build = (ROOT / "rust" / "dxc" / "src" / "lib.rs").read_text(encoding="utf-8")
+    notice = (ROOT / "LICENSE-DXC").read_text(encoding="utf-8")
+    version = re.search(r"/releases/download/(v[\d.]+)/", build)
+    source = re.search(r"/archive/([a-f0-9]{40})\.tar\.gz", build)
+    assert version
+    assert version[1] in notice
+    assert source
+    assert source[1] in notice
+    assert "University of Illinois/NCSA" in notice
+    assert "ThirdPartyNotices.txt" in notice

@@ -13,9 +13,10 @@ requires-python = ">=3.13"
 # (OFL-1.1, LPPL-1.3c as the GUST Font License, GPL-3.0-or-later with its font exception,
 # DejaVu's Bitstream Vera and Arev terms), HTML data (W3C) and citation styles (CC-BY-SA-3.0);
 # and in the Linux wheels, Mesa's lavapipe with LLVM (Apache-2.0 WITH LLVM-exception;
-# LICENSE-LAVAPIPE). The Noto fonts are manimgx-fonts'.
-license = "MIT AND GPL-2.0-or-later AND LGPL-2.1-or-later AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MPL-2.0 AND Unicode-3.0 AND Zlib AND 0BSD AND OFL-1.1 AND LPPL-1.3c AND GPL-3.0-or-later WITH Font-exception-2.0 AND Bitstream-Vera AND LicenseRef-Arev-Fonts AND W3C-20150513 AND CC-BY-SA-3.0 AND Apache-2.0 WITH LLVM-exception"
-license-files = ["LICENSE", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE"]
+# LICENSE-LAVAPIPE); and Windows wheels' DXC (NCSA, LICENSE-DXC). The Noto fonts are
+# manimgx-fonts'.
+license = "MIT AND GPL-2.0-or-later AND LGPL-2.1-or-later AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MPL-2.0 AND Unicode-3.0 AND Zlib AND 0BSD AND OFL-1.1 AND LPPL-1.3c AND GPL-3.0-or-later WITH Font-exception-2.0 AND Bitstream-Vera AND LicenseRef-Arev-Fonts AND W3C-20150513 AND CC-BY-SA-3.0 AND Apache-2.0 WITH LLVM-exception AND NCSA"
+license-files = ["LICENSE", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE", "LICENSE-DXC"]
 authors = [
     { name = "Sina Atalay", email = "sina.atalay@academa.ai" },
     { name = "Abdullah Geduk", email = "geduk@academa.ai" },
@@ -65,7 +66,10 @@ module-name = "manimgx._engine"
 manifest-path = "rust/engine/Cargo.toml"
 # what a wheel takes besides the package's sources: the lavapipe a Linux wheel bundles, built
 # before it (scripts/release/build_lavapipe.sh) and ignored by git
-include = [{ path = "manimgx/lavapipe/libvulkan_lvp.so", format = "wheel" }]
+include = [
+    { path = "manimgx/lavapipe/libvulkan_lvp.so", format = "wheel" },
+    { path = "dxcompiler.dll", from = "out-dir", to = "manimgx/" },
+]
 
 # the font packages, as they are here: manimgx requires them at exact versions, and in the
 # workspace those are fonts/'s, installed editable, like manimgx, whose engine uv builds

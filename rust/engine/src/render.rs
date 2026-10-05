@@ -26,6 +26,9 @@ use wgpu::util::DeviceExt;
 
 use crate::{CameraView, environment, read};
 
+#[cfg(windows)]
+#[path = "dxc.rs"]
+mod dxc;
 #[path = "bloom.rs"]
 mod bloom;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1055,7 +1058,13 @@ impl Gpu {
     /// The system's GPU, WebGPU's (Metal, Vulkan, DX12, the browser's): its device, and what draws on it.
     pub(crate) async fn new() -> Result<Self, String> {
         // the system's adapter; where none will do, the lavapipe a Linux wheel bundles
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let descriptor = wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() };
+        #[cfg(windows)]
+        let descriptor = wgpu::InstanceDescriptor {
+            backend_options: wgpu::BackendOptions { dx12: wgpu::Dx12BackendOptions { shader_compiler: dxc::compiler()?, ..Default::default() }, ..descriptor.backend_options },
+            ..descriptor
+        };
+        let instance = wgpu::Instance::new(descriptor);
         #[cfg(target_arch = "wasm32")]
         let adapter = adapter(&instance).await?;
         #[cfg(not(target_arch = "wasm32"))]
