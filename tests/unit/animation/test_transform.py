@@ -2,7 +2,8 @@
 together on one mobject compose; a replacement leaves its target in its mobject's place.
 
 - `.animate` and `ApplyMethod` take their arguments as written, and carry the calls out on the
-  mobject as it is when the animation begins.
+  mobject as it is when the animation begins. A function given to `.animate` is a call too:
+  tried at once, and carried out with them.
 - An animation's `keys` (functions of the mobject) are applied when it begins, to a copy.
 - A mobject's override (`override_animation`) plays in place of the animation it overrides,
   the animation given in a list or a generator too.
@@ -15,9 +16,20 @@ together on one mobject compose; a replacement leaves its target in its mobject'
 - Played, a transform made to replace its mobject (`replace_mobject_with_target_in_scene`, as
   a scene gives it) leaves the scene holding its target where the mobject was; one with no
   target of its own leaves the mobject (a remover, nothing): never an object of its own making.
+- `.animate` and `.always` are typed by a table of the library's methods (`_Methods`), not by
+  their `__getattr__`, which a type checker doesn't see: every public method of a mobject
+  class that returns the mobject is in it, typed with the class's own parameters.
 """
 
+import ast
+import importlib
+import inspect
+import pkgutil
+import textwrap
 from collections.abc import Callable, Iterator
+from functools import cache
+from pathlib import Path
+from typing import Self
 
 import numpy as np
 import pytest
@@ -55,6 +67,24 @@ def test_recorded_calls_snapshot_arguments_but_replay_on_the_current_mobject(
     np.testing.assert_allclose(square.get_center(), start, atol=1e-12)
     animation.finish()
     np.testing.assert_allclose(square.get_center(), wanted, atol=1e-12)
+
+
+def test_a_function_given_to_animate_is_a_call() -> None:
+    # any change, with a method of the scene's own class too
+    class Box(m.Square):
+        def grow(self) -> Self:
+            return self.scale(2)
+
+    box = Box()
+    animation = box.animate(lambda b: b.grow().shift(m.RIGHT), run_time=2)
+    assert animation.run_time == 2
+    box.shift(m.UP)
+    animation.begin()
+    animation.finish()
+    assert box.width == pytest.approx(4)
+    np.testing.assert_allclose(box.get_center(), m.UP + m.RIGHT, atol=1e-12)
+    with pytest.raises(AttributeError):  # tried at once: it fails where it is written
+        m.Square().animate(lambda s: s.shfit(m.RIGHT))  # ty: ignore[unresolved-attribute]
 
 
 def test_keys_are_applied_as_the_animation_begins_to_a_copy() -> None:
@@ -188,3 +218,125 @@ def test_a_replacement_leaves_its_target_in_its_mobjects_place(name: str) -> Non
     else:
         middle = [] if animation.is_remover() else [square]
     assert [id(x) for x in told.mobjects] == [id(x) for x in (before, *middle, after)]
+
+
+class _Unquoted(ast.NodeTransformer):
+    """An annotation as its type reads, written in quotes or not."""
+
+    def visit_Constant(self, node: ast.Constant) -> ast.AST:
+        if isinstance(node.value, str):
+            return self.visit(ast.parse(node.value, mode="eval").body)
+        return node
+
+
+def _text(node: ast.expr | None) -> str:
+    return "" if node is None else ast.unparse(_Unquoted().visit(node))
+
+
+def _parameters(args: ast.arguments) -> tuple[tuple[str, str, bool], ...]:
+    """A method's parameters but `self`: each one's name, type, and whether it has a default."""
+    every = [*args.posonlyargs, *args.args]
+    defaults = [False] * (len(every) - len(args.defaults)) + [True] * len(args.defaults)
+    found = [
+        (a.arg, _text(a.annotation), d) for a, d in zip(every, defaults, strict=True)
+    ]
+    found += [(f"*{a.arg}", _text(a.annotation), False) for a in [args.vararg] if a]
+    found += [
+        (a.arg, _text(a.annotation), d is not None)
+        for a, d in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+    ]
+    found += [(f"**{a.arg}", _text(a.annotation), False) for a in [args.kwarg] if a]
+    return tuple(found[1:])
+
+
+@cache
+def _defined(cls: type) -> dict[str, ast.FunctionDef]:
+    """The methods a class's own body defines, by name (an overloaded one's implementation)."""
+    body = ast.parse(textwrap.dedent(inspect.getsource(cls))).body[0]
+    assert isinstance(body, ast.ClassDef)
+    return {
+        node.name: node
+        for node in body.body
+        if isinstance(node, ast.FunctionDef)
+        and not any(ast.unparse(d) == "overload" for d in node.decorator_list)
+    }
+
+
+def _table() -> dict[str, list[str]]:
+    """The names `.animate` types, each with the kinds of mobject it is typed for, in the
+    order a type checker tries them (empty: a method typed by hand)."""
+    source = Path(inspect.getfile(m.Animate)).read_text(encoding="utf-8")
+    methods = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and node.name == "_Methods"
+    )
+    table: dict[str, list[str]] = {}
+    for node in ast.walk(methods):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            name = node.targets[0]
+            assert isinstance(name, ast.Name)
+            table[name.id] = [
+                ast.unparse(arg.value.args[0]).split("[")[0]
+                for arg in node.value.args
+                if isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Call)
+            ]
+        elif isinstance(node, ast.FunctionDef):
+            table[node.name] = []
+    return table
+
+
+def _mobject_classes() -> dict[str, type[m.Mobject]]:
+    """Every mobject class the package defines, by name: its private bases too."""
+    found: dict[str, type[m.Mobject]] = {}
+    for module in pkgutil.walk_packages(m.__path__, "manimgx."):
+        if module.name.endswith("__main__"):  # the command line, run when imported
+            continue
+        for value in vars(importlib.import_module(module.name)).values():
+            if (
+                isinstance(value, type)
+                and issubclass(value, m.Mobject)
+                and value.__module__ == module.name
+            ):
+                assert found.setdefault(value.__name__, value) is value
+    return found
+
+
+def test_animate_types_every_method_that_returns_the_mobject() -> None:
+    table, classes = _table(), _mobject_classes()
+    shadowed = set(dir(m.Animate))  # the animation's own attributes come first
+    # a copy is another mobject: through `.animate`, there is nothing to record, and ty says so
+    unchanging = {"copy"}
+
+    def parameters(cls: type, name: str) -> tuple[tuple[str, str, bool], ...]:
+        owner = next(c for c in cls.__mro__ if name in _defined(c))
+        return _parameters(_defined(owner)[name].args)
+
+    problems = []
+    for cls in classes.values():
+        for name, method in _defined(cls).items():
+            decorators = [ast.unparse(d) for d in method.decorator_list]
+            if (
+                name.startswith("_")
+                or _text(method.returns) != "Self"
+                or any(d.startswith("deprecated") for d in decorators)
+                or {"classmethod", "staticmethod"} & set(decorators)  # makes another
+                or name in shadowed | unchanging
+            ):
+                continue
+            if name not in table:
+                problems.append(f"{cls.__name__}.{name}: not in the table")
+                continue
+            kinds = [classes[kind] for kind in table[name]]
+            if not kinds:  # typed by hand
+                continue
+            first = next((kind for kind in kinds if issubclass(cls, kind)), None)
+            if first is None:
+                problems.append(
+                    f"{cls.__name__}.{name}: none of the table's kinds is it"
+                )
+            elif parameters(first, name) != parameters(cls, name):
+                problems.append(
+                    f"{cls.__name__}.{name}: typed with {first.__name__}'s parameters"
+                )
+    assert not problems, "\n".join(problems)

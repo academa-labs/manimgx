@@ -63,8 +63,9 @@ Every keyword argument has a type, and so do `.animate` chains. So a type checke
 manimgx doesn't have, a keyword that a mobject or an animation doesn't take
 (`m.Circle(colour=m.BLUE)`), or an argument of the wrong type. When the scene runs, most
 mobjects and animations ignore a keyword they don't take, so only ty tells you about a
-misspelled one. The [Quickstart](quickstart.md#2-set-up-your-editor) sets up ty in your
-editor.
+misspelled one. Through `.animate`, ty knows manimgx's methods only. To animate a method of
+your own class, give `.animate` a function: `box.animate(lambda b: b.grow(2))`. The
+[Quickstart](quickstart.md#2-set-up-your-editor) sets up ty in your editor.
 
 ## Sound, slides and voiceover
 

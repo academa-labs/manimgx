@@ -6,6 +6,9 @@
 - A type report's imprecision is manimgx's: an untyped value from another package is not
   manimgx's output, but manimgx's outputs stay imprecise however untyped their inputs, each
   named by the call or attribute it comes from (a generic class's inherited methods too).
+- A type report's escapes are the scene's: every suppression is one, but for a method of the
+  scene's own class called through `.animate` or `.always`, which manimgx's types can't name
+  (nor is its type manimgx's imprecision).
 """
 
 from dataclasses import replace
@@ -140,3 +143,37 @@ def test_a_generic_class_keeps_its_inherited_methods() -> None:
     methods = typecheck._manimgx_methods()["Graph"]
     assert {"add_vertices", "copy"} <= set(methods)
     assert not {"add_node", "add_nodes_from"} & set(methods)
+
+
+BOX = (
+    "import manimgx as m\n"
+    "class Box(m.Square):\n"
+    "    def grow(self):\n"
+    "        return self.scale(2)\n"
+    "box = Box()\n"
+)
+
+
+def test_a_scenes_own_method_through_animate_is_not_an_escape() -> None:
+    own = (
+        BOX + "box.animate.grow()  # ty: ignore[unresolved-attribute]\n"
+        "box.animate.shift(m.UP).grow()  # ty: ignore[unresolved-attribute]\n"
+        "box.always.grow()  # ty: ignore[unresolved-attribute]\n"
+    )
+    assert typecheck.escapes(own.encode()) == []
+    # a library's method, another rule, or the method itself: escapes
+    others = (
+        BOX + "box.animate.shfit(m.UP)  # ty: ignore[unresolved-attribute]\n"
+        "box.animate.grow(1)  # ty: ignore[invalid-argument-type]\n"
+        "box.grow()  # ty: ignore[unresolved-attribute]\n"
+    )
+    found = typecheck.escapes(others.encode())
+    assert [line.split(":")[0] for line in found] == ["line 6", "line 7", "line 8"]
+
+
+@pytest.mark.usefixtures("cases")
+def test_a_scenes_own_method_through_animate_is_not_manimgxs_imprecision() -> None:
+    example = made(
+        "own", BOX + "box.animate.grow()  # ty: ignore[unresolved-attribute]\n"
+    )
+    assert typecheck.imprecise([example]) == {}

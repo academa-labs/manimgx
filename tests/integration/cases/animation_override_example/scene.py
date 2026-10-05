@@ -36,5 +36,5 @@ class AnimationOverrideExample(m.Scene):
         t = m.Text("hello!")
         my_mobject = CircleWithContent(t)
         self.play(m.Create(my_mobject))
-        self.play(my_mobject.animate.clear_content())
+        self.play(my_mobject.animate.clear_content())  # ty: ignore[unresolved-attribute]
         self.wait()
