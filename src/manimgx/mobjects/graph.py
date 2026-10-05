@@ -18,7 +18,6 @@ from typing import (
     Literal,
     Protocol,
     Self,
-    TypedDict,
     TypeIs,
     Unpack,
     cast,
@@ -26,6 +25,7 @@ from typing import (
 )
 
 import numpy as np
+from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -302,7 +302,7 @@ def _is_name(layout: object) -> TypeIs[LayoutName]:
     return isinstance(layout, str) and layout in get_args(LayoutName)
 
 
-class VertexOptions[V: Hashable](TypedDict, total=False):
+class VertexOptions[V: Hashable](TypedDict, total=False, closed=True):
     """[add_vertices][manimgx.mobjects.graph.GenericGraph.add_vertices]' keywords, for
     the methods that pass them on: where the new vertices go, their labels, their kind
     and their keywords."""
@@ -324,18 +324,7 @@ class VertexOptions[V: Hashable](TypedDict, total=False):
     """Mobjects to be vertices themselves, by vertex (default None: none)."""
 
 
-class EdgeOptions[V: Hashable](VertexOptions[V], total=False):
-    """[add_edges][manimgx.mobjects.graph.GenericGraph.add_edges]' keywords: the new
-    edges' kind and keywords, with the vertices' keywords for the vertices they add."""
-
-    edge_type: Maker
-    """The class of the new edges (default [Line][manimgx.Line])."""
-    edge_config: Configs | None
-    """Keywords for the new edges, over the graph's: for all of them, and an edge's own
-    under its pair of vertices, in place of those for all (default None: none)."""
-
-
-class GraphOptions[V: Hashable](TypedDict, total=False):
+class GraphOptions[V: Hashable](TypedDict, total=False, closed=True):
     """A graph's keywords but its vertices and edges, for the methods that pass them on
     ([from_networkx][manimgx.mobjects.graph.GenericGraph.from_networkx], a
     [Polyhedron][manimgx.Polyhedron]'s `graph_config`): its labels, layout, and the
@@ -726,7 +715,13 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
         self.add(edge_mobject)
         return Group(edge_mobject)
 
-    def add_edges(self, *edges: Edge[V], **kwargs: Unpack[EdgeOptions[V]]) -> Group:
+    def add_edges(
+        self,
+        *edges: Edge[V],
+        edge_type: Maker = Line,
+        edge_config: Configs | None = None,
+        **kwargs: Unpack[VertexOptions[V]],
+    ) -> Group:
         """Add edges to the graph, and the vertices they name that it lacks.
 
         The missing vertices are added first, as
@@ -736,15 +731,17 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
 
         Args:
             *edges: The new edges, each a pair of vertices.
-            **kwargs: [Edge keywords][manimgx.mobjects.graph.EdgeOptions]: `edge_type`
-                (a [Line][manimgx.Line] unless given), `edge_config`, and the vertex
-                keywords for the new vertices.
+            edge_type: The class of the new edges.
+            edge_config: Keywords for the new edges, over the graph's: for all of them,
+                and an edge's own under its pair of vertices, in place of those for all;
+                None for none.
+            **kwargs: [Vertex keywords][manimgx.mobjects.graph.VertexOptions] for the
+                vertices the edges name that the graph lacks.
 
         Returns:
             A new group of the new mobjects, the vertices added and then the edges.
         """
-        edge_type = kwargs.pop("edge_type", Line)
-        shared, own = _split(kwargs.pop("edge_config", None), edges)
+        shared, own = _split(edge_config, edges)
         base = self.default_edge_config.copy() | shared
         new_vertices = [
             v for v in dict.fromkeys(it.chain(*edges)) if v not in self.vertices

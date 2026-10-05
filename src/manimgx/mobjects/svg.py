@@ -22,7 +22,7 @@ import numpy as np
 from manimgx.caches import Memo
 from manimgx.constants import RIGHT
 from manimgx.drawing.geometry import Blend
-from manimgx.drawing.paint import BLACK, Colors, Look, Repaint, Style, key_of
+from manimgx.drawing.paint import BLACK, Colors, Look, Repaint, Style, _Style, key_of
 from manimgx.mobject import VGroup, VMobject, copied
 from manimgx.mobjects.shapes import Circle, Line, Polygon, Rectangle, RoundedRectangle
 
@@ -44,7 +44,7 @@ def _point(point: se.Point | None) -> np.ndarray:
     return np.array([point.x, point.y, 0.0])
 
 
-class PathOptions(Style, total=False):
+class PathOptions(_Style, total=False):
     """How an SVG path becomes curves: an [SVGMobject][manimgx.SVGMobject]'s
     `path_string_config`, the keywords of each path it reads.
 

@@ -8,7 +8,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import ClassVar, Literal, TypedDict
+from typing import ClassVar, Literal
+
+from typing_extensions import TypedDict
 
 from manimgx.caches import forgets
 from manimgx.constants import LEFT, ORIGIN, RIGHT, SCALE_FACTOR_PER_FONT_POINT, UP

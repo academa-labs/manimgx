@@ -45,6 +45,8 @@ dependencies = [
     "skia-pathops>=0.8; sys_platform != 'emscripten'",
     "svgelements>=1.9.6",
     "typer>=0.27.2; sys_platform != 'emscripten'",
+    # closed TypedDicts (PEP 728) for the keyword arguments, which typing has from 3.15
+    "typing-extensions>=4.13",
 ]
 
 [project.scripts]

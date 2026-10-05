@@ -16,11 +16,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePath
-from typing import TYPE_CHECKING, Final, Self, TypedDict, TypeIs, cast, overload
+from typing import TYPE_CHECKING, Final, Self, TypeIs, cast, overload
 from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import TypedDict
 
 from manimgx.caches import Memo, unchanged
 from manimgx.constants import UL, CapStyleType, LineJointType
@@ -1169,12 +1170,8 @@ class Material:
 # `StyleBase` for the rest.
 
 
-class Look(TypedDict, total=False):
-    """The style keywords that are not paint.
-
-    A mobject whose paint comes from its source (an SVG file, typeset text) takes these,
-    with [`Repaint`][manimgx.drawing.paint.Repaint] to paint over its source's colors.
-    """
+class _Look(TypedDict, total=False):
+    """Look's keys, open, for the keywords that add to them."""
 
     background_stroke_color: Colors | None
     """The color of an outline drawn behind the fill (default black)."""
@@ -1209,6 +1206,14 @@ class Look(TypedDict, total=False):
     """The state [`MoveToTarget`][manimgx.MoveToTarget] moves the mobject to."""
 
 
+class Look(_Look, total=False, closed=True):
+    """The style keywords that are not paint.
+
+    A mobject whose paint comes from its source (an SVG file, typeset text) takes these,
+    with [`Repaint`][manimgx.drawing.paint.Repaint] to paint over its source's colors.
+    """
+
+
 class Repaint(TypedDict, total=False):
     """Paint over the paint a mobject's source gives its parts.
 
@@ -1232,11 +1237,8 @@ class Repaint(TypedDict, total=False):
     """The stroke's width, in hundredths of a scene unit."""
 
 
-class StyleBase(Look, total=False):
-    """Every style keyword but `color`.
-
-    A class that takes `color` by position declares it itself, and the rest with this.
-    """
+class _StyleBase(_Look, total=False):
+    """StyleBase's keys, open, for the keywords that add to them."""
 
     fill_color: Colors | None
     """The fill's color; `color` if not given. Several colors make a gradient along
@@ -1251,7 +1253,21 @@ class StyleBase(Look, total=False):
     """The stroke's width, in hundredths of a scene unit (default 4; 0: no stroke)."""
 
 
-class Style(StyleBase, total=False):
+class StyleBase(_StyleBase, total=False, closed=True):
+    """Every style keyword but `color`.
+
+    A class that takes `color` by position declares it itself, and the rest with this.
+    """
+
+
+class _Style(_StyleBase, total=False):
+    """Style's keys, open, for the keywords that add to them."""
+
+    color: Colors | None
+    """The color of both fill and stroke (default white); None for the class's default."""
+
+
+class Style(_Style, total=False, closed=True):
     """The style keywords: one vocabulary for every mobject and every group.
 
     Every mobject takes these keywords, and each class sets its own defaults for them
@@ -1259,9 +1275,6 @@ class Style(StyleBase, total=False):
     anything [`ManimColor`][manimgx.ManimColor] parses: a named color such as `BLUE`,
     a hex string, or RGB values.
     """
-
-    color: Colors | None
-    """The color of both fill and stroke (default white); None for the class's default."""
 
 
 class Fill(TypedDict):

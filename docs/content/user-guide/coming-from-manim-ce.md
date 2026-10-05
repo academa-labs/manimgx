@@ -59,8 +59,12 @@ names of these are everywhere in Manim code, so both stay. These docs use `VGrou
 ## Types
 
 Every keyword argument has a type, and so do `.animate` chains. So a type checker such as
-[ty](https://docs.astral.sh/ty/) finds a name that manimgx doesn't have, or an argument
-of the wrong type, before you render. The [Quickstart](quickstart.md#2-set-up-your-editor) sets it up in your editor.
+[ty](https://docs.astral.sh/ty/) finds these mistakes before you render: a name that
+manimgx doesn't have, a keyword that a mobject or an animation doesn't take
+(`m.Circle(colour=m.BLUE)`), or an argument of the wrong type. When the scene runs, most
+mobjects and animations ignore a keyword they don't take, so only ty tells you about a
+misspelled one. The [Quickstart](quickstart.md#2-set-up-your-editor) sets up ty in your
+editor.
 
 ## Sound, slides and voiceover
 

@@ -915,6 +915,7 @@ dependencies = [
     { name = "skia-pathops", marker = "sys_platform != 'emscripten'" },
     { name = "svgelements" },
     { name = "typer", marker = "sys_platform != 'emscripten'" },
+    { name = "typing-extensions" },
 ]
 
 [package.dev-dependencies]
@@ -951,6 +952,7 @@ requires-dist = [
     { name = "skia-pathops", marker = "sys_platform != 'emscripten'", specifier = ">=0.8" },
     { name = "svgelements", specifier = ">=1.9.6" },
     { name = "typer", marker = "sys_platform != 'emscripten'", specifier = ">=0.27.2" },
+    { name = "typing-extensions", specifier = ">=4.13" },
 ]
 
 [package.metadata.requires-dev]

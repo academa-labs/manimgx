@@ -99,6 +99,8 @@ its parts start one after another.
 ::: manimgx.animation.timeline.AnimationOptions
     options:
       heading_level: 3
+      inherited_members: true
+      members: [run_time, rate_func, lag_ratio, reverse_rate_function, remover, introducer, suspend_mobject_updating, use_override, name]
 
 ::: manimgx.Animation
     options:

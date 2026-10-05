@@ -25,7 +25,6 @@ from typing import (
     Literal,
     Never,
     Self,
-    TypedDict,
     TypeIs,
     Unpack,
     cast,
@@ -35,6 +34,7 @@ from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import TypedDict
 
 from manimgx import caches
 from manimgx.animation import clock
@@ -85,7 +85,6 @@ from manimgx.drawing.paint import (
     BLACK,
     WHITE,
     Colors,
-    Look,
     ManimColor,
     Material,
     Paint,
@@ -95,6 +94,7 @@ from manimgx.drawing.paint import (
     Style,
     StyleBase,
     StyleSnapshot,
+    _Look,
     color_gradient,
     frozen,
     interpolate_color,
@@ -527,10 +527,8 @@ class GridArrangement(TypedDict, total=False):
     fills columns top to bottom, from the left)."""
 
 
-class Beside(TypedDict, total=False):
-    """How [next_to][manimgx.Mobject.next_to] aligns a mobject beside another: its
-    keywords but the direction and the gap, for the methods that pass them on
-    ([arrange][manimgx.Mobject.arrange])."""
+class _Beside(TypedDict, total=False):
+    """Beside's keys, open, for the keywords that add to them."""
 
     aligned_edge: Vector3DLike
     """The edge, as a direction, along which the two line up besides the side they meet
@@ -547,7 +545,13 @@ class Beside(TypedDict, total=False):
     it keeps (default (1, 1, 1))."""
 
 
-class Placement(Beside, total=False):
+class Beside(_Beside, total=False, closed=True):
+    """How [next_to][manimgx.Mobject.next_to] aligns a mobject beside another: its
+    keywords but the direction and the gap, for the methods that pass them on
+    ([arrange][manimgx.Mobject.arrange])."""
+
+
+class Placement(_Beside, total=False, closed=True):
     """How [next_to][manimgx.Mobject.next_to] places a mobject beside another: its
     keywords but the direction, for the methods that pass them on."""
 
@@ -555,7 +559,7 @@ class Placement(Beside, total=False):
     """The gap between the two, in scene units (default 0.25)."""
 
 
-class BackgroundOptions(Look, total=False):
+class BackgroundOptions(_Look, total=False, closed=True):
     """A background rectangle's keywords but its color and opacity: those of
     [add_background_rectangle][manimgx.Mobject.add_background_rectangle] and its
     variants."""
@@ -575,7 +579,7 @@ class BackgroundOptions(Look, total=False):
     """The outline's color (default: the rectangle's color)."""
 
 
-class Pivot(TypedDict, total=False):
+class Pivot(TypedDict, total=False, closed=True):
     """The point a transformation keeps fixed: given, or a point of the mobject's
     bounding box.
 

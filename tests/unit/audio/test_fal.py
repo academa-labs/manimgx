@@ -111,7 +111,7 @@ class TestAsking:
         assert speech.duration == pytest.approx(0.1)
 
     def test_another_models_settings_are_refused(self) -> None:
-        untyped: Callable[..., Fal] = Fal  # as a caller no type checker reads
+        untyped = cast("Callable[..., Fal]", Fal)  # as a caller no type checker reads
         with pytest.raises(TypeError, match="takes"):
             untyped("google/gemini-3.8-flash-tts", stability=0.5)
 

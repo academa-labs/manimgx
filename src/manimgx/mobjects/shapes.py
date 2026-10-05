@@ -65,6 +65,8 @@ from manimgx.drawing.paint import (
     Colors,
     Style,
     StyleBase,
+    _Style,
+    _StyleBase,
 )
 from manimgx.mobject import (
     Mobject,
@@ -159,12 +161,8 @@ if TYPE_CHECKING:
     "Which way along each of two crossing lines a side of an angle goes from the\n    crossing: a sign for each line, the first line's first; 1 along the line's\n    direction (from its start toward its end), -1 back toward its start."
 
 
-class TippedBase(StyleBase, total=False):
-    """Every style keyword but `color`, and those of a path that can end in arrow tips
-    (see [TipableVMobject][manimgx.TipableVMobject]).
-
-    A class that takes `color` by position declares it itself, and the rest with this.
-    """
+class _TippedBase(_StyleBase, total=False):
+    """TippedBase's keys, open, for the keywords that add to them."""
 
     tip_length: float
     """The length of the tips [add_tip][manimgx.TipableVMobject.add_tip] makes, in
@@ -177,18 +175,29 @@ class TippedBase(StyleBase, total=False):
     `fill_color` and `stroke_color` are the path's color unless given here."""
 
 
-class Tipped(TippedBase, total=False):
-    """The style keywords, and those of a path that can end in arrow tips (see
-    [TipableVMobject][manimgx.TipableVMobject])."""
+class TippedBase(_TippedBase, total=False, closed=True):
+    """Every style keyword but `color`, and those of a path that can end in arrow tips
+    (see [TipableVMobject][manimgx.TipableVMobject]).
+
+    A class that takes `color` by position declares it itself, and the rest with this.
+    """
+
+
+class _Tipped(_TippedBase, total=False):
+    """Tipped's keys, open, for the keywords that add to them."""
 
     color: Colors | None
     """The color of both fill and stroke (default white; a [Circle][manimgx.Circle]'s is
     red); None for the class's default."""
 
 
-class ArcOptions(Tipped, total=False):
-    """An arc's keywords, for the classes that build one and pass them on: how finely
-    and where it is built, with the style and tip keywords."""
+class Tipped(_Tipped, total=False, closed=True):
+    """The style keywords, and those of a path that can end in arrow tips (see
+    [TipableVMobject][manimgx.TipableVMobject])."""
+
+
+class _ArcOptions(_Tipped, total=False):
+    """ArcOptions's keys, open, for the keywords that add to them."""
 
     num_components: int
     """How many anchor points the arc is drawn through: it is one fewer cubic Bézier
@@ -198,7 +207,12 @@ class ArcOptions(Tipped, total=False):
     ORIGIN)."""
 
 
-class SectorOptions(ArcOptions, total=False):
+class ArcOptions(_ArcOptions, total=False, closed=True):
+    """An arc's keywords, for the classes that build one and pass them on: how finely
+    and where it is built, with the style and tip keywords."""
+
+
+class SectorOptions(_ArcOptions, total=False, closed=True):
     """A [Sector][manimgx.Sector]'s keywords but its radius: its angles, with the arc
     keywords."""
 
@@ -210,7 +224,7 @@ class SectorOptions(ArcOptions, total=False):
     x-axis (default 0)."""
 
 
-class ArcBetweenOptions(Tipped, total=False):
+class ArcBetweenOptions(_Tipped, total=False, closed=True):
     """An [ArcBetweenPoints][manimgx.ArcBetweenPoints]'s keywords but its ends: its
     angle or its radius, with the style and tip keywords (for the classes that pass
     them on)."""
@@ -1669,7 +1683,7 @@ class Polygon(Polygram):
         super().__init__(vertices, **kwargs)
 
 
-class RegularPolygonOptions(Style, total=False):
+class RegularPolygonOptions(_Style, total=False, closed=True):
     """A [RegularPolygon][manimgx.RegularPolygon]'s keywords but its number of vertices,
     for the classes that pass them on: its size and turn, with the style keywords."""
 
@@ -1873,9 +1887,8 @@ class Triangle(RegularPolygon):
         super().__init__(n=3, **kwargs)
 
 
-class GridOptions(Style, total=False):
-    """A [Rectangle][manimgx.Rectangle]'s grid, with the style keywords (for the classes
-    that pass them on)."""
+class _GridOptions(_Style, total=False):
+    """GridOptions's keys, open, for the keywords that add to them."""
 
     grid_xstep: float | None
     """The distance between the vertical lines of its grid, from its left edge, in
@@ -1887,7 +1900,12 @@ class GridOptions(Style, total=False):
     """Accepted for Manim compatibility; ignored."""
 
 
-class RectangleOptions(GridOptions, total=False):
+class GridOptions(_GridOptions, total=False, closed=True):
+    """A [Rectangle][manimgx.Rectangle]'s grid, with the style keywords (for the classes
+    that pass them on)."""
+
+
+class RectangleOptions(_GridOptions, total=False, closed=True):
     """A [Rectangle][manimgx.Rectangle]'s keywords, for the classes that pass them on:
     its size and its grid, with the style keywords."""
 
@@ -1914,6 +1932,7 @@ class Rectangle(Polygon):
             edge, in scene units; None for none.
         grid_ystep: The distance between the horizontal lines of its grid, from its top
             edge, in scene units; None for none.
+        mark_paths_closed: Accepted for Manim compatibility; ignored.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style].
 
     Examples:
@@ -1944,6 +1963,7 @@ class Rectangle(Polygon):
         width: float = 4.0,
         grid_xstep: float | None = None,
         grid_ystep: float | None = None,
+        mark_paths_closed: bool = False,
         **kwargs: Unpack[StyleBase],
     ) -> None:
         style = Style(**kwargs) if color is None else Style(**kwargs, color=color)
@@ -1990,7 +2010,7 @@ class Rectangle(Polygon):
             self.add(self.grid_lines)
 
 
-class ScreenOptions(Style, total=False):
+class ScreenOptions(_Style, total=False, closed=True):
     """A [ScreenRectangle][manimgx.ScreenRectangle]'s keywords, for the rectangles that
     pass them on: its proportions and its height, with the style keywords."""
 
@@ -2577,7 +2597,7 @@ class ArrowSquareFilledTip(ArrowSquareTip):
     defaults: ClassVar[Style] = {"fill_opacity": 1.0, "stroke_width": 0}
 
 
-class ArcedBase(TippedBase, total=False):
+class ArcedBase(_TippedBase, total=False):
     """A line's bend, with the tip keywords and every style keyword but `color`."""
 
     path_arc: float
@@ -2586,21 +2606,31 @@ class ArcedBase(TippedBase, total=False):
     on its way), clockwise if negative (default 0)."""
 
 
-class Arced(ArcedBase, Tipped, total=False):
+class _Arced(ArcedBase, _Tipped, total=False):
+    """Arced's keys, open, for the keywords that add to them."""
+
+    pass
+
+
+class Arced(_Arced, total=False, closed=True):
     """A line's bend, with the style and tip keywords (for the lines that set the buffer
     themselves)."""
 
 
-class LineOptions(Arced, total=False):
-    """A [Line][manimgx.Line]'s keywords but its ends, for the classes that pass them
-    on: its buffer and its bend, with the style and tip keywords."""
+class _LineOptions(_Arced, total=False):
+    """LineOptions's keys, open, for the keywords that add to them."""
 
     buff: float
     """How far the line stops short of each end, in scene units; a line shorter than
     twice it keeps its ends (default 0)."""
 
 
-class DashedLineOptions(LineOptions, total=False):
+class LineOptions(_LineOptions, total=False, closed=True):
+    """A [Line][manimgx.Line]'s keywords but its ends, for the classes that pass them
+    on: its buffer and its bend, with the style and tip keywords."""
+
+
+class DashedLineOptions(_LineOptions, total=False):
     """A [DashedLine][manimgx.DashedLine]'s keywords but its ends: its dashes, with the
     line keywords."""
 
@@ -2612,9 +2642,8 @@ class DashedLineOptions(LineOptions, total=False):
     (default 0.5: dashes and gaps as long)."""
 
 
-class ArrowTipsBase(ArcedBase, total=False):
-    """An [Arrow][manimgx.Arrow]'s keywords but its ends, its buffer and its color (for
-    the methods that set those): its tip, how it shrinks when short, and its bend."""
+class _ArrowTipsBase(ArcedBase, total=False):
+    """ArrowTipsBase's keys, open, for the keywords that add to them."""
 
     max_tip_length_to_length_ratio: float
     """The longest its tip may be, as a fraction of its length: a short arrow's tip is
@@ -2627,12 +2656,23 @@ class ArrowTipsBase(ArcedBase, total=False):
     [ArrowTriangleFilledTip][manimgx.ArrowTriangleFilledTip])."""
 
 
-class ArrowTips(ArrowTipsBase, Tipped, total=False):
+class ArrowTipsBase(_ArrowTipsBase, total=False, closed=True):
+    """An [Arrow][manimgx.Arrow]'s keywords but its ends, its buffer and its color (for
+    the methods that set those): its tip, how it shrinks when short, and its bend."""
+
+
+class _ArrowTips(_ArrowTipsBase, _Tipped, total=False):
+    """ArrowTips's keys, open, for the keywords that add to them."""
+
+    pass
+
+
+class ArrowTips(_ArrowTips, total=False, closed=True):
     """An [Arrow][manimgx.Arrow]'s keywords but its ends and its buffer (for the arrows
     that set it: vectors)."""
 
 
-class ArrowOptions(ArrowTips, total=False):
+class ArrowOptions(_ArrowTips, total=False, closed=True):
     """An [Arrow][manimgx.Arrow]'s keywords but its ends, for the classes that pass them
     on."""
 
@@ -3570,10 +3610,8 @@ class DoubleArrow(Arrow):
         self._set_stroke_width_from_length()  # as an arrow's: by its length, tip to tip
 
 
-class AngleShape(Style, total=False):
-    """An [Angle][manimgx.Angle]'s keywords but its radius and its elbow (for right
-    angles, which set them): which angle it marks, and its dot, with the style
-    keywords."""
+class _AngleShape(_Style, total=False):
+    """AngleShape's keys, open, for the keywords that add to them."""
 
     quadrant: AngleQuadrant
     """Which way each side of the angle goes from the crossing: a sign for each line,
@@ -3594,7 +3632,13 @@ class AngleShape(Style, total=False):
     """The dot's color (default white)."""
 
 
-class AngleOptions(AngleShape, total=False):
+class AngleShape(_AngleShape, total=False, closed=True):
+    """An [Angle][manimgx.Angle]'s keywords but its radius and its elbow (for right
+    angles, which set them): which angle it marks, and its dot, with the style
+    keywords."""
+
+
+class AngleOptions(_AngleShape, total=False, closed=True):
     """An [Angle][manimgx.Angle]'s keywords but its lines (for the methods that make
     one)."""
 
