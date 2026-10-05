@@ -25,8 +25,8 @@ def test_the_readme_reaches_the_site_it_is_on() -> None:
     # the wall's films, and the scene's film on each ground
     assert 'srcset="/showcase/hopf_fibration.avif"' in html  # on a low-density screen
     assert 'src="/showcase/hopf_fibration@2x.avif"' in html
-    assert 'srcset="/films/readme-Hopf.svg"' in html
-    assert 'src="/films/readme-Hopf-light.svg#readme"' in html
+    assert 'srcset="/films/readme-Hello3D.svg"' in html
+    assert 'src="/films/readme-Hello3D-light.svg#readme"' in html
     # a URL written as text, which an agent is told to follow, stays as it is
     assert f"Follow {site}/llms.txt" in html
 
