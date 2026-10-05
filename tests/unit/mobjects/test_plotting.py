@@ -21,6 +21,9 @@
   with a background line. Faded lines are half as wide and opaque as the background ones.
 - Each bar of a bar chart spans from 0 to its value, made with the values or changed to them.
 - A sample space's divisions tile it, in either direction.
+- Axes and planes fit the frame they are made in, wide, tall or square: axes given no length
+  span the frame less a margin (3D axes, its short side), and planes fill it, but an axis
+  given a `unit_size` and no length is that size per unit.
 """
 
 from collections.abc import Callable, Sequence
@@ -447,6 +450,36 @@ def test_a_plane_fills_the_frame_it_is_made_in(size: tuple[int, int]) -> None:
     np.testing.assert_allclose(plane.c2p(w, h), [w, h, 0], atol=1e-9)
     np.testing.assert_allclose([*plane.x_range[:2], *plane.y_range[:2]], [-w, w, -h, h])
     assert m.PolarPlane().width == pytest.approx(2 * min(w, h))
+
+
+@pytest.mark.parametrize(
+    ("size", "lengths"),
+    [((1920, 1080), (12, 6)), ((1080, 1920), (6, 12)), ((1000, 1000), (6, 6))],
+)
+def test_axes_fit_the_frame_they_are_made_in(
+    size: tuple[int, int], lengths: tuple[float, float]
+) -> None:
+    # the frame as the scene's file sets it, after manimgx is imported: wide, tall, square
+    m.config.pixel_width, m.config.pixel_height = size
+    axes = m.Axes()
+    assert (axes.x_length, axes.y_length) == pytest.approx(lengths)
+    # 3D axes take the frame's short side, which these frames share
+    three_d = m.ThreeDAxes()
+    assert (three_d.x_length, three_d.y_length, three_d.z_length) == pytest.approx(
+        (10.5, 10.5, 6.5)
+    )
+
+
+def test_an_axis_given_a_unit_size_and_no_length_is_that_size_per_unit() -> None:
+    axes = m.Axes(x_range=[0, 10, 1], x_axis_config={"unit_size": 0.5})
+    assert axes.x_length == pytest.approx(5)
+    assert axes.y_length == pytest.approx(6)  # the other axis fits the frame
+    # a length given wins
+    axes = m.Axes(x_length=7, x_axis_config={"unit_size": 0.5})
+    assert axes.x_length == pytest.approx(7)
+    # and a plane's unit is a scene unit unless one is given
+    plane = m.NumberPlane(x_range=[-2, 2, 1], axis_config={"unit_size": 2})
+    assert plane.x_length == pytest.approx(8)
 
 
 def test_a_planes_faded_lines_halve_each_of_several_opacities() -> None:

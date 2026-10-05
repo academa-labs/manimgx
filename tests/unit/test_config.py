@@ -5,9 +5,13 @@
   proportions. A scene laid out in the central 8 × 8 square fits both, at the same size.
 - A height that is set is the frame's height, whatever the video's proportions; the CLI's
   reset before a scene file forgets it, as it forgets every field.
+- Nothing reads the configuration when manimgx is imported: a scene's file sets the video's
+  size after its import, so a default read then would be a wide video's in a tall one.
 """
 
+import ast
 import dataclasses
+from pathlib import Path
 
 import pytest
 from hypothesis import given
@@ -52,3 +56,37 @@ def test_the_defaults_forget_a_height_set() -> None:
         setattr(m.config, field.name, getattr(Config(), field.name))
     m.config.pixel_width, m.config.pixel_height = 1080, 1920
     assert m.config.frame_width == pytest.approx(8)
+
+
+class _AtImport(ast.NodeVisitor):
+    """The lines of a module that read `config` when the module is imported."""
+
+    def __init__(self) -> None:
+        self.lines: list[int] = []
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id == "config" and isinstance(node.ctx, ast.Load):
+            self.lines.append(node.lineno)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        # its decorators and defaults run now; its body, when it is called
+        for expr in [*node.decorator_list, *node.args.defaults, *node.args.kw_defaults]:
+            if expr is not None:
+                self.visit(expr)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        for expr in [*node.args.defaults, *node.args.kw_defaults]:
+            if expr is not None:
+                self.visit(expr)
+
+
+def test_nothing_reads_the_configuration_when_manimgx_is_imported() -> None:
+    package = Path(m.__file__).parent
+    reads = []
+    for path in sorted(package.rglob("*.py")):
+        found = _AtImport()
+        found.visit(ast.parse(path.read_text(encoding="utf-8")))
+        reads += [f"{path.relative_to(package)}:{line}" for line in found.lines]
+    assert not reads, f"read before a scene's file can set the video: {reads}"
