@@ -120,30 +120,39 @@ fn clip_along(i: u32, d: vec3<f32>, d2: vec3<f32>) -> vec4<f32> {
     return c;
 }
 
-// A mesh face's depth over the screen at its edge from vertex `at` toward vertex `to`: the plane tangent to it there
-// (its normal at `at`: a flat face's own, a refined surface's), as (its depth gradient in pixels, its depth at `at`),
-// from `at`, `to` and the point across the edge in that plane; none (a zero gradient, `at`'s own depth) where the face
-// has no normal or is seen edge on. So the face's edge drawn by it lies on it, to the depth's digits.
+// A direction's projective differential at c, in pixel x, pixel y, depth. The common 1/c.w² cancels from a plane's
+// gradient. Scaling each direction before the cross product makes its magnitude irrelevant, including tiny normals.
+fn projected_direction(c: vec4<f32>, d: vec4<f32>) -> vec3<f32> {
+    let v = (c.w * d.xyz - d.w * c.xyz) * vec3<f32>(0.5 * view.pixels.xy, 1.0);
+    let scale = max(max(abs(v.x), abs(v.y)), abs(v.z));
+    if (scale == 0.0) {
+        return vec3<f32>(0.0);
+    }
+    return v / scale;
+}
+
+// A mesh face's tangent plane at its edge: (depth gradient in pixels, depth at `at`). Derivatives of the projective
+// map give the gradient directly: subtracting projected nearby points loses the small tangent in f32 rounding.
+// No gradient where the face has no normal or is seen edge on.
 fn face_plane(i: u32, at: u32, to: u32) -> vec3<f32> {
-    let sa = screen(clip(i, at));
+    let ca = clip(i, at);
+    let sa = screen(ca);
     let n = vertex_extra(at).xyz;
     let edge = vertex(to).xyz - vertex(at).xyz;
+    var edge2 = vec3<f32>(0.0);
     var across2 = vec3<f32>(0.0);
     if (ids_of(i).y != NONE) {
         let k = ids_of(i).y - ids_of(i).x;
-        across2 = cross(vertex_extra(at + k).xyz, vertex(to + k).xyz - vertex(at + k).xyz);
+        edge2 = vertex(to + k).xyz - vertex(at + k).xyz;
+        across2 = cross(vertex_extra(at + k).xyz, edge2);
     }
-    let sb = screen(clip(i, to));
-    let sc = screen(clip(i, at) + clip_along(i, cross(n, edge), across2));
-    let d1 = sb.xy - sa.xy;
-    let d2 = sc.xy - sa.xy;
+    let d1 = projected_direction(ca, clip_along(i, edge, edge2));
+    let d2 = projected_direction(ca, clip_along(i, cross(n, edge), across2));
     let det = d1.x * d2.y - d1.y * d2.x;
-    if (dot(n, n) < 1e-24 || abs(det) < 1e-6 * (dot(d1, d1) + dot(d2, d2)) || sb.z < 0.0 || sc.z < 0.0) {
+    if (det * det <= 1e-12 * dot(d1.xy, d1.xy) * dot(d2.xy, d2.xy) || sa.z < 0.0 || screen(clip(i, to)).z < 0.0) {
         return vec3<f32>(0.0, 0.0, sa.z);
     }
-    let dz1 = sb.z - sa.z;
-    let dz2 = sc.z - sa.z;
-    return vec3<f32>(dz1 * d2.y - dz2 * d1.y, dz2 * d1.x - dz1 * d2.x, 0.0) / det + vec3<f32>(0.0, 0.0, sa.z);
+    return vec3<f32>(d1.z * d2.y - d2.z * d1.y, d2.z * d1.x - d1.z * d2.x, 0.0) / det + vec3<f32>(0.0, 0.0, sa.z);
 }
 
 // How much nearer a face's edge is drawn than its face: a share of its depth (16 of its f32 steps) and its depth slope

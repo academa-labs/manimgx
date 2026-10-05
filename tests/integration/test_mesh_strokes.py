@@ -80,3 +80,36 @@ def test_mesh_strokes_keep_the_nearest_face_in_every_order(
     )
     for depths in itertools.permutations((0.0, 2.0, 10.0)):
         np.testing.assert_array_equal(picture(depths), expected)
+
+
+def test_a_normal_magnitude_cannot_change_an_outlined_planes_visibility() -> None:
+    """The same tilted plane, with equivalent normals across forty binary orders."""
+    view, _, _ = feed.view(m.Camera(three_d=True), *SIZE)
+    points = np.array(
+        [[-2, -2, -2], [2, -2, 2], [2, 2, 2], [-2, 2, -2], [-2, -2, -2]], "<f8"
+    )
+    records = np.zeros(1, feed.RECORD)
+    records["key1"] = 1
+    records["m1"][0, :, :3] = np.eye(3)
+    records["fill"] = [0.125, 0.25, 0.75, 1]
+    records["stroke"] = [0.875, 0.875, 0.875, 1]
+    records["params"] = [0, 1, 0.5, 0]
+
+    def picture(scale: float) -> np.ndarray:
+        player = _engine.Player(*SIZE, 4)
+        player.add_mesh(
+            1,
+            points.tobytes(),
+            np.zeros((len(points), 2), "<f8").tobytes(),
+            (np.tile([-1.0, 0.0, 1.0], (len(points), 1)) * scale)
+            .astype("<f8")
+            .tobytes(),
+            np.array([0, 1, 2, 0, 2, 3], "<u4").tobytes(),
+            5,
+            5,
+        )
+        return np.frombuffer(player.render(view, records.tobytes()), np.uint8)
+
+    expected = picture(1.0)
+    for exponent in [-20, -10, 10, 20]:
+        np.testing.assert_array_equal(picture(2.0**exponent), expected)
