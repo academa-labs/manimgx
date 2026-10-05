@@ -136,14 +136,28 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    `manimgx X.Y.Z` with the files (the complete source too, which PyPI doesn't get), its notes
    the changelog's section for the version (`just release-notes`), then where the complete
    source is, which x264's and FFmpeg's licenses ask for.
-5. **Publish to PyPI:** the wheels and the source distribution, with `uv publish`, each
-   with its [PEP 740](https://peps.python.org/pep-0740/) attestation, and the font packages'
-   files PyPI doesn't have yet (`--check-url` skips the others: the fonts are released when
-   they change). It authenticates by trusted publishing, with the workflow's OIDC token: no
-   PyPI token is stored.
+5. **Publish to PyPI:** the font packages first, then manimgx's wheels and source
+   distribution, with `uv publish`, each with its
+   [PEP 740](https://peps.python.org/pep-0740/) attestation. `--check-url` skips files PyPI
+   already has: the fonts are released when they change. Each package has its own GitHub
+   environment and trusted publisher: `pypi` for `manimgx`, `pypi-fonts` for
+   `manimgx-fonts`, and `pypi-fonts-cjk` for `manimgx-fonts-cjk`. The font jobs run as a
+   matrix, each downloading only its package's distributions. Before the first release,
+   register three pending publishers on PyPI with owner `academa-labs`, repository
+   `manimgx`, workflow `release.yaml`, and those environment names; create the matching
+   GitHub environments with release tags (`v*`) allowed. Pending publishers need distinct
+   workflow/environment combinations, even when their project names differ. Publishing
+   uses the workflow's OIDC token: no PyPI token is stored.
 6. **Publish to npm:** the package for the browser (`just build-npm`), which installs this
    release of manimgx from PyPI, so it comes after PyPI; by trusted publishing too, with
-   provenance.
+   provenance. For the first release, before the package exists on npm, create a
+   short-lived granular token with read/write access to all packages and bypass 2FA,
+   and store it as `NPM_TOKEN` in the GitHub `npm` environment (allow only `v*` tags).
+   The token is passed only to the publishing step. Once the package exists, configure
+   its npm trusted publisher with owner `academa-labs`, repository `manimgx`, workflow
+   `release.yaml`, and environment `npm`; enable direct publishing (`npm publish`),
+   since the workflow does not stage releases. Then revoke the token and delete the
+   GitHub secret: subsequent releases use OIDC.
 7. **Publish the Docker image:** [docker/github-builder](https://github.com/docker/github-builder)
    builds `docker/Dockerfile` for the version, for `linux/amd64` and `linux/arm64`,
    with a signed provenance and SBOM (each package the image holds, with its license), and
