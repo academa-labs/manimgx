@@ -16,8 +16,8 @@ permissions: {}
 
 concurrency:
   group: test-${{ github.event.pull_request.number || github.ref }}
-  # a newer commit supersedes a pull request's run; main's runs all finish
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # a newer branch experiment supersedes its predecessor; main's runs all finish
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   WRANGLER_VERSION: "4.141.0"
@@ -92,10 +92,10 @@ jobs:
         with:
           workspaces: rust
           shared-key: engine
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Test source acquisition and linked codecs
-        run: cargo test --locked --manifest-path rust/Cargo.toml -p fetch -p ffmpeg
+        run: cargo test --locked --release --manifest-path rust/Cargo.toml -p fetch -p ffmpeg
 
       # The abi3 wheel is the same artifact on both supported Python versions.
       - name: Build the wheel
@@ -160,6 +160,7 @@ jobs:
           uv pip install --no-deps dist/*.whl
 
       - name: Check the installed product
+        id: runtime
         run: uv run --frozen --no-sync python -m scripts.release.smoke_test
 
       - name: Capture cross-platform rendering evidence
@@ -171,7 +172,16 @@ jobs:
           sphere_stereographic_3d_rotation cube_rotations_via_permutations
           pile_of_see_through_points_on_a_line spectral_layout lorenz_attractor_dual_trajectory
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
+        with:
+          name: probe-${{ matrix.os }}
+          path: render-probe/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Test
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         run: just test-coverage
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -187,9 +197,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: rendering-${{ matrix.os }}-python${{ matrix.python-version }}
-          path: |
-            tests/integration/_diffs/
-            render-probe/
+          path: tests/integration/_diffs/
           if-no-files-found: ignore
           retention-days: 7
 

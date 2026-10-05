@@ -93,8 +93,6 @@ fn main() {
     let mut on: BTreeSet<String> = ON.split_whitespace().map(|name| format!("CONFIG_{}", name.to_uppercase())).collect();
     on.extend(C99.split_whitespace().map(|name| format!("HAVE_{}", name.to_uppercase())));
     on.insert("HAVE_AV_CONFIG_H".into()); // also passed to the compiler, before config.h is read
-    // read() and close(), for av_file_map, from the header each system has them in
-    on.insert(if target("OS") == "windows" { "HAVE_IO_H" } else { "HAVE_UNISTD_H" }.into());
     if target("POINTER_WIDTH") == "64" {
         on.insert("HAVE_FAST_64BIT".into());
     }
@@ -106,6 +104,13 @@ fn main() {
     }
     let mut config = String::from("#ifndef FFMPEG_CONFIG_H\n#define FFMPEG_CONFIG_H\n#define FFMPEG_CONFIGURATION \"manimgx\"\n");
     config += "#define FFMPEG_LICENSE \"LGPL version 2.1 or later\"\n";
+    // The file-system wrappers use these even without file protocols. Ask the compiler, as
+    // configure does, rather than assuming a target's available C library headers.
+    for header in ["direct.h", "io.h", "unistd.h"] {
+        let name = format!("HAVE_{}", header.replace('.', "_").to_uppercase());
+        config += &format!("#define {name} __has_include(<{header}>)\n");
+        defined.insert(name);
+    }
     for name in tested.difference(&defined).chain(&on).collect::<BTreeSet<_>>() {
         config += &format!("#define {name} {}\n", on.contains(name) as u8);
     }
@@ -161,6 +166,8 @@ fn main() {
     let mut libav = build();
     libav.include(out).include(ffmpeg).include(ffmpeg.join("compat/stdbit")).include(opus.join("include"));
     libav.define("HAVE_AV_CONFIG_H", None).define("_ISOC11_SOURCE", None).define("_FILE_OFFSET_BITS", "64").define("_LARGEFILE_SOURCE", None);
+    // configure exposes POSIX.1-2001 / XSI alongside ISO C, including fdopen in strict C17.
+    libav.define("_POSIX_C_SOURCE", "200112").define("_XOPEN_SOURCE", "600");
     if msvc {
         libav.include(ffmpeg.join("compat/atomics/win32")); // FFmpeg's <stdatomic.h> for MSVC
     }
