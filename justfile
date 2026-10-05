@@ -112,9 +112,17 @@ review:
 
 # Build the docs site into docs/site/: render its examples, write its reference, build its pages
 [group('docs')]
-build-docs:
+build-docs: render-docs build-docs-pages
+
+# Render missing or changed examples; optional source paths or --jobs limit the work
+[group('docs')]
+render-docs *args:
+    uv run --frozen --no-default-groups --group docs python -m docs.examples {{ args }}
+
+# Build the pages from completed films (CI saves the films before this stage)
+[group('docs')]
+build-docs-pages:
     uv run --frozen --no-default-groups --group docs python -m scripts.docs.gallery
-    uv run --frozen --no-default-groups --group docs python -m docs.examples
     uv run --frozen --no-default-groups --group docs python -m scripts.docs.reference
     uv run --frozen --no-default-groups --group docs python -m zensical build --strict \
         --config-file docs/zensical.toml
@@ -123,8 +131,8 @@ build-docs:
 # Serve the docs site at http://localhost:8000, rebuilt as its pages change
 [group('docs')]
 serve-docs:
-    uv run --frozen --no-default-groups --group docs python -m scripts.docs.gallery
     -uv run --frozen --no-default-groups --group docs python -m docs.examples
+    uv run --frozen --no-default-groups --group docs python -m scripts.docs.gallery
     uv run --frozen --no-default-groups --group docs python -m scripts.docs.reference
     uv run --frozen --no-default-groups --group docs python -m zensical serve \
         --config-file docs/zensical.toml

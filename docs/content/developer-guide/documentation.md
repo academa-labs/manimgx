@@ -162,16 +162,43 @@ the README.
 renders the examples before the site is built:
 
 1. It gathers the Python blocks (fenced as `python` or `py`) of the pages, of the README
-   and of the docstrings in `src/manimgx/`, and keeps those that define a
+   and of the docstrings in `src/manimgx/`, together with the source films in `examples/`,
+   and keeps those that define a
    scene: a class whose base's name ends in `Scene` (the block's last, if it defines several).
 2. It renders each scene at 1280 × 720 and 60 frames per second, the films' own rate, in a
    process of its own (an example may change the configuration: a 9:16 one renders tall),
    into `docs/content/films/`: a still of its last frame with anything on it, and a video
    too if anything moves.
-3. A film is named after its scene and a digest of its code and of how films are made
-   (`FORMAT`), so an example renders once per version of its code, and all of them again
-   when the format changes. Only missing films are rendered, and films no example makes
-   any more are deleted.
+3. A film is named after its scene and a digest of its code, render settings and shared
+   inputs: Python and Rust sources, shaders, locked dependencies, fonts, voice recordings,
+   rendering helpers and the rendering environment. A prose or stylesheet edit reuses
+   every film; editing a standalone example renders that example again. Shared inputs are
+   hashed conservatively, including Python docstrings, so changing one invalidates all
+   films. The keys depend on file contents, not Git history or modification times.
+4. Each render finishes in a temporary directory. Its output files are published with a
+   completion record in `docs/.cache/films/`, written last, that names the files and their
+   checksums. A missing or damaged file is rendered again. Static scenes deliberately
+   produce only a poster; animations also produce a video. Outputs of removed examples
+   are deleted.
+
+`just render-docs` renders the examples, and `just build-docs-pages` generates the Gallery
+and command-line reference and builds the HTML from those films. `just build-docs` does
+both. Rendering reads `examples/` directly, so it does not need generated Gallery pages.
+`just render-docs --jobs 2` limits concurrent render processes; source paths may follow it.
+
+CI restores the films and completion records with GitHub Actions cache, validates them,
+renders what is missing, and saves the completed set before building the pages. Main
+writes the shared cache; pull requests can read it without deployment credentials. The
+cache key includes the shared renderer fingerprint and the inventory of requested scenes;
+a compatible older snapshot supplies unchanged films when one example changes. A cache
+miss rebuilds normally: caches are an optimization and may be evicted.
+
+CI records its Rust compiler and installed Vulkan driver versions in
+`MANIMGX_DOCS_RENDER_PROFILE`; Python version, OS and architecture are always part of the
+fingerprint. Local builds also include their machine and OS version, keeping their GPU
+output separate. Examples must be self-contained and deterministic (seed random
+generators); shared files they read belong in `docs/assets/` or `docs/voice/`, which are
+fingerprinted. Add any new shared rendering input to `INPUTS` in `docs/examples.py`.
 
 While the site builds, `fence`, the formatter that `zensical.toml` gives Python blocks,
 puts each block's film above its code. `show="code"` shows the code alone, and

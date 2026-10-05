@@ -59,8 +59,42 @@ jobs:
           shared-key: engine
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build the site
-        run: just build-docs
+      - name: Identify the rendered examples
+        id: films
+        run: |
+          export MANIMGX_DOCS_RENDER_PROFILE="$(rustc --version);$(dpkg-query --show --showformat='${Package}=${Version};' libvulkan1 mesa-vulkan-drivers)"
+          printf 'MANIMGX_DOCS_RENDER_PROFILE=%s\n' "$MANIMGX_DOCS_RENDER_PROFILE" >> "$GITHUB_ENV"
+          uv run --frozen --no-default-groups --group docs python -m docs.examples --cache-key \
+            | jq -r '"key=\(.key)\nprefix=\(.prefix)"' >> "$GITHUB_OUTPUT"
+
+      - name: Restore rendered examples
+        id: restore-films
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            docs/content/films/
+            docs/.cache/films/
+          key: ${{ steps.films.outputs.key }}
+          restore-keys: ${{ steps.films.outputs.prefix }}
+
+      # Always check each film, even after an exact archive match. The renderer verifies
+      # its inputs and all completed outputs, and repairs missing or damaged files.
+      - name: Render the examples
+        run: just render-docs
+
+      # Cache only complete renders, before a later page-building error can lose the work.
+      # Main supplies the shared cache; pull requests only read it.
+      - name: Save rendered examples
+        if: github.ref == 'refs/heads/main' && steps.restore-films.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            docs/content/films/
+            docs/.cache/films/
+          key: ${{ steps.films.outputs.key }}
+
+      - name: Build the pages
+        run: just build-docs-pages
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
