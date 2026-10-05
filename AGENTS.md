@@ -17,6 +17,7 @@ this is the short version.
   hygiene). It must pass.
 - `just test [PYTEST ARGS]`: the suite, in parallel; `just test-thorough`: the unit tests'
   properties on 2,000 examples each; `just mutate`: mutation testing (`[tool.mutmut]`).
+- `just test-rust`: the Rust core and native libraries; the Python suite tests the bindings.
 - `just test-typescript`: the browser package's tests, including its compiled worker and
   public declarations.
 - `just corpus …`: render, compare and review the integration corpus (`just corpus --help`).

@@ -61,6 +61,13 @@ check-typescript:
 test *args:
     uv run --frozen pytest -n auto {{ args }}
 
+# Test the Rust core and native libraries; the installed-wheel suite tests Python's bindings
+[group('testing')]
+test-rust:
+    cargo test --locked --release --manifest-path rust/Cargo.toml --workspace \
+        --no-default-features \
+        --features manimgx-engine/render,manimgx-engine/export,manimgx-engine/typeset,manimgx-engine/player
+
 # Test the browser package, its compiled worker, and its public declarations
 [group('testing')]
 test-typescript:
