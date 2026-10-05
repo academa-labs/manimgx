@@ -52,8 +52,8 @@ manimgx has seven workflows, in
 2. **Test the browser package**, on Ubuntu: runs `just test-typescript`, building the
    TypeScript package and checking its player, compiled worker, and public declarations.
 3. **Test**, six times: on Linux, macOS and Windows, with Python 3.13 and with 3.14. Each
-   runs `just test-coverage` (on Linux, with Mesa's lavapipe installed to draw with), and
-   keeps its coverage data.
+   tests the native source fetcher and decoder's link first, then runs `just test-coverage`
+   (on Linux, with Mesa's lavapipe installed to draw with), and keeps its coverage data.
 4. **Combine the coverage**, even when a test job failed: `just combine-coverage` makes one
    report of the jobs' data, and its table goes in the run's summary. The report is kept,
    with the data of a coverage badge (`badge.json`).
@@ -92,8 +92,9 @@ comparable on one machine at one time.
 
 1. **Build**, on every run except a pull request's closing: installs Mesa's lavapipe (the
    examples' videos are drawn with it), runs `just build-docs` (the narrated examples speak
-   from `docs/voice/`, so the build needs no voice's key), and keeps `site/` and
-   `.github/deploy/docs.jsonc` for seven days.
+   from `docs/voice/`, so the build needs no voice's key), and keeps the built `site/`
+   for seven days. Deployment configuration is checked out separately from the trusted
+   base commit, so the build cannot supply commands for a job with credentials to execute.
 2. **Deploy**, from `main` (a push, or a run by hand): deploys what the build made to
    Cloudflare Workers with `wrangler deploy --config .github/deploy/docs.jsonc`, the
    commit's hash as its message. The `docs` environment shows the site's address,
@@ -101,8 +102,9 @@ comparable on one machine at one time.
 3. **Preview**, for a pull request from a branch of the repository: uploads the build as a
    preview named `pr-<number>`, at its own address, shown on the `docs-preview`
    environment.
-4. **Delete the preview**, when a pull request closes. A pull request that was never
-   previewed has no preview to delete, and that failure is ignored.
+4. **Delete the previews**, when a pull request closes, for both docs and coverage. An
+   absent preview is already clean; authentication failures and other API errors fail
+   the job.
 
 See [Documentation](documentation.md#deployment) for how the site is served.
 
@@ -227,16 +229,21 @@ pull request is opened or marked ready for review.
   to run `just check` and the tests its change touches before it pushes, and to open a
   change as a draft pull request. On a pull request from a fork, it only reads.
 
-## Secrets never meet the code
+## Deployment credentials
 
-The jobs that run the repository's code get no secrets, and the jobs that get secrets do
-not run it:
+Builds and tests receive no deployment credentials. Publishing jobs use only the trusted
+base commit's deployment files and the static artifacts:
 
 - The checks, the tests and the docs' build run the repository's code (they build the
   engine and render scenes), with a token that can only read the repository. The jobs that
-  get Cloudflare's API token and account ID (the docs' deploy, preview and deletion, and
-  the coverage's publishing) never run the repository's code: they only run a pinned
-  version of wrangler, on what a build made (and `gh`, to set the coverage status).
+  get Cloudflare's API token run a pinned Wrangler on the built files (and `gh`, to set
+  the coverage status). Cleanup uses the trusted base commit's `cleanup.py`. Neither
+  deployment configuration nor executable code is taken from a build artifact.
+- Academa's `internal/manimgx-hosting` Terraform unit owns the Worker identities,
+  custom domains, GitHub environments and credentials. Each site's
+  `CLOUDFLARE_API_TOKEN` can edit only that Worker; the account ID is the repository
+  variable `CLOUDFLARE_ACCOUNT_ID`. Production environments allow `main`; preview
+  environments also allow pull request merge refs.
 - Pull requests from forks and from Dependabot get no secrets: they are built and tested,
   not previewed, and their coverage is not published.
 - The first reply's model can only read, and the job that posts its reply runs no model.

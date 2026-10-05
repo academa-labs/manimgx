@@ -5,9 +5,8 @@
   "name": "manimgx-coverage",
   "compatibility_date": "2026-09-25",
   "assets": { "directory": "../../htmlcov" },
-  // main's report
+  // Academa's internal/manimgx-hosting Terraform unit owns the domain and Worker identity.
   "workers_dev": false,
-  "routes": [{ "pattern": "coverage.manimgx.academa.ai", "custom_domain": true }],
   // each commit's report is a deployment in the preview "main" or "pr-<number>", at
   // <preview>-manimgx-coverage.<account subdomain>.workers.dev; a Worker keeps its 100 most
   // recently used previews, and each preview its last 100 deployments

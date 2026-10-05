@@ -152,6 +152,11 @@ fn main() {
     for define in ["OPUS_BUILD", "USE_ALLOCA", "HAVE_LRINT", "HAVE_LRINTF", "ENABLE_HARDENING"] {
         libopus.define(define, None);
     }
+    // In strict C17 glibc's stdlib.h does not declare alloca. Opus must include
+    // alloca.h on Unix; Windows uses malloc.h through its own _WIN32 branch.
+    if target("OS") != "windows" {
+        libopus.define("HAVE_ALLOCA_H", None);
+    }
     for (list, names) in [("celt_sources.mk", "CELT_SOURCES"), ("silk_sources.mk", "SILK_SOURCES SILK_SOURCES_FLOAT"), ("opus_sources.mk", "OPUS_SOURCES OPUS_SOURCES_FLOAT")] {
         // but silk/debug.c, empty without SILK_DEBUG (an object with no symbols, which ranlib warns of)
         libopus.files(make_list(&opus.join(list), names).iter().filter(|file| *file != "silk/debug.c").map(|file| opus.join(file)));
