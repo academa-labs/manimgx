@@ -179,9 +179,9 @@
   }
 
   // The footer's newsletter field (overrides/partials/academa.html). Its address goes to
-  // academa.ai's door as JSON, the one way that door takes an address from another site; then
-  // the field says what the door answered: the signup, or why not. Every page has a footer of
-  // its own, so the field's form is found when it is submitted
+  // academa.ai's door as JSON. A signup is shown immediately; a refusal or network failure
+  // restores the same field, with its address intact. Every page has a footer of its own,
+  // so the field's form is found when it is submitted
   document.addEventListener("submit", async event => {
     const form = event.target
     if (!(form instanceof HTMLFormElement) || !form.matches(".mx-footer__subscribe")) return
@@ -189,7 +189,11 @@
     const answer = form.parentElement.querySelector(".mx-footer__answer")
     const button = form.querySelector("button")
     button.disabled = true
+    form.remove()
+    answer.classList.add("mx-footer__answer--joined")
+    answer.textContent = "You are on the list."
     let reply = null
+    let accepted = false
     try {
       const response = await fetch(form.action, {
         method: "POST",
@@ -198,18 +202,16 @@
         body: JSON.stringify({ email: form.elements.email.value }),
       })
       reply = await response.json()
+      accepted = response.ok && reply?.success === true
     } catch {
       // the door unreachable, or an answer this page may not read
-    } finally {
-      button.disabled = false
     }
-    if (reply?.success === true) {
-      form.remove()
-      answer.classList.add("mx-footer__answer--joined")
-      answer.textContent = "You are on the list."
-    } else {
+    if (!accepted) {
+      answer.classList.remove("mx-footer__answer--joined")
       answer.textContent =
         typeof reply?.error === "string" ? reply.error : "Something went wrong. Please try again."
+      button.disabled = false
+      answer.before(form)
     }
   })
   // a refusal is about what was typed: typing again clears it
