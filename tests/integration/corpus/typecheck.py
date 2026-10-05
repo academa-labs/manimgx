@@ -7,7 +7,10 @@ Three findings, all shown in full:
   never writes `@override`) and `deprecated` (CE code uses CE's names, some of which
   manimgx deprecates in favor of one of its own).
 - `escapes`: ways a scene could quiet the checker — suppression comments, `Any`, `cast`,
-  `TYPE_CHECKING`, and dynamic access (`vars`, `getattr` with a literal name, …).
+  `TYPE_CHECKING`, and dynamic access (`vars`, `getattr` with a literal name, …). One is
+  manimgx's limit, not the scene's: a method of the scene's own class, called through
+  `.animate` or `.always`, which manimgx's types can't name (they list the library's
+  methods), so its `# ty: ignore[unresolved-attribute]` is not an escape.
 - `imprecise`: expressions whose type manimgx leaves `Any` or `Unknown`. Every call and
   attribute in every scene is wrapped in `reveal_type` and checked in one run; a value counts
   when manimgx produced it — a manimgx function, or a method or attribute of a manimgx class.
@@ -118,11 +121,15 @@ def _ty(files: list[Path], flags: tuple[str, ...]) -> list[tuple[Path, int, str]
 
 
 def escapes(source: bytes) -> list[str]:
+    tree = ast.parse(source)
+    own = _own_methods_animated(tree)
     found: list[str] = []
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT and _SUPPRESSION.search(token.string):
+            if token.string == _OWN_METHOD and token.start[0] in own:
+                continue
             found.append(f"line {token.start[0]}: {token.string}")
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module in {
             "typing",
             "typing_extensions",
@@ -143,6 +150,50 @@ def escapes(source: bytes) -> list[str]:
             if name in _DYNAMIC_CALLS or (name in _NAMED_ACCESS and literal):
                 found.append(f"line {node.lineno}: {ast.unparse(node)[:80]}")
     return sorted(found, key=lambda s: int(s.split()[1].rstrip(":")))
+
+
+_OWN_METHOD = "# ty: ignore[unresolved-attribute]"
+
+
+def _own_methods(tree: ast.Module) -> frozenset[str]:
+    """The names of the methods the scene's own classes define."""
+    return frozenset(
+        item.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        for item in node.body
+        if isinstance(item, ast.FunctionDef)
+    )
+
+
+def _own_method_animated(node: ast.AST, own: frozenset[str]) -> bool:
+    """Whether an expression is a method of the scene's own class, through `.animate` or
+    `.always`: one that manimgx's types can't name."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in own
+        and _through_proxy(node.value)
+    )
+
+
+def _own_methods_animated(tree: ast.Module) -> set[int]:
+    """The lines that call a method of the scene's own classes through `.animate` or
+    `.always` (where a type checker reports it)."""
+    own = _own_methods(tree)
+    return {
+        node.end_lineno or node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and _own_method_animated(node, own)
+    }
+
+
+def _through_proxy(node: ast.expr) -> bool:
+    """Whether an expression is a mobject's `.animate` or `.always`, or calls on one."""
+    while isinstance(node, ast.Attribute | ast.Call):
+        if isinstance(node, ast.Attribute) and node.attr in {"animate", "always"}:
+            return True
+        node = node.value if isinstance(node, ast.Attribute) else node.func
+    return False
 
 
 # ── precision ─────────────────────────────────────────────────────────────────
@@ -255,10 +306,15 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
     classes = _manimgx_methods()
     found: dict[str, list[str]] = defaultdict(list)
     with tempfile.TemporaryDirectory() as tmp:
-        plans: list[tuple[Case, Path, str, list[tuple[str, int]], frozenset[str]]] = []
+        plans: list[
+            tuple[
+                Case, Path, str, list[tuple[str, int]], frozenset[str], frozenset[str]
+            ]
+        ] = []
         for case in cases:
             tree = ast.parse(case.scene.read_bytes())
             bound = _manimgx_names(tree)
+            own = _own_methods(tree)
             reveal = _Reveal()
             instrumented = reveal.visit(tree)
             sites = [reveal.site[id(w)] for w in _reveal_calls(instrumented)]
@@ -269,11 +325,11 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
             path = Path(tmp) / case.name / "scene.py"
             path.parent.mkdir()
             path.write_text(text, encoding="utf-8")
-            plans.append((case, path.resolve(), text, sites, bound))
+            plans.append((case, path.resolve(), text, sites, bound, own))
 
-        revealed = _reveal_positions([path for _, path, _, _, _ in plans])
+        revealed = _reveal_positions([plan[1] for plan in plans])
 
-        for case, path, text, sites, bound in plans:
+        for case, path, text, sites, bound, own in plans:
             lines = text.splitlines()
             wrappers = _reveal_calls(ast.parse(text))
             if len(wrappers) != len(sites):
@@ -297,6 +353,7 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
                     type_ is None
                     or _CALLABLE.match(type_)
                     or not _IMPRECISE.search(type_)
+                    or _own_method_animated(_strip(wrapper.args[0]), own)
                 ):
                     continue
                 producer = _producer(wrapper.args[0], types, classes, bound)

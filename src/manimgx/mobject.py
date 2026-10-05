@@ -4263,7 +4263,9 @@ class Mobject:
         animation's [Transform options][manimgx.animation.transform.TransformOptions]; a
         `path_arc` or a `path_func` among them replaces the motion. Call it with a
         function — `square.animate(lambda s: s.shift(UP))` — to record that function as
-        a call.
+        a call. Call a method of your own class so: through `animate`, a type checker
+        knows only manimgx's methods, but it checks a function against the mobject's
+        class.
 
         Examples:
             ```python
