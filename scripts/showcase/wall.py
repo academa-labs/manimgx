@@ -1,29 +1,31 @@
-"""The README's wall: a moment of six example films, three a row, each its own animated image.
+"""The README and docs share six GIF previews, three a row, each linked to its film.
 
-`python -m scripts.showcase.wall` runs each film in `CLIPS` (`examples/<name>.py`) and keeps
-its moment, 25 frames a second: drawn on no background and without what the film fixes in the
-frame (its titles and readouts), framed on what moves. It writes each as an animated AVIF with
-alpha that loops, at a tile's size and twice it (`docs/content/showcase/<name>.avif` and
-`<name>@2x.avif`, for high-density screens): GitHub and PyPI play no video but show AVIF, and
-the page's own background, light or dark, shows through. The README lays them out three a row,
-each linked to its film.
+`uv run --frozen python -m scripts.showcase.wall` runs each film in `CLIPS` and keeps
+five seconds at 50 fps, cropped around what moves and without fixed titles or readouts.
+It writes `docs/content/showcase/<name>.gif`, each at 480 × 270 pixels and strictly below
+12 MB. GIF delays are whole centiseconds: 20 ms gives evenly timed frames in browsers,
+where a 60 fps GIF's 10 ms frames can instead be clamped to 100 ms.
 
-A browser decodes an animated image's frames on the CPU, one after another (a video's are the
-GPU's), so the wall is what it can decode in time. At 60 frames a second, one image of the whole
-wall showed 40 of them in Chromium, and six tiles showed some 50 on the docs site, for a core's
-work; at 25 every tile shows every frame, for 0.3 to 0.4 of a core (Firefox: 0.6). A frame drawn
-at half its size or less is scaled on the CPU too, hence a tile at each scale. Running the films
-takes a minute, so what this writes is committed. The README's banner is the logo, which
-`scripts/showcase/logo.py` draws.
+The renderer's premultiplied pixels are resized before compositing onto #0d1117. GIF
+cannot preserve partial transparency, so this dark background belongs to the image on
+both light and dark pages. FFmpeg's global palette and Sierra dithering keep gradients
+and translucent surfaces readable. Install FFmpeg and put `ffmpeg` on PATH before
+regenerating. Each file replaces its predecessor only after its size, dimensions, frame
+count, timing and loop setting pass validation. The rendered GIFs are committed; both
+pages use those same files. `scripts/showcase/logo.py` draws their SVG logo.
 """
 
 import importlib.util
 import math
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 from PIL import Image
+from PIL.GifImagePlugin import GifImageFile
 
 import manimgx as m
 from manimgx.rendering.film import Cut, Frame
@@ -32,10 +34,10 @@ ROOT = Path(__file__).parents[2]
 EXAMPLES = ROOT / "examples"
 SHOWCASE = ROOT / "docs" / "content" / "showcase"
 FILM = 1920, 1080  # the films' size, in which the clips' boxes are
-TILE = 320, 180  # a tile's size in the wall, in CSS pixels
-SCALES = 1, 2  # image pixels a CSS pixel: a tile for each (see the docstring)
-FPS, SECONDS = 25, 5
-QUALITY = 40  # AVIF's, 0 to 100: looks as 50 does, at two thirds of its bytes
+TILE = 480, 270  # one image size, shared by the README and the docs
+FPS, SECONDS = 50, 5
+BACKGROUND = 13, 17, 23  # #0d1117
+MAX_BYTES = 12_000_000  # strictly less, in decimal MB
 
 
 @dataclass(frozen=True)
@@ -59,12 +61,12 @@ class Clip:
 
 
 CLIPS = [  # the wall's, three a row
-    Clip("hopf_fibration", 17, 450, 242, 1040),
-    Clip("clifford_torus", 17, 460, 306, 990),
-    Clip("kaleidoscope_sphere", 5, 420, 180, 1244),
-    Clip("riemann_surfaces", 17.5, 310, 234, 1300),
-    Clip("turing_torus", 14, 410, 185, 1236),
-    Clip("lozenge_cubes", 3.5, 249, 180, 1422),
+    Clip("quadratic_formula", 9.6, 240, 60, 1440),
+    Clip("fourier_pi", 5, 310, 90, 1300),
+    Clip("linear_maps", 5, 0, 0, 1920),
+    Clip("derivative", 17.6, 0, 0, 1920),
+    Clip("complex_maps", 2.4, 0, 0, 1920),
+    Clip("lorenz_attractor", 7.5, 320, 150, 1280),
 ]
 
 
@@ -83,19 +85,25 @@ def scene(name: str) -> type[m.Scene]:
     return found[0]
 
 
-def frames(clip: Clip) -> dict[int, list[Image.Image]]:
-    """A clip's frames at each scale, a tile each: its film run from the beginning (only the
-    clip's frames are drawn), on no background and without what it fixes in the frame,
-    cropped to the clip's box and scaled to a tile. Their pixels are premultiplied, as the
-    engine draws them and as the AVIF keeps them, though the images say "RGBA" (Pillow would
-    otherwise unpremultiply them on the way to the encoder)."""
+def composite(crop: Image.Image) -> Image.Image:
+    """Resize premultiplied pixels, then put them on the GIF's opaque background."""
+    if crop.mode != "RGBa":
+        raise ValueError("the renderer's pixels must be premultiplied RGBa")
+    small = np.asarray(crop.resize(TILE, Image.Resampling.LANCZOS), dtype=np.float32)
+    alpha = small[..., 3:4] / 255
+    rgb = small[..., :3] + np.asarray(BACKGROUND) * (1 - alpha)
+    return Image.fromarray(np.clip(np.rint(rgb), 0, 255).astype(np.uint8))
+
+
+def frames(clip: Clip) -> list[Image.Image]:
+    """Render directly at the GIF's frame rate, crop, resize and composite each frame."""
     first = math.ceil(clip.start * FPS - 1e-9)
     last = first + SECONDS * FPS
     m.config.frame_rate = FPS
     m.config.pixel_width, m.config.pixel_height = FILM
     m.config.background_opacity = 0.0
     film = scene(clip.name)
-    kept: dict[int, list[Image.Image]] = {scale: [] for scale in SCALES}
+    kept: list[Image.Image] = []
 
     def display_list(self: m.Scene) -> list[m.Mobject]:
         fixed = {id(mob) for mob in self.camera.fixed_in_frame_mobjects}
@@ -110,55 +118,97 @@ def frames(clip: Clip) -> dict[int, list[Image.Image]]:
         pixels = np.frombuffer(frame.pixels(), np.uint8).reshape(FILM[1], FILM[0], 4)
         left, top, right, bottom = clip.box
         crop = Image.fromarray(pixels[top:bottom, left:right].copy(), "RGBa")
-        for scale, tiles in kept.items():
-            size = TILE[0] * scale, TILE[1] * scale
-            small = crop.resize(
-                size, Image.Resampling.LANCZOS
-            )  # premultiplied, filtered
-            tiles.extend([Image.frombytes("RGBA", size, small.tobytes())] * shown)
+        kept.extend([composite(crop)] * shown)
 
     bare = type(film.__name__, (film,), {"display_list": display_list})
     bare().render(frames=keep)
-    if len(kept[1]) != last - first:
+    if len(kept) != last - first:
         raise RuntimeError(f"{clip.name}: the film ends before its clip does")
     return kept
 
 
-def durations() -> list[int]:
-    """Each frame's duration in whole milliseconds, adding up to the loop's exactly (a
-    60 fps frame is 16⅔ ms: 17, 16, 17, …)."""
-    ends = [round(1000 * (k + 1) / FPS) for k in range(SECONDS * FPS)]
-    return [b - a for a, b in zip([0, *ends], ends, strict=False)]
+def name(clip: Clip) -> str:
+    """The single GIF used by both pages for a film."""
+    return f"{clip.name}.gif"
 
 
-def name(clip: Clip, scale: int) -> str:
-    """A tile's file: the film's name, `@2x` for twice the size."""
-    return f"{clip.name}.avif" if scale == 1 else f"{clip.name}@{scale}x.avif"
+def validate(path: Path) -> None:
+    """Reject a GIF that exceeds the budget or changes the preview's playback."""
+    if path.stat().st_size >= MAX_BYTES:
+        raise ValueError(f"{path.name}: must be below {MAX_BYTES:,} bytes")
+    with Image.open(path) as image:
+        if not isinstance(image, GifImageFile) or image.size != TILE:
+            raise ValueError(f"{path.name}: must be a {TILE[0]} × {TILE[1]} GIF")
+        if image.n_frames != FPS * SECONDS or image.info.get("loop") != 0:
+            raise ValueError(f"{path.name}: must loop {FPS * SECONDS} frames forever")
+        for index in range(image.n_frames):
+            image.seek(index)
+            if image.info.get("duration") != 1000 // FPS:
+                raise ValueError(
+                    f"{path.name}: frame {index} must last {1000 // FPS} ms"
+                )
 
 
-def tile(clip: Clip) -> None:
-    """A clip as animated AVIFs with alpha, one a scale."""
-    for scale, (first, *rest) in frames(clip).items():
-        path = SHOWCASE / name(clip, scale)
-        first.save(
-            path,
-            save_all=True,
-            append_images=rest,
-            duration=durations(),
-            quality=QUALITY,
-            speed=4,
-            subsampling="4:2:0",
-            alpha_premultiplied=True,
-        )
-        print(
-            f"{path.name}: {1 + len(rest)} frames, {path.stat().st_size / 1e6:.2f} MB"
-        )
+def encode(tiles: list[Image.Image], path: Path, ffmpeg: str) -> None:
+    """Encode a global palette with Sierra dithering and unchanged-pixel compression."""
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgb24",
+            "-video_size",
+            f"{TILE[0]}x{TILE[1]}",
+            "-framerate",
+            str(FPS),
+            "-i",
+            "pipe:0",
+            "-filter_complex_threads",
+            "1",
+            "-filter_complex",
+            "split[a][b];[a]palettegen=max_colors=256:reserve_transparent=1[p];"
+            "[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
+            "-loop",
+            "0",
+            str(path),
+        ],
+        input=b"".join(image.tobytes() for image in tiles),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(f"FFmpeg failed: {result.stderr.decode(errors='replace')}")
+
+
+def tile(clip: Clip, ffmpeg: str) -> None:
+    """Render and validate a GIF before replacing its committed predecessor."""
+    path = SHOWCASE / name(clip)
+    tiles = frames(clip)
+    with TemporaryDirectory(prefix=".wall-", dir=SHOWCASE) as directory:
+        temporary = Path(directory) / path.name
+        encode(tiles, temporary, ffmpeg)
+        validate(temporary)
+        temporary.replace(path)
+    print(
+        f"{path.name}: {len(tiles)} frames, {path.stat().st_size / 1e6:.2f} MB",
+        flush=True,
+    )
 
 
 def main() -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError(
+            "Install FFmpeg and put ffmpeg on PATH to regenerate the GIFs"
+        )
     SHOWCASE.mkdir(parents=True, exist_ok=True)
     for clip in CLIPS:
-        tile(clip)
+        tile(clip, ffmpeg)
 
 
 if __name__ == "__main__":

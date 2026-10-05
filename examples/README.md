@@ -1,13 +1,74 @@
 # Examples
 
-Thirty short films made with manimgx, each one Python file that needs only numpy. Every
+Forty-eight short films made with manimgx, each one Python file that needs only numpy. Every
 number on screen is computed as the film plays.
 
 Render one at 1920×1080, 60 fps:
 
 ```sh
-uv run python examples/hopf_fibration.py   # writes hopf_fibration.mp4 to the current directory
+uv run --frozen python examples/quadratic_formula.py   # writes quadratic_formula.mp4 to the current directory
 ```
+
+## Equations and proofs
+
+- [The quadratic formula](quadratic_formula.py): Completing the square turns an equation
+  into a picture. Each term keeps its color as rectangles move and the quadratic formula
+  emerges.
+- [Pythagoras by rearrangement](pythagoras.py): Moving four right triangles reveals why
+  a² + b² = c². The triangles and their enclosing square keep the same area throughout.
+- [Unrolling a circle](circle_area.py): Thin rings unroll into strips that stack into a
+  triangle. Its base is 2πr and its height is r, so its area is πr².
+- [Euler's identity as a walk](euler_identity.py): The terms of the exponential series
+  spiral toward −1 in the complex plane. Letting the angle vary carries their sum around
+  the unit circle.
+
+## Calculus
+
+- [What a derivative measures](derivative.py): A secant becomes a tangent as two points on
+  a curve come together. The tangent's changing slope traces the derivative's graph.
+- [Rectangles become an integral](riemann_sums.py): Thinner rectangles bring a sum closer
+  to the area under a curve. Each refinement splits the rectangles and updates the
+  measured area.
+- [Polynomials become the sine](taylor_series.py): Each new Taylor term makes a polynomial
+  follow more of the sine wave. The growing formula and its graph change together.
+- [A circle draws sine and cosine](unit_circle.py): A rotating radius traces sine and
+  cosine from its height and reach. The right triangle inside the circle also shows why
+  sin²θ + cos²θ = 1.
+
+## Planes and surfaces
+
+- [A matrix moves the plane](linear_maps.py): A matrix carries a grid, its basis arrows
+  and a unit square together. The determinant measures the changing area as the plane
+  shears, rotates, flattens and turns over.
+- [Complex functions bend the plane](complex_maps.py): A grid bends under z², the
+  exponential and the sine. Straight lines become parabolas, circles and rays as each
+  point travels to its image.
+- [Landscapes from formulas](surface_plots.py): A flat grid rises into an egg crate, a
+  saddle and a bell. Each surface is computed from its formula and bends into the next
+  as the camera turns.
+
+## Patterns and surprises
+
+- [Circles draw π](fourier_pi.py): A chain of rotating arrows traces the outline of π.
+  The arrows' lengths and phases come from the letter's Fourier coefficients, and the
+  camera follows the pen for a closer look.
+- [Times tables on a circle](times_tables.py): Joining numbers to their multiples around
+  a circle draws cardioids and other curves. Changing the multiplier continuously makes
+  the pattern turn, split and fold.
+- [Two blocks count π](colliding_blocks.py): Elastic collisions between two blocks and
+  a wall count out digits of π. Every collision is simulated, with the mass ratio setting
+  how many digits appear.
+- [Prime spirals](prime_spirals.py): Plotting primes at distance p and angle p reveals
+  spirals that become rays as the camera pulls back. Close approximations to 2π explain
+  the changing patterns.
+- [Hilbert's space-filling curve](hilbert_curve.py): A path visits every cell of a finer
+  and finer square grid. Four smaller copies, turned and joined, form the next order of
+  the Hilbert curve.
+- [A Galton board](galton_board.py): Repeated left-or-right bounces build a bell-shaped
+  pile of balls. The measured counts approach the binomial distribution beneath the pegs.
+- [The Lorenz attractor](lorenz_attractor.py): Eight nearly identical starting points
+  trace a butterfly and then drift apart. Both paths follow the Lorenz equations, showing
+  how a deterministic system can be chaotic.
 
 ## Geometry and topology
 

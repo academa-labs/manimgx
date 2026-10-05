@@ -5,7 +5,9 @@ absolute URLs (`https://manimgx.academa.ai/...`); included as the Welcome page, 
 the deployed site for them, even in a preview. Once a page is rendered, every URL an element
 holds (`src`, `srcset`, `href`, `poster`) whose host is the site's keeps only its path, so a
 page shows the images and links of the site it is on, as it was built, whatever wrote the
-URL. Text is left as it is: a code block's `<` is escaped, so no tag is ever in it.
+URL. The showcase GIFs use the repository's raw GitHub URLs to bypass GitHub's image proxy's
+size limit; those become local showcase paths too. Text is left as it is: a code block's `<`
+is escaped, so no tag is ever in it.
 """
 
 import re
@@ -20,14 +22,19 @@ CONFIG = tomllib.loads(
     (Path(__file__).parent / "zensical.toml").read_text(encoding="utf-8")
 )
 HOST = urlsplit(CONFIG["project"]["site_url"]).netloc
+RAW_HOST = "raw.githubusercontent.com"
+RAW_SHOWCASE = "/academa-labs/manimgx/main/docs/content/showcase/"
 # an element's start tag (a quoted value may hold ">"), and one of its URLs, quoted
 TAG = re.compile(r"""<[a-zA-Z](?:"[^"]*"|'[^']*'|[^'">])*>""")
 URL = re.compile(r"""(\s(src|srcset|href|poster)\s*=\s*)(["'])(.*?)\3""", re.DOTALL)
 
 
 def local(url: str) -> str:
-    """A URL whose host is the site's, as its path on the site; any other, as it is."""
+    """A site URL or the repository's raw showcase asset, as its path on the site."""
     parts = urlsplit(url)
+    if parts.netloc == RAW_HOST and parts.path.startswith(RAW_SHOWCASE):
+        path = "/showcase/" + parts.path.removeprefix(RAW_SHOWCASE)
+        return urlunsplit(("", "", path, parts.query, parts.fragment))
     if parts.netloc != HOST:
         return url
     return urlunsplit(("", "", parts.path or "/", parts.query, parts.fragment))
@@ -35,7 +42,7 @@ def local(url: str) -> str:
 
 def _attribute(match: re.Match[str]) -> str:
     start, name, quote, value = match.groups()
-    if HOST not in value:  # not the site's: as written, to the byte
+    if HOST not in value and RAW_HOST not in value:
         return match.group()
     if name == "srcset":  # candidates: a URL each, and a size or a density
         value = ", ".join(

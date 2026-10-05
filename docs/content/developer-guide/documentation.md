@@ -111,7 +111,9 @@ the User Guide's first page, is the README: `pymdownx.snippets` includes it
 (`--8<-- "README.md"`), so the two can't drift. The README reaches the site's images and
 pages by absolute URLs, for GitHub and PyPI; on the site they become its own paths
 ([`docs/links.py`](https://github.com/academa-labs/manimgx/blob/main/docs/links.py)), so
-`just serve-docs` shows the images it built. The README's picture of its scene ends in
+`just serve-docs` shows the images it built. The showcase GIFs use this repository's raw
+GitHub URLs, which the same extension makes local showcase paths: the README and Welcome
+page show the same files. The README's picture of its scene ends in
 `#readme`: GitHub and PyPI show it, and the site, which shows the film itself above the
 code, hides it (`stylesheets/manimgx.css`).
 
@@ -120,11 +122,9 @@ code, hides it (`stylesheets/manimgx.css`).
 The README is the front page on GitHub and on PyPI, which render it themselves, so it is
 written in plain GitHub Markdown, with absolute links (PyPI resolves no relative link). Its
 images are the site's. GitHub and PyPI play no video, so what moves in them is an animated
-image: SVGs that play themselves where the picture is made of paths, sharp at any size and
-a fraction of a video's weight, and an AVIF where it is not. An SVG draws a surface's shape
-exactly (a circle in space is seen as an ellipse, a sphere's outline is one), but not its
-light, and a browser repaints an animated SVG at the screen's rate: six shaded films as SVGs
-cost Firefox two to three cores to play, the AVIF tiles at 25 frames a second 0.6 of one.
+image: SVGs that play themselves where the picture is made of paths, and GIFs for the wall
+of example films. The same banner and GIFs appear on the docs' Welcome page, included from
+the README.
 
 - **The banner** (`showcase/logo-dark.svg` and `logo-light.svg`): the logo, which plays
   its opening once. The word ManimGX, typeset by manimgx's Typst (𝕄 as `$bb(M)$`, "anim" in
@@ -134,18 +134,20 @@ cost Firefox two to three cores to play, the AVIF tiles at 25 frames a second 0.
   [`scripts/showcase/logo.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/logo.py)
   draws it, the header's still logo (`images/logo-*.svg`) and the favicon;
   `python -m scripts.showcase.logo` draws them again.
-- **The wall** (`showcase/<film>.avif` and `<film>@2x.avif`): five seconds of six example
+- **The wall** (`showcase/<film>.gif`): five seconds of six example
   films, three a row, each its own image, linked to its film.
   [`scripts/showcase/wall.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/wall.py)
-  runs each film's scene and keeps its moment: on no background, so the page's own shows
-  through, light or dark; without what the film fixes in the frame (its titles and
-  readouts); as an animated AVIF with alpha at 25 frames a second, which GitHub and PyPI
-  show; at a tile's size and twice it, which a `<picture>` picks by the screen's density
-  (GitHub keeps it; PyPI shows the larger). A browser decodes an animated image on the CPU,
-  frame after frame: at 60 frames a second the wall fell behind (Chromium showed some 50, for
-  a core's work); at 25 every tile shows every frame. GitHub's image proxy served an image of
-  4.97 MB and refused one of 6.35 MB; the largest tile is 1.3 MB. The films take a minute to
-  run, so the tiles are committed; `python -m scripts.showcase.wall` makes them again.
+  renders each film directly at 50 frames a second, without what it fixes in the frame
+  (its titles and readouts). Each clip is cropped and resized to 480 × 270, composited onto
+  a dark background, and encoded with a shared 256-color palette and Sierra dithering.
+  Its 20 ms frame intervals fit GIF's timing units; a nominal 60 fps GIF would need 10 ms
+  intervals that browsers can stretch, slowing the animation. Every file must stay below
+  12,000,000 bytes. GitHub's image proxy rejects files above about 5 MB, so the README
+  points directly to `raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/`.
+  The docs resolve that exact prefix to their local `/showcase/` assets. There is one GIF
+  per film and one shared wall, in both places and on both color schemes. The GIFs are
+  committed; `uv run --frozen python -m scripts.showcase.wall` makes them again, with
+  the FFmpeg executable installed and on `PATH` for palette generation and GIF encoding.
 - **The chart** (`images/benchmark-light.svg` and `benchmark-dark.svg`): the benchmark, as
   a race; `scripts/benchmark/chart.py` draws it from `scripts/benchmark/results.json`.
 - **The scene's film** (`films/readme-<scene>.svg`): `docs/examples.py` records the README's
