@@ -7,6 +7,8 @@ equal to the last ones up to their repr — the drawing the cache gives is the o
 the file anew gives: the same parts, points and paint, and the same named groups of them.
 """
 
+from __future__ import annotations
+
 import os
 from collections.abc import Callable
 from pathlib import Path

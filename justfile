@@ -74,9 +74,9 @@ test-coverage *args:
 # Combine the coverage of several test runs (their .coverage.* files) into htmlcov/ and a table
 [group('testing')]
 combine-coverage directory:
-    uvx coverage combine --quiet {{ directory }}
-    uvx coverage html --quiet
-    uvx coverage report --format=markdown
+    uv run --frozen coverage combine --quiet {{ directory }}
+    uv run --frozen coverage html --quiet
+    uv run --frozen coverage report --format=markdown
 
 # Run the unit tests' properties on 2,000 examples each (the `thorough` Hypothesis profile)
 [group('testing')]

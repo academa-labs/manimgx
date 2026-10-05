@@ -11,10 +11,12 @@
   (nor is its type manimgx's imprecision).
 """
 
+import json
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
+import numpy as np
 import pytest
 from tests.integration import test_corpus as corpus
 from tests.integration.corpus import case, engines, typecheck
@@ -104,6 +106,63 @@ def test_a_change_of_timing_alone_is_explained_without_rendering(
         "timeline": ("Fraction(1, 10)", "Fraction(0, 1)"),
     }
     assert all(part in message for part in (change, "instead of", *said[change]))
+
+
+@pytest.mark.usefixtures("cases")
+@pytest.mark.parametrize("repeatable", [True, False])
+def test_diagnostics_keep_actual_frames_without_a_local_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repeatable: bool
+) -> None:
+    example = made("changed", "import manimgx\n")
+    output = tmp_path / "diagnostics"
+    monkeypatch.setattr(corpus, "DIFFS", output)
+    fresh = CHANGES["pixels"]
+    repeated = fresh if repeatable else STORED
+
+    def render(
+        _: Case, engine: Engine, *, video: Path | None = None, mp4: bool = False
+    ) -> engines.Result:
+        assert engine == "manimgx"
+        assert video is not None
+        assert not mp4
+        video.write_bytes(b"actual rendered film")
+        return engines.Result(example.source_hash(), repeated)
+
+    monkeypatch.setattr(engines, "run", render)
+    message = corpus._explain(example, STORED, fresh)
+    assert (output / example.name / "fresh.mkv").read_bytes() == b"actual rendered film"
+    recorded = json.loads(
+        (output / example.name / "frames.json").read_text(encoding="utf-8")
+    )
+    assert case.frames_from_json(recorded) == repeated
+    assert ("a second render differs" in message) != repeatable
+
+
+@pytest.mark.usefixtures("cases")
+def test_diagnostics_inspect_the_whole_film(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    example = made("long_film", "import manimgx\n")
+    example.video("manimgx").touch()
+    monkeypatch.setattr(corpus, "DIFFS", tmp_path / "diagnostics")
+    expected = replace(STORED, runs=(("before", 202),))
+    fresh = replace(expected, runs=(("after", 202),))
+    monkeypatch.setattr(
+        engines, "run", lambda *_, **__: engines.Result(example.source_hash(), fresh)
+    )
+
+    def decode(path: Path, _: tuple[int, int]):
+        for i in range(202):
+            value = 0 if path == example.video("manimgx") else 255 if i == 201 else 1
+            yield np.full((7, 7, 3), value, dtype=np.uint8)
+
+    monkeypatch.setattr(corpus, "decode", decode)
+    message = corpus._explain(example, expected, fresh)
+    assert "largest change 255.0" in message
+    assert "at frame 201" in message
+    assert (
+        tmp_path / "diagnostics" / example.name / "reference_vs_today_0201.png"
+    ).is_file()
 
 
 @pytest.mark.usefixtures("cases")

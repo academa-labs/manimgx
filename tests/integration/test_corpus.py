@@ -13,8 +13,8 @@ This module only checks. `python -m tests.integration.corpus` renders and review
 """
 
 import ast
+import json
 import re
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,6 +28,7 @@ from tests.integration.corpus.case import (
     Failure,
     Frames,
     discover,
+    frames_to_json,
     settings,
 )
 from tests.integration.corpus.frames import decode
@@ -130,35 +131,43 @@ def _explain(case: Case, expected: Frames, fresh: Frames) -> str:
         lines.append(
             f"  {len(changed)} frames differ, first {changed[0]}, last {changed[-1]}"
         )
-    if changed and case.video("manimgx").exists():
-        with tempfile.TemporaryDirectory() as tmp:
-            video = Path(tmp) / "fresh.mkv"
-            engines.run(case, "manimgx", video=video)
-            wanted = set(changed[:200])
-            old = {
-                i: f
-                for i, f in enumerate(decode(case.video("manimgx"), SIZE))
-                if i in wanted
-            }
-            new = {i: f for i, f in enumerate(decode(video, SIZE)) if i in wanted}
-        column = METRICS.index(SETTINGS.metric)
-        errors = {i: compare.measure(old[i], new[i])[column] for i in sorted(wanted)}
-        worst = max(errors, key=lambda i: errors[i])
-        lines.append(
-            f"  largest change {errors[worst]:.1f} ({SETTINGS.metric}) at frame {worst}"
-        )
+    if changed:
         out = DIFFS / case.name
         out.mkdir(parents=True, exist_ok=True)
+        video = out / "fresh.mkv"
+        repeated = engines.run(case, "manimgx", video=video)
+        (out / "frames.json").write_text(
+            json.dumps(frames_to_json(repeated.frames)), encoding="utf-8"
+        )
+        lines.append(f"  rendered film: {video}")
+        if repeated.frames != fresh:
+            lines.append("  a second render differs from the first on this same host")
+            return "\n".join(lines)
+    if changed and case.video("manimgx").exists():
+        wanted = set(changed)
+        column = METRICS.index(SETTINGS.metric)
+        largest, worst, pair = -1.0, -1, None
+        for i, (old, new) in enumerate(
+            zip(decode(case.video("manimgx"), SIZE), decode(video, SIZE))
+        ):
+            if i in wanted:
+                error = compare.measure(old, new)[column]
+                if error > largest:
+                    largest, worst, pair = error, i, (old, new)
+        assert pair is not None
+        lines.append(
+            f"  largest change {largest:.1f} ({SETTINGS.metric}) at frame {worst}"
+        )
         sheet = Image.new("RGB", (SIZE[0] * 2, SIZE[1]))
-        sheet.paste(Image.fromarray(old[worst]), (0, 0))
-        sheet.paste(Image.fromarray(new[worst]), (SIZE[0], 0))
+        sheet.paste(Image.fromarray(pair[0]), (0, 0))
+        sheet.paste(Image.fromarray(pair[1]), (SIZE[0], 0))
         sheet.save(out / f"reference_vs_today_{worst:04d}.png")
         lines.append(
             f"  reference | today: {out / f'reference_vs_today_{worst:04d}.png'}"
         )
     elif changed:
         lines.append(
-            "  reference video unavailable; regenerate it for a frame comparison"
+            "  restore the reviewed reference video to inspect the pixel differences"
         )
     lines.append(
         f"  intended? just corpus render {case.name} (its review then needs renewing)"

@@ -197,6 +197,9 @@ patch = ["subprocess"]
 # paths relative to the repository, so each OS's runs combine into one report
 relative_files = true
 
+[tool.coverage.paths]
+source = ["src/manimgx", "*/site-packages/manimgx"]
+
 [tool.ruff]
 # first-party: the package (the tests import it as a third party would)
 src = ["src"]

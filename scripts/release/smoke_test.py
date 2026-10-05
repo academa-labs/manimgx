@@ -1,6 +1,3 @@
-# /// script
-# requires-python = ">=3.13"
-# ///
 """Render a scene with an installed manimgx: the check a built wheel or executable passes
 before it is kept.
 

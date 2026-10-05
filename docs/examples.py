@@ -15,6 +15,7 @@ While the site builds, `fence` (SuperFences' formatter for Python blocks, set in
 import ast
 import hashlib
 import html
+import importlib
 import re
 import shutil
 import sys
@@ -175,6 +176,7 @@ def render(example: Example, readme: bool = False) -> None:
 def main(only: list[str]) -> None:
     """Render every example whose film is missing — only those written under the paths in
     `only`, if any — and, rendering them all, delete the films of none."""
+    importlib.import_module("manimgx")  # fail once if the shared runtime cannot load
     FILMS.mkdir(parents=True, exist_ok=True)
     scenes: dict[str, Example] = {}
     for example in examples():

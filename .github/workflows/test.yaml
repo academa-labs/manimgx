@@ -40,17 +40,14 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      # the engine's dependencies, compiled; only main's runs save them, for everyone's runs
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
-          shared-key: engine
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Run pre-commit checks
-        run: just check
+        run: |
+          uv sync --frozen --no-install-project
+          just check
+        env:
+          UV_NO_SYNC: "1"
 
   typescript:
     name: Test the browser package
@@ -72,8 +69,49 @@ jobs:
       - name: Test the browser package
         run: just test-typescript
 
+  wheel:
+    name: Build and link on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.13"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: engine
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Test source acquisition and linked codecs
+        run: cargo test --locked --manifest-path rust/Cargo.toml -p fetch -p ffmpeg
+
+      # The abi3 wheel is the same artifact on both supported Python versions.
+      - name: Build the wheel
+        run: uv build --wheel --python 3.13 --out-dir dist
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
   test:
     name: Test with Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    needs: wheel
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -83,9 +121,13 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: bash
     env:
       # the job's coverage data, named after the job (its subprocesses add suffixes)
       COVERAGE_FILE: ${{ github.workspace }}/.coverage.${{ matrix.os }}-python${{ matrix.python-version }}
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,21 +149,48 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          workspaces: rust
-          shared-key: engine
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          name: wheel-${{ matrix.os }}
+          path: dist
+
+      - name: Install the wheel and test dependencies
+        run: |
+          uv sync --frozen --no-install-project
+          uv pip install --no-deps dist/*.whl
+
+      - name: Check the installed product
+        run: uv run --frozen --no-sync python -m scripts.release.smoke_test
+
+      - name: Capture cross-platform rendering evidence
+        if: matrix.python-version == '3.13'
+        run: >-
+          uv run --frozen --no-sync python -m tests.integration.corpus.probe render-probe
+          basic_usage gradient_example image_interpolation_ex text_ligature_colors_example
+          apply_matrix_example solid_of_revolution_bell three_d_light_source_position
+          sphere_stereographic_3d_rotation cube_rotations_via_permutations
+          pile_of_see_through_points_on_a_line spectral_layout lorenz_attractor_dual_trajectory
 
       - name: Test
         run: just test-coverage
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
         with:
           name: coverage-${{ matrix.os }}-python${{ matrix.python-version }}
           path: .coverage.*
           include-hidden-files: true
-          if-no-files-found: error
+          if-no-files-found: warn
+          retention-days: 7
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: rendering-${{ matrix.os }}-python${{ matrix.python-version }}
+          path: |
+            tests/integration/_diffs/
+            render-probe/
+          if-no-files-found: ignore
           retention-days: 7
 
   coverage:
@@ -155,18 +224,34 @@ jobs:
 
       - name: Combine the coverage
         id: combine
+        if: ${{ hashFiles('coverage/.coverage.*') != '' }}
         run: |
+          uv sync --frozen --no-install-project
           just combine-coverage coverage >> "$GITHUB_STEP_SUMMARY"
-          total="$(uvx coverage report --format=total --precision=1)"
+          total="$(uv run --frozen --no-sync coverage report --format=total --precision=1)"
+          if [[ "${TEST_RESULT}" != success ]]; then
+            echo "Partial coverage: one or more test jobs did not finish successfully." >> "$GITHUB_STEP_SUMMARY"
+            total="partial"
+          fi
           # the README's badge: https://shields.io/badges/endpoint-badge
           jq --null-input --arg total "$total" '{
-            schemaVersion: 1, label: "coverage", message: "\($total)%",
-            color: (($total | tonumber) as $t | if $t >= 90 then "brightgreen"
-                    elif $t >= 75 then "yellow" else "red" end)
+            schemaVersion: 1, label: "coverage",
+            message: (if $total == "partial" then $total else "\($total)%" end),
+            color: (if $total == "partial" then "lightgrey" else
+                    (($total | tonumber) as $t | if $t >= 90 then "brightgreen"
+                    elif $t >= 75 then "yellow" else "red" end) end)
           }' > htmlcov/badge.json
           echo "total=${total}" >> "$GITHUB_OUTPUT"
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          UV_NO_SYNC: "1"
+
+      - name: Report unavailable coverage
+        if: ${{ hashFiles('coverage/.coverage.*') == '' }}
+        run: echo "Coverage unavailable because no test job produced data." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.combine.outcome == 'success'
         with:
           name: coverage-report
           path: |
@@ -183,10 +268,11 @@ jobs:
     # main's pushes, and pull requests from this repository: pull requests from forks and from
     # Dependabot get no secrets
     if: >-
+      needs.coverage.outputs.total != '' && needs.coverage.outputs.total != 'partial' && (
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'pull_request'
           && github.event.pull_request.head.repo.full_name == github.repository
-          && github.actor != 'dependabot[bot]')
+          && github.actor != 'dependabot[bot]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

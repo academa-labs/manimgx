@@ -29,7 +29,7 @@ web = ["player", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "
 [dependencies]
 bytemuck = { version = "1.25", features = ["derive", "extern_crate_alloc", "min_const_generics"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }  # content keys: what names an upload
-pyo3 = { version = "0.29.2", features = ["abi3-py313", "extension-module"], optional = true }
+pyo3 = { version = "0.29.2", features = ["abi3-py313"], optional = true }
 wgpu = { version = "30.0.1", optional = true }
 # the typesetter: Typst as a library, its layout read directly (see src/typeset.rs)
 typst = { version = "0.15.1", optional = true }
