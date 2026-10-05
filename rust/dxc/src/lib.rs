@@ -8,6 +8,13 @@ const BINARY_URL: &str = "https://github.com/microsoft/DirectXShaderCompiler/rel
 const BINARY_HASH: &str = "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1";
 const SOURCE_URL: &str = "https://github.com/microsoft/DirectXShaderCompiler/archive/01b62ad47db7dee3dd33f90e7339cf9e860b3f93.tar.gz";
 const SOURCE_HASH: &str = "2d6e2bfe4265ba123b4a3d4d0a4c245e32971e66ba06c2d3ccc30337199ef5ff";
+// GitHub's source archive omits these three gitlinks. DXC's SPIR-V backend uses them;
+// collect their exact revisions too, so its compiler can be rebuilt from the source bundle.
+const SUBMODULES: &[(&str, &str)] = &[
+    ("https://github.com/microsoft/DirectX-Headers/archive/980971e835876dc0cde415e8f9bc646e64667bf7.tar.gz", "44fda0c5e670cea86f6b890d7c4252c0c7b0b04cc5c8e292bb39b0d6ea00512d"),
+    ("https://github.com/KhronosGroup/SPIRV-Headers/archive/496543121ce6419f23d6fa5d7194ba66c36212d2.tar.gz", "5db9005d02b280ffb4c4605feb1e4e122dbdfeac673544d1bc26516f1f073c20"),
+    ("https://github.com/KhronosGroup/SPIRV-Tools/archive/ef96ed763b43b59b33b31b362f09a02b729fa1c9.tar.gz", "a2e2378712cd1a21fdbfc24c7fc8533df44b33ca0a051e258e2f3ddf3a7b2ee5"),
+];
 
 /// Stage DXC in the engine's OUT_DIR for maturin. A complete-source build on any platform
 /// collects both the distributable and its matching source; ordinary non-Windows builds do no
@@ -18,7 +25,10 @@ pub fn prepare() {
     let collecting = std::env::var_os("MANIMGX_SOURCES").is_some();
     if !windows && !collecting { return; }
     let archive = fetch::file(BINARY_URL, BINARY_HASH);
-    if collecting { fetch::tree(SOURCE_URL, SOURCE_HASH); }
+    if collecting {
+        fetch::tree(SOURCE_URL, SOURCE_HASH);
+        for (url, hash) in SUBMODULES { fetch::tree(url, hash); }
+    }
     if windows {
         let out = std::env::var_os("OUT_DIR").expect("a build script's OUT_DIR");
         let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();

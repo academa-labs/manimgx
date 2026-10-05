@@ -55,11 +55,17 @@ def test_code_ported_from_manim_ce_says_whose_it_is() -> None:
 def test_the_dxc_notice_describes_the_pinned_compiler_and_source() -> None:
     build = (ROOT / "rust" / "dxc" / "src" / "lib.rs").read_text(encoding="utf-8")
     notice = (ROOT / "LICENSE-DXC").read_text(encoding="utf-8")
+    recipe = (ROOT / "rust" / "dxc" / "README.md").read_text(encoding="utf-8")
     version = re.search(r"/releases/download/(v[\d.]+)/", build)
-    source = re.search(r"/archive/([a-f0-9]{40})\.tar\.gz", build)
+    sources = re.findall(r"/archive/([a-f0-9]{40})\.tar\.gz", build)
+    binary = re.search(r'BINARY_HASH: &str = "([a-f0-9]{64})"', build)
     assert version
     assert version[1] in notice
-    assert source
-    assert source[1] in notice
+    assert sources
+    for source in sources:
+        assert source in notice
+        assert source in recipe
+    assert binary
+    assert binary[1] in notice
     assert "University of Illinois/NCSA" in notice
     assert "ThirdPartyNotices.txt" in notice
