@@ -27,7 +27,9 @@ jobs:
     name: Build
     if: github.event.action != 'closed'
     runs-on: macos-26
-    timeout-minutes: 45
+    # A cold build compiles the engine and renders the full gallery before hundreds of
+    # short API examples. Measured cold work exceeds 45 minutes; warm builds reuse films.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
