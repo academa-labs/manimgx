@@ -108,7 +108,8 @@ def main() -> None:
         except subprocess.TimeoutExpired:
             os.kill(child.pid, signal.SIGUSR1)
             (output / "maps.txt").write_text(
-                Path(f"/proc/{child.pid}/maps").read_text(), encoding="utf-8"
+                Path(f"/proc/{child.pid}/maps").read_text(encoding="utf-8"),
+                encoding="utf-8",
             )
             with (output / "threads.txt").open("w", encoding="utf-8") as threads:
                 subprocess.run(
