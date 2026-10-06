@@ -69,20 +69,18 @@ jobs:
               uv venv --python /opt/python/cp313-cp313/bin/python /tmp/probe
               uv pip install --python /tmp/probe/bin/python /work/retained/retained-wheels/*.whl /work/source/fonts/manimgx-fonts /work/source/fonts/manimgx-fonts-cjk
               result=0
-              variants="baseline commands symbols perf nopt vector128 no-cache"
-              if ! grep -qw avx512f /proc/cpuinfo; then
-                echo "No AVX512: preserving the baseline as a CPU control."
+              variants="baseline avx2 ir ir-nopt"
+              if ! grep -qw avx512f /proc/cpuinfo || ! grep -qw AuthenticAMD /proc/cpuinfo; then
+                echo "Not AMD AVX512: preserving the baseline as a CPU control."
                 variants=baseline
               fi
               for variant in $variants; do
                 set -- LVP_CMD_DEBUG=1
                 case "$variant" in
                   baseline) set -- ;;
-                  symbols) set -- "$@" GALLIVM_DEBUG=symbols ;;
-                  perf) set -- "$@" GALLIVM_DEBUG=perf ;;
-                  nopt) set -- "$@" GALLIVM_PERF=nopt ;;
-                  vector128) set -- "$@" LP_NATIVE_VECTOR_WIDTH=128 ;;
-                  no-cache) set -- "$@" MESA_SHADER_CACHE_DISABLE=true ;;
+                  avx2) set -- "$@" GALLIUM_OVERRIDE_CPU_CAPS=avx ;;
+                  ir) set -- "$@" GALLIVM_DEBUG=ir ;;
+                  ir-nopt) set -- "$@" GALLIVM_DEBUG=ir GALLIVM_PERF=nopt ;;
                 esac
                 mkdir -p "diagnostic/$variant/cache"
                 env MESA_SHADER_CACHE_DIR="/work/diagnostic/$variant/cache" "$@" \
