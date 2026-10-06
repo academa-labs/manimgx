@@ -412,6 +412,8 @@ class Film:
         view, records, cameras = self.feeder.frame(camera, mobjects)
         if self._player is None:
             raise RuntimeError("a film recorded as a take is drawn by manimgx's player")
+        if self._player.pressured():
+            self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
         return self._player.render(view, records, cameras)
 
     @deprecated("manimgx's machinery: the scene calls it", category=None)
@@ -479,6 +481,8 @@ class Film:
             self._flush()
         if (player := self._player) is None:
             return
+        if (self.video is not None or self.frames is not None) and player.pressured():
+            self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
         if self.video is not None:
             player.push(view, records, repeat, cameras, self._pending_key)
         if self.frames is not None:

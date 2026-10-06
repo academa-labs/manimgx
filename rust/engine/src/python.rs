@@ -110,6 +110,11 @@ impl Player {
         self.stored()
     }
 
+    #[pyo3(name = "pressured")]
+    fn py_pressured(&self, py: Python<'_>) -> PyResult<bool> {
+        py.detach(|| with_gpu(|gpu| self.pressured(gpu))).map_err(PyRuntimeError::new_err)
+    }
+
     #[pyo3(name = "add_rows")]
     fn py_add_rows(&mut self, key: u64, rows: &[u8]) -> PyResult<()> {
         self.add_rows(key, rows).map_err(PyValueError::new_err)

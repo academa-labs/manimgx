@@ -407,6 +407,103 @@ class Sink:
         return self.engine.stored()
 
 
+def test_a_tween_materializes_only_the_frames_consumed_and_reloads_evicted_values() -> (
+    None
+):
+    """A non-affine cloud morph, revisiting old values after their uploads were evicted."""
+    points = np.array(
+        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
+    )
+    start = m.PMobject().add_points(points)
+    end = start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[0.5, 0, 0]]))
+    leaf = start.copy()
+    progress = np.tile(np.linspace(0.1, 0.9, 25), 3)
+    camera, path, sink = m.Camera(), m.straight_path(), Sink()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    frames = iter(
+        feeder.tween(
+            camera,
+            [leaf],
+            [(leaf, [start, end], path, np.zeros(len(progress), int), progress)],
+        )
+    )
+    assert not sink.resident
+    for number, t in enumerate(progress):
+        _, records = next(frames)
+        if number == 0:
+            assert sum(kind == "points" for kind in sink.kinds.values()) <= 2
+        expected_sink = Sink()
+        expected = feed.Feeder(32, 32, expected_sink)  # ty: ignore[invalid-argument-type]
+        alone = start.copy()
+        alone.interpolate(start, end, float(t), path)
+        assert records == expected.frame(camera, [alone])[1]
+        feeder.sweep(pressed=True)
+        keys = {
+            int(row[name])
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in (*feed.KEYS, "texture")
+            if row[name]
+        }
+        assert set(sink.resident) == keys
+    with pytest.raises(StopIteration):
+        next(frames)
+
+
+def test_streaming_still_mixes_whole_keyframe_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interval revisited by a nonmonotone clock is vectorized when it becomes current."""
+    start = m.Square()
+    keys: list[m.Mobject] = [
+        start,
+        start.copy().shift(m.RIGHT),
+        start.copy().shift(m.UP),
+    ]
+    leaf, sink, camera = start.copy(), Sink(), m.Camera()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    intervals = np.repeat([0, 1, 0], 30)
+    progress = np.tile(np.linspace(0, 1, 30), 3)
+    batches: list[int] = []
+    mix = feeder.mix
+
+    def measured(*args: object) -> np.ndarray | None:
+        batches.append(len(args[3]))  # ty: ignore[invalid-argument-type]
+        return mix(*args)  # ty: ignore[invalid-argument-type]
+
+    monkeypatch.setattr(feeder, "mix", measured)
+    frames = feeder.tween(
+        camera, [leaf], [(leaf, keys, m.straight_path(), intervals, progress)]
+    )
+    for f, (_, records) in enumerate(frames):
+        assert batches == [30] * (1 + f // 30)
+        feeder.sweep(pressed=True)
+        assert all(
+            int(row[name]) in feeder.sizes
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in feed.KEYS
+            if row[name]
+        )
+
+
+def test_pressure_preserves_pending_current_and_camera_resources() -> None:
+    sink = Sink()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    keys = [
+        feeder.path(m.RegularPolygon(n)._geometry.terms[0][1])[0] for n in range(3, 7)
+    ]
+
+    def records(key: int) -> bytes:
+        row = np.zeros(1, feed.RECORD)
+        row["key1"] = key
+        return row.tobytes()
+
+    feeder.frames = 10
+    feeder.latest = [records(keys[0])]
+    feeder.sweep([records(keys[1]), records(keys[2])], pressed=True)
+    assert set(sink.resident) == set(keys[:3])
+    assert set(feeder.sizes) == set(keys[:3])
+
+
 PIXELS = [np.full((2, 2, 4), v, np.uint8) for v in (0, 90, 200)]
 ROWS = [np.linspace(0, 1, 4 * n).reshape(n, 4) for n in (2, 3, 6)]
 FORMS = [

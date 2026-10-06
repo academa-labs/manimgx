@@ -63,6 +63,9 @@ class Player:
     def stored(self) -> tuple[int, int]:
         """(bytes in the store's arrays, of which dead): what the arrays sent to the GPU hold."""
 
+    def pressured(self) -> bool:
+        """Whether the resident arrays exceed a GPU buffer's capacity; brings up the GPU."""
+
     def render(
         self, view: bytes, records: bytes, cameras: Sequence[CameraView] = ...
     ) -> bytes:

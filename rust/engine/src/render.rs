@@ -374,6 +374,15 @@ impl Store {
         self.vertices.len() * VERTEX_BYTES + self.indices.len() * 4 + self.rows.len() * 16 + self.points.len() / 4 * CURVE_BYTES + self.ranges.len() * 16
     }
 
+    /// The arrays sent to the GPU, in binding order (the indices are only an index buffer).
+    fn arrays(&self) -> [&[u8]; 7] {
+        [bytemuck::cast_slice(&self.vertices), bytemuck::cast_slice(&self.links), bytemuck::cast_slice(&self.indices), bytemuck::cast_slice(&self.rows), bytemuck::cast_slice(&self.extras), bytemuck::cast_slice(&self.ctrl), bytemuck::cast_slice(&self.ranges)]
+    }
+
+    fn fits(&self, limits: &wgpu::Limits) -> bool {
+        self.arrays().iter().enumerate().all(|(k, bytes)| bytes.len() as u64 <= store_limit(limits, k))
+    }
+
     /// The bytes a shape holds in the arrays: a path's curves (with their room), a point cloud's or
     /// mesh's vertices and index codes.
     #[cfg(any(feature = "python", feature = "player"))]
@@ -394,9 +403,9 @@ impl Store {
         }
     }
 
-    /// Pack the living once most of the arrays is dead (and there is enough of it to matter).
-    fn pack_if_worthwhile(&mut self) {
-        if self.dead < 16 << 20 || self.dead * 2 < self.bytes() {
+    /// Pack the living once most of the arrays is dead, or a binding needs the space now.
+    fn pack_if_worthwhile(&mut self, pressed: bool) {
+        if !pressed && (self.dead < 16 << 20 || self.dead * 2 < self.bytes()) {
             return;
         }
         let old = std::mem::take(self);
@@ -1712,6 +1721,18 @@ fn whole(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource: buffer.as_entire_binding() }
 }
 
+fn store_limit(limits: &wgpu::Limits, array: usize) -> u64 {
+    if array == 2 { limits.max_buffer_size } else { limits.max_storage_buffer_binding_size.min(limits.max_buffer_size) }
+}
+
+/// Geometric growth may use spare space, but a binding can never expose more than its limit.
+fn buffer_room(needed: u64, stride: u64, minimum: u64, limit: u64, name: &str) -> Result<u64, String> {
+    if needed > limit / stride {
+        return Err(format!("resident {name} requires {} bytes; the GPU's buffer limit is {limit} bytes", needed.saturating_mul(stride)));
+    }
+    Ok(needed.max(minimum).next_power_of_two().min(limit / stride))
+}
+
 /// Draw object `k`'s `range` with `pipeline` (set only when it changes).
 fn run(pass: &mut wgpu::RenderPass, current: &mut *const wgpu::RenderPipeline, pipeline: &wgpu::RenderPipeline, range: &Range<u32>, k: u32) {
     if !std::ptr::eq(*current, pipeline) {
@@ -1725,23 +1746,25 @@ impl Player {
     /// Bring the GPU up to date: images made textures, the store's arrays sent — only what was
     /// appended since last time; everything when they were packed or outgrew their buffers — and
     /// room for `count` instances, `views` views and `sprites` sprites.
-    fn prepare(&mut self, gpu: &Gpu, count: usize, views: usize, sprites: usize) {
+    fn prepare(&mut self, gpu: &Gpu, count: usize, views: usize, sprites: usize) -> Result<(), String> {
         let device = &gpu.device;
+        let limits = device.limits();
         for (key, (w, h, rgba)) in self.images.drain() {
             self.image_groups.insert(key, gpu.image_group(w, h, &rgba));
         }
         self.image_groups.entry(0).or_insert_with(|| gpu.image_group(1, 1, &[255, 255, 255, 255]));
+        let arrays = self.store.arrays();
+        let mut rooms = [0; 7];
+        for (k, name) in ["vertices", "vertex links", "indices", "paint rows", "vertex normals and UVs", "curve points", "subpath ranges"].iter().enumerate() {
+            rooms[k] = buffer_room(arrays[k].len() as u64, 1, 1024, store_limit(&limits, k), name)?;
+        }
+        let capacity = buffer_room(count as u64, size_of::<Instance>() as u64, 1024, store_limit(&limits, 0), "instances")? as usize;
+        let room = buffer_room(sprites as u64, size_of::<[u32; 2]>() as u64, 1024, store_limit(&limits, 0), "sprites")? as usize;
+        let slots = buffer_room(views as u64, VIEW_STRIDE as u64, 4, limits.max_buffer_size, "views")? as usize;
+        // A rejected frame must leave pending in-place writes available for the next one.
         let dirty = std::mem::take(&mut self.store.dirty);
         let s = &self.store;
-        let arrays: [&[u8]; 7] = [
-            bytemuck::cast_slice(&s.vertices),
-            bytemuck::cast_slice(&s.links),
-            bytemuck::cast_slice(&s.indices),
-            bytemuck::cast_slice(&s.rows),
-            bytemuck::cast_slice(&s.extras),
-            bytemuck::cast_slice(&s.ctrl),
-            bytemuck::cast_slice(&s.ranges),
-        ];
+        let arrays = s.arrays();
         // (the passes read them as storage buffers; the indices are an index buffer too)
         let storage = wgpu::BufferUsages::STORAGE;
         let buffer = |size: u64| device.create_buffer(&wgpu::BufferDescriptor { label: Some("store"), size, usage: storage | wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
@@ -1750,7 +1773,6 @@ impl Player {
         let sprite_buffer = |room: usize| device.create_buffer(&wgpu::BufferDescriptor { label: Some("sprites"), size: (room * size_of::<[u32; 2]>()) as u64, usage: storage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let mut rebind = false;
         let buffers = self.buffers.get_or_insert_with(|| {
-            let (slots, capacity, room) = (views.max(4).next_power_of_two(), count.max(1024).next_power_of_two(), sprites.max(1024).next_power_of_two());
             let (views, instances, sprites, statics) = (view_buffer(slots), instances(capacity), sprite_buffer(room), [(); 7].map(|_| buffer(1024)));
             rebind = true;
             let shadow_maps = ShadowMaps::new(gpu, 1, 1, (None, &gpu.no_environment));
@@ -1767,7 +1789,7 @@ impl Player {
         }
         for (k, bytes) in arrays.iter().enumerate() {
             if bytes.len() as u64 > buffers.sizes[k] {
-                buffers.sizes[k] = (bytes.len() as u64).next_power_of_two();
+                buffers.sizes[k] = rooms[k];
                 buffers.statics[k] = buffer(buffers.sizes[k]);
                 buffers.sent[k] = 0;
                 rebind = true;
@@ -1778,23 +1800,24 @@ impl Player {
             }
         }
         if buffers.capacity < count {
-            buffers.capacity = count.next_power_of_two();
+            buffers.capacity = capacity;
             buffers.instances = instances(buffers.capacity);
             rebind = true;
         }
         if buffers.slots < views {
-            buffers.slots = views.next_power_of_two();
+            buffers.slots = slots;
             buffers.views = view_buffer(buffers.slots);
             rebind = true;
         }
         if buffers.room < sprites {
-            buffers.room = sprites.next_power_of_two();
+            buffers.room = room;
             buffers.sprites = sprite_buffer(buffers.room);
             rebind = true;
         }
         if rebind {
             buffers.group = Some(scene_group(gpu, buffers));
         }
+        Ok(())
     }
 
     pub(crate) fn targets(&mut self, gpu: &Gpu) -> &Targets {
@@ -1968,7 +1991,7 @@ impl Player {
     /// composited in more than one group (its objects overflowed the atlases), and whether a 3D
     /// view composited see-through layers through the lists (whose count tells if they held).
     pub(crate) fn encode(&mut self, gpu: &mut Gpu, frames: &[Frame]) -> Result<(wgpu::CommandEncoder, bool, bool), String> {
-        self.store.pack_if_worthwhile(); // before anything reads where a shape is
+        self.store.pack_if_worthwhile(!self.store.fits(&gpu.device.limits())); // before anything reads where a shape is
         let samples = self.samples.clamp(1, gpu.max_samples);
         let mut instances: Vec<Instance> = Vec::new();
         let mut sprites: Vec<[u32; 2]> = Vec::new();
@@ -2101,7 +2124,7 @@ impl Player {
                 }
             }
         }
-        self.prepare(gpu, instances.len(), frames.len(), sprites.len());
+        self.prepare(gpu, instances.len(), frames.len(), sprites.len())?;
         self.targets(gpu);
         for f in &frames[..frames.len() - 1] {
             self.canvas(gpu, f.key, f.width, f.height);
@@ -2590,10 +2613,15 @@ impl Player {
     }
 
     #[cfg(feature = "python")]
-    /// (bytes in the store's arrays, of which dead): what the arrays sent to the GPU hold, which
-    /// must stay under wgpu's 4 GiB buffer limit (the feed evicts early past its budget).
+    /// (bytes in the store's arrays, of which dead).
     pub(crate) fn stored(&self) -> (usize, usize) {
         (self.store.bytes(), self.store.dead)
+    }
+
+    #[cfg(feature = "python")]
+    /// Whether retaining the current cache exceeds an individual GPU buffer's capacity.
+    pub(crate) fn pressured(&self, gpu: &Gpu) -> bool {
+        !self.store.fits(&gpu.device.limits())
     }
 
     #[cfg(feature = "player")]
@@ -2690,4 +2718,46 @@ pub(crate) const COUNT_BYTES: u64 = 4;
 
 pub(crate) fn count(bytes: &[u8]) -> u64 {
     bytemuck::pod_read_unaligned::<u32>(&bytes[..4]) as u64
+}
+
+#[cfg(test)]
+mod buffer_contract {
+    use super::*;
+
+    #[test]
+    fn growth_never_exposes_more_than_the_binding_allows() {
+        for stride in [1, 8, 16, size_of::<Instance>() as u64, VIEW_STRIDE as u64] {
+            for limit in [1024, 1600, 4096, 65536] {
+                for needed in [0, 1, limit / stride, limit / stride + 1] {
+                    let room = buffer_room(needed, stride, 1024, limit, "test");
+                    if needed <= limit / stride {
+                        let room = room.unwrap();
+                        assert!(room >= needed);
+                        assert!(room * stride <= limit);
+                    } else {
+                        assert!(room.unwrap_err().contains("GPU's buffer limit"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn binding_pressure_reclaims_a_dead_minority() {
+        let mut store = Store::default();
+        for key in 1..=3 {
+            store.add_rows(key, &[[key as f32, 0.0, 0.0, 1.0]; 40]);
+        }
+        store.evict(&[2]);
+        assert!(store.dead * 2 < store.bytes());
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 1280, ..Default::default() };
+        assert!(!store.fits(&limits));
+        store.pack_if_worthwhile(true);
+        assert!(store.fits(&limits));
+        assert_eq!(store.dead, 0);
+        for key in [1, 3] {
+            let brush = &store.brushes[&key];
+            assert_eq!(&store.rows[brush.offset as usize..(brush.offset + brush.count) as usize], &[[key as f32, 0.0, 0.0, 1.0]; 40]);
+        }
+    }
 }
