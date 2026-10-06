@@ -4,6 +4,7 @@ shows and its code, folded under the film."""
 
 import re
 
+from docs import examples
 from scripts.docs import gallery
 
 
@@ -41,3 +42,17 @@ def test_a_card_says_one_sentence() -> None:
             assert re.fullmatch(r"[A-Z0-9√].*[.?!]", film.lead), film.name
             assert len(film.lead.split()) <= 24, film.name
             assert film.words.startswith(film.lead), film.name
+
+
+def test_gallery_scene_names_do_not_clash_with_other_examples() -> None:
+    """Scene names identify films across the entire site, including narrated lessons."""
+    scenes = {
+        example.scene: example.where
+        for example in examples.examples()
+        if not example.where.startswith(("docs/content/gallery/", "examples/"))
+    }
+    _, groups = gallery.readme()
+    for _, films in groups:
+        for film in films:
+            assert film.scene not in scenes, (film.name, scenes.get(film.scene))
+            scenes[film.scene] = f"examples/{film.name}.py"

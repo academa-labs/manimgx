@@ -225,7 +225,8 @@ class CherenkovCone(m.ThreeDScene):
             rows = colormap(age, CHERENKOV)
             # brighter bands (photons emitted together) slide down the cone: each is where one
             # wavelet touches it
-            pulse = 0.65 + 0.35 * np.cos(2 * np.pi * 2.5 * tank.photon_t)
+            emitted = np.where(tank.alive, tank.photon_t, 0)
+            pulse = 0.65 + 0.35 * np.cos(2 * np.pi * 2.5 * emitted)
             fade = np.clip((1 - age) / 0.3, 0, 1) * tank.photon_w * pulse
             shown = np.where(tank.alive, fade, 0) * glow.get_value()
             for layer, alpha in ((mob, 1.0), (photon_halo, 0.07)):
