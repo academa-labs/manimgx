@@ -46,7 +46,7 @@ def measure(name: str, output: Path, count: int) -> dict[str, object]:
             result["scene_source_sha256"] = hashlib.sha256(
                 source.read_bytes()
             ).hexdigest()
-            scene = load(Example(source.read_text(), source.as_posix()))
+            scene = load(Example(source.read_text(encoding="utf-8"), source.as_posix()))
             samples: list[float] = []
             indices: list[int] = []
             digest = hashlib.sha256()
@@ -117,7 +117,9 @@ def measure(name: str, output: Path, count: int) -> dict[str, object]:
         result["process_seconds"] = time.perf_counter() - started
     except BaseException:
         result = {"task": name, "error": traceback.format_exc()}
-    (output / f"{name}.json").write_text(json.dumps(result, indent=2) + "\n")
+    (output / f"{name}.json").write_text(
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
+    )
     print(json.dumps(result), flush=True)
     return result
 
@@ -147,7 +149,9 @@ def main(output: Path, count: int) -> None:
             ]
         report[label] = {"wall_seconds": time.perf_counter() - before, "tasks": results}
         failed |= any("error" in result for result in results)
-        (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+        (output / "results.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
     if failed:
         sys.exit(1)
 

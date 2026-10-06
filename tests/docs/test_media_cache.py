@@ -276,7 +276,9 @@ def test_build_reuses_unchanged_scenes_and_prunes_removed_ones(
     assert draw == []
     assert not (examples.FILMS / f"{before['Beta']}.mp4").exists()
     assert len(list(examples.RECORDS.glob("*.json"))) == 1
-    assert set(json.loads(next(examples.RECORDS.glob("*.json")).read_text())) == {
+    assert set(
+        json.loads(next(examples.RECORDS.glob("*.json")).read_text(encoding="utf-8"))
+    ) == {
         ".webp",
         ".mp4",
     }

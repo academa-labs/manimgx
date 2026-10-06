@@ -104,14 +104,16 @@ def collect(wheel: Path, sources: Path) -> None:
         "packages": records,
         "build_system": platform.freedesktop_os_release(),
     }
-    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (destination / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def verify(sources: Path) -> None:
     """Both Linux builds supplied their sources, unchanged since their wheels were made."""
     for machine in ["x86_64", "aarch64"]:
         directory = sources / f"linux-{machine}"
-        manifest = json.loads((directory / "manifest.json").read_text())
+        manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         if not manifest["packages"]:
             raise ValueError(
                 f"{machine}: the wheel has no retained distribution sources"

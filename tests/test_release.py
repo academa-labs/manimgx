@@ -15,7 +15,9 @@ import yaml
 from scripts.release import linux_sources, smoke_test
 
 ROOT = Path(__file__).parents[1]
-JOBS = yaml.safe_load((ROOT / ".github/workflows/release.yaml").read_text())["jobs"]
+JOBS = yaml.safe_load(
+    (ROOT / ".github/workflows/release.yaml").read_text(encoding="utf-8")
+)["jobs"]
 
 
 def test_pending_publishers_have_distinct_environments() -> None:
@@ -36,12 +38,34 @@ def test_pending_publishers_have_distinct_environments() -> None:
 
 
 def test_wheel_jobs_expand_platform_in_the_same_shell_on_every_os() -> None:
-    wheel = yaml.safe_load((ROOT / ".github/workflows/create-wheels.yaml").read_text())[
-        "jobs"
-    ]["wheel"]
+    wheel = yaml.safe_load(
+        (ROOT / ".github/workflows/create-wheels.yaml").read_text(encoding="utf-8")
+    )["jobs"]["wheel"]
     assert wheel["defaults"]["run"]["shell"] == "bash"
     build = next(step for step in wheel["steps"] if "PLATFORM" in step.get("env", {}))
     assert "${PLATFORM}" in build["run"]
+
+
+def test_windows_diagnostic_pairs_the_wheel_with_its_original_source() -> None:
+    job = yaml.safe_load(
+        (ROOT / ".github/workflows/windows-diagnostic.yaml").read_text(encoding="utf-8")
+    )["jobs"]["diagnose"]
+    steps = job["steps"]
+    source = next(step for step in steps if step.get("id") == "source")
+    checkout = next(
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    )
+    download = next(
+        step
+        for step in steps
+        if step.get("uses", "").startswith("actions/download-artifact@")
+    )
+    assert source["env"]["WHEEL_RUN"] == download["with"]["run-id"]
+    assert checkout["with"]["ref"] == "${{ steps.source.outputs.revision }}"
+    assert ".head_sha" in source["run"]
+    run = next(step for step in steps if "TEST_ARGS" in step.get("env", {}))
+    assert 'shlex.split(os.environ["TEST_ARGS"])' in run["run"]
+    assert "${{ inputs.testargs }}" not in run["run"]
 
 
 @pytest.mark.parametrize("package", ["manimgx-fonts", "manimgx-fonts-cjk"])
@@ -52,7 +76,7 @@ def test_font_artifacts_contain_only_their_own_package(
     dist.mkdir()
     expected = set()
     for manifest in sorted((ROOT / "fonts").glob("*/pyproject.toml")):
-        project = tomllib.loads(manifest.read_text())["project"]
+        project = tomllib.loads(manifest.read_text(encoding="utf-8"))["project"]
         name = project["name"].replace("-", "_")
         version = project["version"]
         for suffix in [".tar.gz", "-py3-none-any.whl"]:
@@ -88,7 +112,7 @@ def test_engine_publisher_excludes_fonts_and_github_only_artifacts() -> None:
     wheels = {
         f"wheel-{entry['platform']}"
         for entry in yaml.safe_load(
-            (ROOT / ".github/workflows/create-wheels.yaml").read_text()
+            (ROOT / ".github/workflows/create-wheels.yaml").read_text(encoding="utf-8")
         )["jobs"]["wheel"]["strategy"]["matrix"]["include"]
     }
     artifacts = wheels | {
@@ -187,7 +211,8 @@ def test_source_archive_rejects_missing_platforms_and_changed_sources(
                         }
                     ]
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         if machine == "x86_64":
             with pytest.raises(FileNotFoundError):
@@ -239,7 +264,9 @@ def test_only_the_installed_librarys_verified_source_is_retained(
     else:
         linux_sources.collect(wheel, store)
         archive = store / "linux-aarch64" / source
-        manifest = json.loads(archive.with_name("manifest.json").read_text())
+        manifest = json.loads(
+            archive.with_name("manifest.json").read_text(encoding="utf-8")
+        )
         assert manifest["sha256"] == linux_sources.digest(wheel)
         assert manifest["packages"] == [
             {
