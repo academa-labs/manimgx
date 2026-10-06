@@ -72,7 +72,7 @@ def test_the_command_line_starts_the_gpu_for_a_command_that_draws(
         "from manimgx.cli import main\ntry:\n    main()\nexcept SystemExit as e:\n"
     )
     drawn = run(
-        "import sys\nsys.argv = ['manimgx', 'check', 'scene.py']\n"
+        "import sys\nsys.argv = ['manimgx', 'inspect', 'scene.py']\n"
         + command
         + "    assert not e.code, e.code",
         cwd=tmp_path,

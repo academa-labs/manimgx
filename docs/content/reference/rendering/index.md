@@ -12,7 +12,7 @@ import manimgx as m
 class RenderingHero(m.Scene):
     def construct(self) -> None:
         commands = m.Code(
-            code_string="manimgx render scene.py\nmanimgx preview scene.py\nmanimgx check scene.py\nmanimgx still scene.py\nmanimgx present scene.py",
+            code_string="manimgx render scene.py\nmanimgx preview scene.py\nmanimgx inspect scene.py\nmanimgx present scene.py",
             language="bash",
             background="window",
         ).scale(1.2)
@@ -34,7 +34,7 @@ play in a window, or write.
 
     ---
 
-    `manimgx render`, `preview`, `check`, `still` and `present`, and their options.
+    `manimgx render`, `preview`, `inspect` and `present`, and their options.
 
 -   ![](film:ConfigurationHero)
 

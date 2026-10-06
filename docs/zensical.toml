@@ -148,7 +148,7 @@ videos from Python scenes. Scenes use the API of Manim Community Edition, and ma
 annotates all of it with types, so a type checker finds errors before a render. A Rust core
 draws each frame on the GPU, typesets text and LaTeX mathematics with Typst, and encodes the
 video and its sound to MP4. The engine calculates each frame at its exact time, so a scene
-is the same at all frame rates. A check command runs a scene without video, prints its
+is the same at all frame rates. The inspect command runs a scene without video, prints its
 timeline and layout problems, for example text over other text, and writes a storyboard. In
 a web browser, Pyodide runs the same scenes in a Web Worker, and a WebAssembly build of the
 core draws them with WebGPU.
@@ -190,15 +190,15 @@ class SquareToCircle(m.Scene):
 - Time passes only in `self.play(...)` (1 s unless `run_time=`) and `self.wait(seconds)`; `self.add(...)` shows a mobject without animating it.
 - The frame is 14.2 × 8 units centred on the origin: keep everything within x ∈ [-7, 7], y ∈ [-4, 4].
 
-## 3. Check, then render
+## 3. Inspect, then render
 
 ```sh
-manimgx check scene.py       # the timeline and layout problems, no video; exit 1 if there are problems
+manimgx inspect scene.py     # storyboard, timeline and 2D layout checks; exit 1 for problems
 manimgx render scene.py      # writes SquareToCircle.mp4 beside scene.py and prints its path
 ```
 
-- `check` lists each play with its line of code, then the problems a viewer would see: text the frame cuts off, texts that overlap, lines through a text, text too small to read. Fix them and check again. It also writes `<Scene>.storyboard.png`, the frame at the end of each play with problems outlined: look at it if you can view images.
-- `manimgx still scene.py -t 1.5,end` draws the frames at 1.5 s and at the end into `<Scene>.png`.
+- `inspect` samples play and wait endings. It lists each play with its line of code, reports 2D layout problems, and writes `<Scene>.storyboard.png` with problems outlined and numbered. Look at the pictures if you can view images. Fix problems and inspect again. 3D scenes get storyboards and timelines; layout checks are skipped.
+- `manimgx inspect scene.py -t 1.5,end` inspects the frames at 1.5 s and at the end instead. Repeat `-t` or separate times with commas; `-o detail.png` names the output. Pictures are chronological, six per sheet; more go to `…-2.png`, and so on. Without `end`, inspection stops after the last requested frame's play. Only sampled moments are checked.
 - `render` makes 1920×1080 at 60 fps; `-r 1280x720 --fps 30` is quicker for drafts. A file with several scenes needs the scene's name: `manimgx render scene.py MyScene`.
 - An error prints the scene's line that failed and, for a wrong name, a hint (`ShowCreation is Create in manimgx`).
 - `no GPU adapter` means the command ran in a sandbox that hides the GPU: run it outside the sandbox (ask the user if your tool needs approval).

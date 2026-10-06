@@ -306,7 +306,7 @@ The [`Film`][manimgx.Film] sends each frame:
 - to the video, encoded as it comes;
 - to a function, if one is given, as a [`Frame`][manimgx.rendering.film.Frame] that draws its pixels
   only when asked;
-- or without per-frame output: `manimgx check` evaluates the timeline and draws only
+- or without per-frame output: `manimgx inspect` evaluates the timeline and draws only
   selected storyboard snapshots.
 
 A frame equal to the one before is not sent again: it lengthens it, into a hold. Each play,
@@ -333,19 +333,21 @@ changed, hands them to x264 on a thread of its own, and writes the MP4. It also 
 
 ## The command line
 
-`manimgx render`, `still` and `check` are a [Typer](https://typer.tiangolo.com) app in
-[`cli/`](https://github.com/academa-labs/manimgx/tree/main/src/manimgx/cli). Each loads the
-scene file, picks the scene, sets the configuration, and renders it with the film's hooks:
-a *take*. `render` and `check` report the timeline, a storyboard, and the layout problems a
-viewer would see when each play ends (what the frame cuts off, texts that overlap, lines
-through a text, fills drawn over one, text too small to read), measured on geometry, not
-pixels; `still` draws the frames at given times on one sheet. An error in the scene is
-shown through the lines of the author's own code. `manimgx preview` records the scene as a
+The `manimgx` command line is a [Typer](https://typer.tiangolo.com) app in
+[`cli/`](https://github.com/academa-labs/manimgx/tree/main/src/manimgx/cli).
+Each command loads the scene file, picks the scene, sets the configuration, and renders it
+with the film's hooks: a *take*. `render` and `inspect` write annotated storyboards and
+report 2D layout problems (what the frame cuts off, texts that overlap, lines through a
+text, fills drawn over one, text too small to read), measured on geometry. `inspect` also
+lists the timeline. It samples play endings
+by default, or selected frames with `-t`; pictures and checks use the same scene state.
+An error in the scene is shown through the lines of the author's own code.
+`manimgx preview` records the scene as a
 take and sends it to a [`Window`][manimgx.Window], a process of its own that plays it, and
 runs the scene again each time its file is saved (see [The engine](engine.md#the-player)).
 
 The command-line modules follow those operations: `cli/scenes.py` loads and selects
-scenes and records takes; `cli/export.py` writes videos, stills and presentation
+scenes and records takes; `cli/export.py` writes videos, inspections and presentation
 pages; `cli/preview.py` manages re-recording for the window. `cli/diagnostics.py`
 reads visible scene geometry and reports layout problems. `cli/storyboard.py`
 collects frame sheets and timeline reports. These are clients of scene execution

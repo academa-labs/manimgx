@@ -1,4 +1,4 @@
-"""A still selects and captions the same observed frame that the film shows."""
+"""Inspection selects and captions the same observed frame that the film shows."""
 
 import math
 import sys
@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from manimgx.cli.export import still
+from manimgx.cli.export import inspect
 from manimgx.cli.storyboard import Sheets
 
 
-def test_stills_distinguish_adjacent_times_and_finish_coincident_events(
+def test_inspections_distinguish_adjacent_times_and_finish_coincident_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "still_boundary.py"
@@ -38,7 +38,7 @@ def test_stills_distinguish_adjacent_times_and_finish_coincident_events(
     monkeypatch.setattr(Sheets, "add", keep)
     monkeypatch.setattr(sys, "path", sys.path.copy())
     try:
-        still(
+        inspect(
             source,
             time=[
                 str(math.nextafter(0.1, 0)),

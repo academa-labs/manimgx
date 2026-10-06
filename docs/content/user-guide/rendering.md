@@ -7,8 +7,7 @@ checks it for problems, and presents it as slides:
 | --- | --- |
 | `manimgx render scene.py` | Makes the video, an MP4 file. |
 | `manimgx preview scene.py` | Plays the scene in a window, and plays it again each time that you save. |
-| `manimgx check scene.py` | Finds problems that a viewer would see, such as text that the frame cuts off. |
-| `manimgx still scene.py` | Draws the picture at a moment, as a PNG file. |
+| `manimgx inspect scene.py` | Writes a storyboard, lists the timeline, and checks 2D layouts. |
 | `manimgx present scene.py` | Makes the video, and shows it as slides in your browser. |
 
 Each command writes its files next to the scene's file. If the file has several scenes,
@@ -21,7 +20,7 @@ give the scene's name after the file: `manimgx render scene.py Intro`. The
 $ manimgx render square_to_circle.py
 SquareToCircle.mp4  3.00 s, 1920x1080 at 60 fps, 0.4 MB (rendered in 0.7 s)
 storyboard: SquareToCircle.storyboard.png
-layout: no problems at the end of any of the 3 plays
+layout: no problems in 3 samples
 ```
 
 The video is named after the scene. It is 1920 × 1080 pixels, at 60 frames each second,
@@ -61,35 +60,47 @@ The window's keys are a video player's: Space plays and pauses, ← and → go b
 forward 5 seconds, and ? shows all the keys. Its timeline shows each play of the scene,
 named by its line of code, or each section, if the scene has sections.
 
-## Check
+## Inspect
 
-`manimgx check scene.py` runs the scene without making a video, so it takes a fraction of
-the time. It lists each play, with its time and its line of code. Then it lists the
-problems that a viewer would see at the end of each play:
+`manimgx inspect scene.py` writes a storyboard and lists each play with its time and
+line of code. It runs the scene without encoding video and draws only the pictures it
+inspects: by default, the end of each play or wait. In 2D scenes it checks for:
 
 - a mobject that the frame cuts off;
 - texts that cover each other, a line through a text, or a fill over it;
 - text too small to read.
 
 ```console
-$ manimgx check crowded.py
+$ manimgx inspect crowded.py
 crowded.py: Crowded, 3.00 s, 2 plays
 storyboard: Crowded.storyboard.png
   #0   0.00– 2.00s  crowded.py:8  Write(Text 'A title much too long for t…')
   #1   2.00– 3.00s  crowded.py:9  FadeIn(Text 'a note')
 layout: 2 problems
-  [1] t=2.0–3.0s (after crowded.py:8)  title (Text 'A title much too long for the…'): 1.35 past the left edge, 1.35 past the right edge
-  [2] t=3.0s (after crowded.py:9)  title (Text 'A title much too long for the…') and note (Text 'a note'): texts overlap
+  [1] t=2–3s (crowded.py:8)  title (Text 'A title much too long for the…'): 1.35 past the left edge, 1.35 past the right edge
+  [2] t=3s (crowded.py:9)  title (Text 'A title much too long for the…') and note (Text 'a note'): texts overlap
 ```
 
 Each problem names the mobjects as your code names them, such as `title`. The
-storyboard outlines each problem in red. While there are problems, `check` ends with an
-error, so an AI agent can run it until the scene is right.
+storyboard outlines and numbers each problem in red. Layout problems give exit code 1;
+notes, such as a graph continuing off screen, do not. 3D scenes get the pictures and
+timeline, with layout checks marked as skipped.
 
-## A still
+To inspect specific moments, including during an animation:
 
-`manimgx still scene.py -t 1.5,end` draws the pictures at 1.5 seconds and at the end, in
-one PNG file.
+```sh
+manimgx inspect scene.py -t 1.5,8,end
+```
+
+Each time selects the frame a video player shows then; `end` selects the last frame.
+The same layout checks apply to those pictures. Repeat `-t` or separate times with
+commas. Without `end`, the scene stops after the play containing the last requested
+frame, which keeps inspection focused even in a long video.
+
+Pictures go in chronological order to `<Scene>.storyboard.png`, six per sheet, then
+`<Scene>.storyboard-2.png`, and so on. Use `-o detail.png` to choose the name. Default
+inspection leaves out consecutive identical pictures; explicit times keep every
+requested picture. Checks cover the sampled moments, not every frame of the video.
 
 ## Settings
 

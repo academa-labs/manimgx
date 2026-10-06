@@ -9,6 +9,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 
 import manimgx as m
+from manimgx.cli import app
 
 CONFIG = Path(__file__).parents[2] / "docs" / "zensical.toml"
 LLMSTXT = tomllib.loads(CONFIG.read_text(encoding="utf-8"))["project"]["plugins"][
@@ -42,6 +43,16 @@ def test_its_names_exist() -> None:
         assert hasattr(m, name), name
     for name in re.findall(r"`\.(\w+)\(", PRIMER):
         assert hasattr(m.VMobject, name), f".{name}"
+
+
+def test_its_commands_exist() -> None:
+    commands = {
+        c.name or getattr(c.callback, "__name__", "") for c in app.registered_commands
+    }
+    shell = re.findall(r"^```sh\n(.*?)^```", PRIMER, re.MULTILINE | re.DOTALL)
+    inline = re.findall(r"`([^`\n]+)`", PRIMER)
+    for name in re.findall(r"\bmanimgx ([a-z][\w-]*)", "\n".join(shell + inline)):
+        assert name in commands, name
 
 
 def test_every_page_has_its_markdown() -> None:

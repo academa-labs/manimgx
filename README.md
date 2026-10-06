@@ -111,7 +111,7 @@ manimgx's Rust + wgpu engine renders the MP4, blazingly fast.
 - **Runs in the browser.** `npm install manimgx`. [Pyodide](https://pyodide.org) runs
   Python in a Web Worker; WebGPU renders the scene.
   [Embed a scene](https://manimgx.academa.ai/user-guide/rendering/#in-the-browser) with no render server.
-- **Agent feedback.** Storyboards and [2D layout checks](https://manimgx.academa.ai/user-guide/rendering/#check).
+- **Agent feedback.** [`manimgx inspect`](https://manimgx.academa.ai/user-guide/rendering/#inspect): storyboards and 2D layout checks, at play endings or times you choose.
 - **Text and math.** Write LaTeX or Typst. No LaTeX installation needed.
 - **Speech in sync.** [Match animations to spoken words](https://manimgx.academa.ai/user-guide/sound-and-voice/)
   with `self.say()`.

@@ -380,7 +380,7 @@ writes three things:
   A page's one action, Copy as Markdown (`content.action.copy`), copies it.
 - **`llms.txt`,** at the site's root, <https://manimgx.academa.ai/llms.txt>, which the
   README tells an agent to follow. First, a primer for an agent asked to make a video with
-  manimgx: how to install it, a scene, `check` then `render`, and a cheat sheet of the API.
+  manimgx: how to install it, a scene, `inspect` then `render`, and a cheat sheet of the API.
   Then a list of every page's Markdown, by section.
 - **`llms-full.txt`:** every page's Markdown, in one file.
 
