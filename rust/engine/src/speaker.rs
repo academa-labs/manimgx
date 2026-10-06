@@ -184,7 +184,7 @@ mod native {
             let (load, playing, rate, out) = (track.loads, self.track.clone(), self.rate, self.channels);
             std::thread::spawn(move || {
                 let Some((samples, from, channels)) = super::wav(&file) else { return };
-                let resampled = crate::audio::resample(&samples, channels, f64::from(from), f64::from(rate));
+                let Ok(resampled) = crate::audio::resample(&samples, channels, f64::from(from), f64::from(rate)) else { return };
                 // its channels onto the device's: one to all, or each to its own (wrapping)
                 let frames = resampled.len() / channels;
                 let samples = (0..frames * out).map(|k| resampled[k / out * channels + k % out % channels]).collect();
@@ -341,6 +341,7 @@ mod web {
         fn stop(&mut self) {
             if let Some(playing) = self.playing.take() {
                 let _ = web_sys::AudioScheduledSourceNode::stop(&playing.source);
+                let _ = playing.source.disconnect();
             }
         }
 
@@ -381,9 +382,91 @@ mod web {
             }
         }
     }
+
+    impl Drop for Speaker {
+        fn drop(&mut self) {
+            self.load(None); // stop playback, invalidate pending decodes, release the buffer
+            let _ = self.gain.disconnect();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use wasm_bindgen_test::*;
+
+        wasm_bindgen_test_configure!(run_in_browser);
+
+        // Observe calls on real browser audio nodes; their actual methods still execute.
+        #[wasm_bindgen(inline_js = r#"
+export function observeAudio(context, gain, source) {
+    const counts = [0, 0, 0];
+    const stop = source.stop, disconnect = source.disconnect, detach = gain.disconnect;
+    const decode = context.decodeAudioData;
+    let decoded;
+    source.stop = function (...args) { counts[0]++; return stop.apply(this, args); };
+    source.disconnect = function (...args) { counts[1]++; return disconnect.apply(this, args); };
+    gain.disconnect = function (...args) { counts[2]++; return detach.apply(this, args); };
+    context.decodeAudioData = function (bytes) { decoded = decode.call(this, bytes); return decoded; };
+    return { counts, decoded: () => decoded, restore: () => { context.decodeAudioData = decode; } };
+}
+export function audioDecoded(probe) { return probe.decoded(); }
+export function finishAudioProbe(probe) { probe.restore(); return probe.counts; }
+"#)]
+        extern "C" {
+            #[wasm_bindgen(js_name = observeAudio)]
+            fn observe_audio(context: &AudioContext, gain: &GainNode, source: &AudioBufferSourceNode) -> JsValue;
+            #[wasm_bindgen(js_name = audioDecoded)]
+            fn audio_decoded(probe: &JsValue) -> js_sys::Promise;
+            #[wasm_bindgen(js_name = finishAudioProbe)]
+            fn finish_audio_probe(probe: &JsValue) -> js_sys::Array;
+        }
+
+        #[wasm_bindgen_test]
+        async fn destruction_stops_owned_audio_and_invalidates_pending_decode() {
+            let mut speaker = Speaker::new().expect("browser AudioContext");
+            let context = speaker.context.clone();
+            let source = context.create_buffer_source().unwrap();
+            let playing_buffer = context.create_buffer(1, 48000, 48000.0).unwrap();
+            source.set_buffer(Some(&playing_buffer));
+            speaker.buffer.replace(Some(playing_buffer));
+            source.connect_with_audio_node(&speaker.gain).unwrap();
+            source.start_with_when(context.current_time() + 60.0).unwrap();
+            let probe = observe_audio(&context, &speaker.gain, &source);
+
+            // A valid PCM file, decoded by the real browser. The promise cannot complete
+            // before this synchronous owner is destroyed and JavaScript gets control back.
+            let mut wav = b"RIFF".to_vec();
+            wav.extend(38u32.to_le_bytes());
+            wav.extend(b"WAVEfmt ");
+            wav.extend(16u32.to_le_bytes());
+            wav.extend([1u16, 1].iter().flat_map(|v| v.to_le_bytes()));
+            wav.extend([48000u32, 96000].iter().flat_map(|v| v.to_le_bytes()));
+            wav.extend([2u16, 16].iter().flat_map(|v| v.to_le_bytes()));
+            wav.extend(b"data");
+            wav.extend(2u32.to_le_bytes());
+            wav.extend([0, 0]);
+            let mut decoding = Speaker::new().unwrap();
+            decoding.load(Some(&wav));
+            speaker.playing = Some(Playing { source, when: 0.0, offset: 0.0, rate: 1.0 });
+            let (playing_buffer, pending_buffer) = (speaker.buffer.clone(), decoding.buffer.clone());
+            let pending = audio_decoded(&probe);
+            drop(speaker);
+            drop(decoding);
+            JsFuture::from(pending).await.unwrap();
+            JsFuture::from(js_sys::Promise::resolve(&JsValue::UNDEFINED)).await.unwrap();
+            let counts = finish_audio_probe(&probe);
+            assert_eq!(counts.iter().map(|n| n.as_f64().unwrap()).collect::<Vec<_>>(), [1.0, 1.0, 1.0]);
+            assert!(playing_buffer.borrow().is_none(), "the finished owner releases its decoded buffer");
+            assert!(pending_buffer.borrow().is_none(), "a detached owner's pending decode must not be published");
+            assert_ne!(context.state(), AudioContextState::Closed);
+            let next = Speaker::new().unwrap();
+            assert_eq!(next.context, context, "another player keeps the shared page context");
+        }
+    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     #[test]
     fn a_takes_sound_is_read_as_written() {

@@ -44,18 +44,30 @@ fn kernel(cutoff: f64) -> Vec<f32> {
 
 /// `input` (interleaved, `channels` channels) at `from` samples a second, resampled to `to`:
 /// each output sample the band-limited interpolation of the input at its instant.
-pub fn resample(input: &[f32], channels: usize, from: f64, to: f64) -> Vec<f32> {
+pub fn resample(input: &[f32], channels: usize, from: f64, to: f64) -> Result<Vec<f32>, String> {
+    if channels == 0 || input.len() % channels != 0 {
+        return Err("audio samples must contain complete frames with a positive channel count".into());
+    }
+    if !from.is_finite() || !to.is_finite() || from <= 0.0 || to <= 0.0 {
+        return Err("audio sample rates must be finite and positive".into());
+    }
     let frames = input.len() / channels;
     if from == to || frames == 0 {
-        return input.to_vec();
+        return Ok(input.to_vec());
     }
     let step = from / to; // input samples per output sample
+    if !step.is_finite() || step <= 0.0 {
+        return Err("audio sample-rate ratio is not representable".into());
+    }
     let cutoff = 0.95 * (1.0 / step).min(1.0); // below the lower Nyquist
     let table = kernel(cutoff);
-    let reach = (ZEROS as f64 / cutoff).ceil() as isize; // input samples each side
+    let reach = (ZEROS as f64 / cutoff).ceil().min(frames as f64) as isize; // input samples each side
     let count = ((frames as f64) / step).round() as usize;
-    let mut out = vec![0.0f32; count * channels];
-    let mut weights = Vec::with_capacity(2 * reach as usize + 1);
+    let length = count.checked_mul(channels).filter(|&n| n <= isize::MAX as usize / size_of::<f32>()).ok_or("resampled audio is too large")?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(length).map_err(|_| "resampled audio is too large")?;
+    out.resize(length, 0.0f32);
+    let mut weights = Vec::with_capacity(frames.min(2 * reach as usize + 1));
     for n in 0..count {
         let x = n as f64 * step;
         let center = x.floor() as isize;
@@ -81,5 +93,5 @@ pub fn resample(input: &[f32], channels: usize, from: f64, to: f64) -> Vec<f32> 
             }
         }
     }
-    out
+    Ok(out)
 }

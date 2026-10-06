@@ -111,7 +111,7 @@ class TestAsking:
         assert speech.duration == pytest.approx(0.1)
 
     def test_another_models_settings_are_refused(self) -> None:
-        untyped: Callable[..., Fal] = Fal  # as a caller no type checker reads
+        untyped = cast("Callable[..., Fal]", Fal)  # as a caller no type checker reads
         with pytest.raises(TypeError, match="takes"):
             untyped("google/gemini-3.8-flash-tts", stability=0.5)
 
@@ -194,8 +194,21 @@ class TestTiming:
                 {"text": "you", "start": 0.0, "end": 0.02},
             ],
             [{"text": "bye", "start": 0.0, "end": 0.02}],
+            [{"text": "hi you", "start": 0.05, "end": 0.0}],
+            [{"text": "hi you", "start": -0.05, "end": 0.02}],
+            [{"text": "hi you", "start": 0.0, "end": float("inf")}],
+            [{"text": "hi you", "start": 0.0, "end": float("nan")}],
         ],
-        ids=["none", "empty", "backwards", "other words"],
+        ids=[
+            "none",
+            "empty",
+            "backwards",
+            "other words",
+            "negative duration",
+            "negative start",
+            "infinite end",
+            "nan end",
+        ],
     )
     def test_without_usable_timing_the_words_are_estimated(
         self, service: Service, stamps: object

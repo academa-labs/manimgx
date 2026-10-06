@@ -2,6 +2,7 @@
 
 from fractions import Fraction
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -37,6 +38,15 @@ def click() -> m.Sound:
     x = np.zeros(480, np.float32)
     x[0] = 1.0
     return m.Sound(x, rate=RATE)
+
+
+def test_a_stop_keeps_its_time_until_audio_is_sampled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(clock, "now", Fraction(3, 10))
+    clip = Clip(click(), Fraction(0))
+    clip.stop(1e-8)
+    assert clip.end == Fraction(3, 10) + Fraction(1, 100000000)
 
 
 def starts(scene: type[m.Scene], fps: float) -> list[Fraction]:
@@ -145,6 +155,12 @@ class TestPlacement:
 
 
 class TestEdits:
+    @pytest.mark.parametrize("shape", [(0,), (0, 1), (0, 2)])
+    def test_empty_samples_have_zero_duration(self, shape: tuple[int, ...]) -> None:
+        sound = m.Sound(np.empty(shape, np.float32), rate=RATE)
+        assert sound.duration == 0
+        assert sound.samples.shape == (0, 1 if len(shape) == 1 else shape[1])
+
     @given(decibels=st.floats(-60, 60), more=st.floats(-60, 60))
     def test_gain_is_decibels(self, decibels: float, more: float) -> None:
         a = tone()
@@ -193,6 +209,29 @@ class TestEdits:
 
 
 class TestMix:
+    @pytest.mark.parametrize("loop", [False, True])
+    @pytest.mark.parametrize("end", [Fraction(0), Fraction(1)])
+    def test_a_clip_stopped_before_it_starts_is_silent(
+        self, loop: bool, end: Fraction
+    ) -> None:
+        sound = m.Sound(np.ones(2 * RATE, np.float32), rate=RATE)
+        if loop:
+            sound = sound.loop()
+        track = mix([Clip(sound, Fraction(1), end=end, fade=0)], Fraction(3))
+        assert track is not None
+        assert not track.any()
+
+    def test_ducking_releases_when_speech_is_stopped(self) -> None:
+        bed = m.Sound(np.ones(RATE, np.float32), rate=RATE).loop().duck(12)
+        speech = Speech(np.zeros(RATE, np.float32), text="quiet", rate=RATE)
+        track = mix(
+            [Clip(bed, Fraction(0)), Clip(speech, Fraction(2), end=Fraction(11, 5))],
+            Fraction(4),
+        )
+        assert track is not None
+        assert track[round(2.1 * RATE), 0] == pytest.approx(10 ** (-12 / 20))
+        assert track[round(2.8 * RATE), 0] == 1
+
     @settings(max_examples=50)
     @given(
         starts=st.lists(
@@ -454,6 +493,70 @@ class TestVoice:
 
 @pytest.mark.usefixtures("cache_here")
 class TestCache:
+    def test_function_identity_keeps_code_but_not_source_locations(self) -> None:
+        def voice(source: str, filename: str) -> voices.Voice:
+            scope: dict[str, object] = {
+                "__name__": "recorded_voice",
+                "speak": said,
+                "first_speaker": said,
+                "second_speaker": said,
+            }
+            exec(compile(source, filename, "exec"), scope)
+            return cast("voices.Voice", scope["voice"])
+
+        source = (
+            "def voice(text):\n    return speak(' '.join(w for w in text.split()))\n"
+        )
+        original = voices._identity(voice(source, "first.py"))
+        assert voices._identity(voice("\n\n" + source, "second.py")) == original
+        assert (
+            voices._identity(voice(source.replace("' '", "'_'"), "first.py"))
+            != original
+        )
+        first = "def voice(text):\n    return first_speaker(text)\n"
+        second = first.replace("first_speaker", "second_speaker")
+        assert voices._identity(voice(first, "voice.py")) != voices._identity(
+            voice(second, "voice.py")
+        )
+
+    @pytest.mark.parametrize("kind", ["array", "bytes", "file"])
+    def test_cached_speech_preserves_edits_and_word_times(
+        self, kind: str, cache_here: Path, tmp_path: Path
+    ) -> None:
+        samples = np.linspace(-0.5, 0.5, RATE, dtype=np.float32)
+        audio = voices._wav(samples)
+        path = tmp_path / "source.wav"
+        path.write_bytes(audio)
+
+        def voice(text: str) -> Speech:
+            source = samples if kind == "array" else audio if kind == "bytes" else path
+            return (
+                Speech(
+                    source,
+                    text=text,
+                    words=[Word(text, 0.2, 0.3)],
+                    rate=RATE if kind == "array" else None,
+                )
+                .trim(0.1, 0.4)
+                .speed(2)
+                .gain(-6)
+                .pan(0.25)
+                .fade_in(0.01)
+                .fade_out(0.02)
+                .loop(0.35)
+                .duck(9)
+            )
+
+        first = cached(voice, "hello", cache_here)
+        again = cached(voice, "hello", cache_here)
+        assert first.duration == again.duration == 0.35
+        assert first.words == again.words
+        np.testing.assert_array_equal(first.samples, again.samples)
+        np.testing.assert_array_equal(
+            mix([Clip(first, Fraction(0))], Fraction(1)),
+            mix([Clip(again, Fraction(0))], Fraction(1)),
+        )
+
     def test_a_voice_speaks_each_text_once(self, cache_here: Path) -> None:
         calls: list[str] = []
 
@@ -505,6 +608,17 @@ class TestCache:
 
 @pytest.mark.usefixtures("cache_here")
 class TestWords:
+    def test_leading_punctuation_keeps_its_place_in_timed_text(self) -> None:
+        text = "— hi"
+        speech = Speech(
+            np.zeros(RATE, np.float32),
+            text=text,
+            words=timed(text, [("hi", 0.1, 0.2)]),
+            rate=RATE,
+        )
+        assert speech.words == (Word("—", 0.1, 0.1), Word("hi", 0.1, 0.2))
+        assert times(speech, (2, 4)) == (0.1, 0.2)
+
     def test_pieces_time_the_words(self) -> None:
         pieces = [(c, i * 0.1, i * 0.1 + 0.1) for i, c in enumerate("hi, you")]
         hi, you = timed("hi, you", pieces)

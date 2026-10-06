@@ -1,12 +1,14 @@
 """Sounds and timed speech: sources, edits, placement and soundtrack mixing."""
 
 import dataclasses
+import marshal
 import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from types import CodeType
 from typing import TYPE_CHECKING, ClassVar, Self
 from warnings import deprecated
 
@@ -31,8 +33,7 @@ CUT = 0.005
 DUCK_ATTACK, DUCK_RELEASE = 0.15, 0.5
 """How long a ducking sound takes to dip before speech, and to come back after it (s)."""
 BITRATE = 224_000
-"""The sound track's bitrate, a channel: AAC-LC at 224 kbps a channel, which PEAQ (ITU-R
-BS.1387) finds no listener could tell from the original, for speech, effects and music."""
+"""The soundtrack's bitrate per channel: AAC-LC at 224 kbps."""
 
 type Source = str | os.PathLike[str] | bytes | np.ndarray
 """What a sound is made from: a file's path, a file's bytes (any common audio file: WAV, AIFF,
@@ -80,6 +81,8 @@ class Sound(Animation[Mobject]):
     def __init__(self, source: Source, *, rate: int | None = None) -> None:
         if isinstance(source, np.ndarray) != (rate is not None):
             raise ValueError("give a rate with samples, and only with samples")
+        if rate is not None and (not math.isfinite(rate) or rate <= 0):
+            raise ValueError("the sample rate must be finite and positive")
         if isinstance(source, str | os.PathLike) and not Path(source).is_file():
             raise FileNotFoundError(f"no sound file at {os.fspath(source)!r}")
         if isinstance(source, np.ndarray):  # its own: the samples as they were given
@@ -119,8 +122,14 @@ class Sound(Animation[Mobject]):
         return self._but(loop=math.inf if duration is None else duration)
 
     def speed(self, factor: float) -> Self:
-        """This sound played `factor` times as fast, as a tape is: higher and shorter."""
-        return self._but(speed=self._edit.speed * factor)
+        """This sound played `factor` times as fast, as a tape is: higher and shorter.
+
+        The resulting speed must be finite and positive.
+        """
+        speed = self._edit.speed * factor
+        if not math.isfinite(speed) or speed <= 0:
+            raise ValueError("the resulting speed must be finite and positive")
+        return self._but(speed=speed)
 
     def pan(self, position: float) -> Self:
         """This sound placed from -1 (left) through 0 (center) to 1 (right)."""
@@ -163,6 +172,14 @@ class Sound(Animation[Mobject]):
         return len(self.samples) / RATE
 
     @property
+    def _duration(self) -> Fraction:
+        return (
+            Fraction(len(self.samples), RATE)
+            if self._edit.loop is None
+            else super()._duration
+        )
+
+    @property
     def run_time(self) -> float:
         """Its duration: a sound plays for as long as it lasts. An endless one (`loop()`)
         cannot be played: add it ([`add_sound`][manimgx.Scene.add_sound]), and stop it.
@@ -201,15 +218,18 @@ class Clip:
     def stop(self, fade: float = 0.05) -> None:
         """Stop the sound: it fades out from now (the instant the scene is computing) over
         `fade` seconds, and is silent after."""
-        self.end, self.fade = clock.now + Fraction(fade).limit_denominator(RATE), fade
+        self.end, self.fade = clock.now + clock.rational(fade), fade
 
 
 def _source_samples(sound: Sound) -> np.ndarray:
     """Source samples at RATE (2-D), possibly borrowed; consumers must not mutate them."""
     source = sound.source
     if isinstance(source, np.ndarray):
-        data = source.astype(np.float32, copy=False).reshape(len(source), -1)
-        rate = sound.rate or RATE
+        data = source.astype(np.float32, copy=False).reshape(
+            len(source), math.prod(source.shape[1:])
+        )
+        rate = sound.rate
+        assert rate is not None
         return data if rate == RATE else _resample(data, rate, RATE)
     raw = source if isinstance(source, bytes) else Path(source).read_bytes()
     from manimgx._engine import digest
@@ -288,6 +308,8 @@ def mix(clips: list[Clip], duration: Fraction) -> np.ndarray | None:
             continue
         e, data = clip.sound._edit, clip.sound.samples
         span = (total if clip.end is None else min(total, round(clip.end * RATE))) - at
+        if span <= 0:
+            continue
         stop = 0.0 if clip.end is None else clip.fade
         if e.loop == math.inf and len(data):
             data = np.tile(data, (-(-span // len(data)), 1))[:span]
@@ -311,6 +333,10 @@ def _ducked(clips: list[Clip], decibels: float, at: int, length: int) -> np.ndar
         if clip.sound.speaks:
             a = float(clip.start)
             b = a + clip.sound.duration
+            if clip.end is not None:
+                b = min(b, float(clip.end))
+            if b <= a:
+                continue
             ease_in = np.clip((grid - (a - DUCK_ATTACK)) / DUCK_ATTACK, 0, 1)
             ease_out = np.clip(((b + DUCK_RELEASE) - grid) / DUCK_RELEASE, 0, 1)
             gain = np.minimum(gain, 1 - (1 - low) * np.minimum(ease_in, ease_out))
@@ -389,7 +415,7 @@ _WORD = re.compile(r"\S+")
 def estimate(text: str, samples: np.ndarray) -> tuple[Word, ...]:
     """When each word of `text` is said in `samples`, estimated: the audio's voiced span
     shared among the words by their letters, with a share more for the pause after a comma or
-    a full stop. Against voices' own times, it is off by about 0.1 s on average."""
+    a full stop."""
     words = _WORD.findall(text)
     if not words:
         return ()
@@ -503,7 +529,9 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
         audio = stem.with_suffix(record["suffix"]).read_bytes()
         same = record.get("audio") == f"{digest(audio):016x}"
         words = [Word(*w) for w in record["words"]] if same else []
-        return Speech(audio, text=text, words=words)
+        speech = Speech(audio, text=text, words=words)
+        speech._edit = _Edit(**record.get("edit", {}))
+        return speech
     speech = voice(text)
     folder.mkdir(parents=True, exist_ok=True)
     suffix, data = _stored(speech)
@@ -515,6 +543,7 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
                 "voice": identity,
                 "suffix": suffix,
                 "audio": f"{digest(data):016x}",
+                "edit": dataclasses.asdict(speech._edit),
                 "words": [[w.text, w.start, w.end] for w in speech._words],
             },
             indent=1,
@@ -542,7 +571,7 @@ def _identity(voice: Voice) -> str:
         return f"{type(voice).__module__}.{type(voice).__qualname__}{_fields(voice)!r}"
     from manimgx._engine import digest
 
-    body = digest(code.co_code, repr(code.co_consts).encode())
+    body = digest(marshal.dumps(_code(code)))
     cells = tuple(c.cell_contents for c in getattr(fn, "__closure__", None) or ())
     defaults = getattr(fn, "__defaults__", None) or ()
     keywords = getattr(fn, "__kwdefaults__", None) or {}
@@ -554,6 +583,18 @@ def _identity(voice: Voice) -> str:
     )
     name = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', '')}"
     return f"{name}#{body:016x}{held!r}"
+
+
+def _code(code: CodeType) -> CodeType:
+    """A voice's code without source locations, including its nested functions."""
+    return code.replace(
+        co_filename="",
+        co_firstlineno=0,
+        co_linetable=b"",
+        co_consts=tuple(
+            _code(c) if isinstance(c, CodeType) else c for c in code.co_consts
+        ),
+    )
 
 
 def _fields(owner: object) -> tuple[tuple[str, object], ...]:
@@ -580,7 +621,7 @@ def _stored(speech: Speech) -> tuple[str, bytes]:
     if isinstance(source, bytes):
         return _sniff(source), source
     if isinstance(source, np.ndarray):
-        return ".wav", _wav(speech.samples)
+        return ".wav", _wav(_source_samples(speech))
     path = Path(source)
     return path.suffix or ".bin", path.read_bytes()
 
@@ -632,7 +673,7 @@ def timed(text: str, pieces: Sequence[tuple[str, float, float]]) -> tuple[Word, 
         owner += [(a, b)] * sum(c.isalnum() for c in piece)
     letters = [c.lower() for c in text if c.isalnum()]
     spelled = [c.lower() for piece, _, _ in pieces for c in piece if c.isalnum()]
-    if letters != spelled:
+    if not letters or letters != spelled:
         return ()
     words, k = [], 0
     for m in _WORD.finditer(text):
@@ -640,6 +681,7 @@ def timed(text: str, pieces: Sequence[tuple[str, float, float]]) -> tuple[Word, 
         if n:
             words.append(Word(m.group(), owner[k][0], owner[k + n - 1][1]))
             k += n
-        elif words:  # a word of no letters ("—"): at the end of the one before
-            words.append(Word(m.group(), words[-1].end, words[-1].end))
+        else:  # punctuation: beside the preceding word, or the first following word
+            at = words[-1].end if words else owner[0][0]
+            words.append(Word(m.group(), at, at))
     return tuple(words)
