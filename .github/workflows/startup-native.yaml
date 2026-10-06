@@ -3,6 +3,11 @@ name: Native startup experiment
 
 on:
   workflow_dispatch:
+    inputs:
+      baseline_run:
+        description: Optional Test run whose wheel is compared on this same runner
+        required: false
+        type: string
 
 permissions: {}
 
@@ -12,6 +17,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      actions: read
     defaults:
       run:
         shell: bash
@@ -30,80 +36,90 @@ jobs:
           shared-key: engine
           save-if: false
 
-      - name: Build and install the production wheel
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ inputs.baseline_run != '' }}
+        with:
+          name: wheel-windows-2025
+          path: baseline
+          run-id: ${{ inputs.baseline_run }}
+          github-token: ${{ github.token }}
+
+      - name: Retrieve the baseline source and locked environment
+        if: ${{ inputs.baseline_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_RUN: ${{ inputs.baseline_run }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BASELINE_RUN}" > baseline/run.json
+          commit="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BASELINE_RUN}" --jq .head_sha)"
+          gh api "repos/${GITHUB_REPOSITORY}/contents/uv.lock?ref=${commit}" \
+            --header 'Accept: application/vnd.github.raw+json' > baseline/uv.lock
+
+      - name: Build the ordinary candidate wheel and frozen runtime
         run: |
           uv build --wheel --python 3.13 --out-dir dist
           uv sync --frozen --no-install-project
           uv pip install --no-deps dist/*.whl
 
-      - name: Measure cold and warm scenes
+      - name: Measure both installed wheels in fresh processes
         env:
           UV_NO_SYNC: "1"
-        run: uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-production --fresh 2>&1 | tee startup-production.log
+          BASELINE_RUN: ${{ inputs.baseline_run }}
+        run: |
+          failed=0
+          for mode in baseline production; do
+            if [[ "$mode" == baseline ]]; then
+              [[ -n "$BASELINE_RUN" ]] || continue
+              wheel=(baseline/*.whl)
+            else
+              wheel=(dist/*.whl)
+            fi
+            uv pip install --force-reinstall --no-deps "${wheel[0]}"
+            uv run --frozen --no-sync python - "${wheel[0]}" "$mode" <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import sys
+          import zipfile
+          from pathlib import Path
+          from tests.integration.corpus.frozen import dependencies
+          import manimgx
+          from manimgx import _engine
 
-      - name: Measure the full Clifford CLI and its first draws
-        env:
-          UV_NO_SYNC: "1"
+          wheel, mode = Path(sys.argv[1]), sys.argv[2]
+          package = Path(manimgx.__file__).resolve().parent
+          assert Path(_engine.__file__).resolve().parent == package
+          with zipfile.ZipFile(wheel) as archive:
+              for name in archive.namelist():
+                  if name.startswith("manimgx/") and not name.endswith("/"):
+                      assert (package.parent / name).read_bytes() == archive.read(name), name
+          if mode == "baseline":
+              commit = json.loads(Path("baseline/run.json").read_text(encoding="utf-8"))["head_sha"]
+              dependencies(Path("baseline/uv.lock"), Path("uv.lock"))
+          else:
+              commit = os.environ["GITHUB_SHA"]
+          Path(f"startup-{mode}-wheel.json").write_text(json.dumps({
+              "source": commit, "wheel": wheel.name,
+              "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "package": str(package),
+          }, indent=2), encoding="utf-8")
+          PYTHON
+            uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe "startup-$mode" --fresh 2>&1 | tee "startup-$mode.log" || failed=1
+            uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe "startup-$mode-clifford" --workload examples/clifford_torus.py 2>&1 | tee "startup-$mode-clifford.log" || failed=1
+          done
+          exit "$failed"
+
+      - name: Verify both product wheels made exactly the same frames
+        if: ${{ !cancelled() && inputs.baseline_run != '' }}
         run: |
           uv run --frozen --no-sync python - <<'PYTHON'
           import json
-          import subprocess
-          import sys
-          import time
           from pathlib import Path
-
-          output = Path("startup-clifford").resolve()
-          output.mkdir()
-          scene = Path("examples/clifford_torus.py").resolve()
-          timings = {}
-          failures = []
-          programs = {
-              "cli": ["-m", "manimgx", "render", str(scene), "--resolution", "64x36", "--fps", "5", "--output", str(output / "video.mp4")],
-              "authoring": ["-c", """
-          import json, sys, time
-          from pathlib import Path
-          import manimgx as m
-          from manimgx.cli.scenes import scene
-          started = time.perf_counter()
-          kind = scene(Path(sys.argv[1]), None)
-          m.config.pixel_width, m.config.pixel_height, m.config.frame_rate = 64, 36, 5
-          with Path(sys.argv[2]).open('wb') as stream:
-              film = kind().render(take=stream.write)
-          print(json.dumps({'seconds': time.perf_counter() - started, 'frames': film.frame_count}), flush=True)
-          """, str(scene), str(output / "recording.take")],
-              "replay": ["-c", """
-          import hashlib, json, sys, time
-          from pathlib import Path
-          from manimgx import _engine
-          def measure(name, action):
-              started = time.perf_counter()
-              result = action()
-              print(json.dumps({'phase': name, 'seconds': time.perf_counter() - started}), flush=True)
-              return result
-          replay = measure('decode', lambda: _engine.Replay(Path(sys.argv[1]).read_bytes()))
-          print(json.dumps(measure('device_and_eager_pipelines', _engine.adapter_info)), flush=True)
-          for frame in dict.fromkeys([0, replay.frames // 2, replay.frames - 1]):
-              first = measure(f'frame_{frame}_first', lambda: replay.render(frame))
-              repeat = measure(f'frame_{frame}_repeat', lambda: replay.render(frame))
-              assert first == repeat
-              print(json.dumps({'frame': frame, 'sha256': hashlib.sha256(first).hexdigest()}), flush=True)
-          """, str(output / "recording.take")],
-          }
-          try:
-              for phase, command in programs.items():
-                  started = time.perf_counter()
-                  with (output / f"{phase}.log").open("wb") as log:
-                      try:
-                          subprocess.run([sys.executable, *command], stdout=log, stderr=subprocess.STDOUT, timeout=300, check=True)
-                      except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-                          failures.append(f"{phase}: {error}")
-                      finally:
-                          timings[phase] = time.perf_counter() - started
-                          print(phase, timings[phase], flush=True)
-          finally:
-              (output / "timings.json").write_text(json.dumps({"seconds": timings, "failures": failures}, indent=2))
-          if failures:
-              raise RuntimeError("; ".join(failures))
+          baseline = json.loads(Path("startup-baseline/startup.json").read_text(encoding="utf-8"))
+          candidate = json.loads(Path("startup-production/startup.json").read_text(encoding="utf-8"))
+          assert baseline["adapter"] == candidate["adapter"]
+          assert baseline["records"] == candidate["records"]
+          print("All five product films agree exactly on the same adapter.")
           PYTHON
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -113,6 +129,7 @@ jobs:
           path: |
             startup-*/
             startup-*.log
-            !startup-clifford/recording.take
+            startup-*-wheel.json
+            !startup-*/recording.take
           if-no-files-found: error
           retention-days: 7

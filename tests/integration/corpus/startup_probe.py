@@ -4,6 +4,9 @@ import argparse
 import dataclasses
 import importlib
 import json
+import subprocess
+import sys
+import textwrap
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -17,13 +20,117 @@ def timed[T](name: str, action: Callable[[], T], timings: dict[str, float]) -> T
     return value
 
 
+def workload(scene: Path, output: Path) -> None:
+    """Bound full CLI export, isolated authoring, and first/repeated native draws separately."""
+    timings = {}
+    failures = []
+    programs = {
+        "cli": [
+            "-m",
+            "manimgx",
+            "render",
+            str(scene),
+            "--resolution",
+            "64x36",
+            "--fps",
+            "5",
+            "--output",
+            str(output / "video.mp4"),
+        ],
+        "authoring": [
+            "-c",
+            """
+    import json, sys, time
+    from pathlib import Path
+    import manimgx as m
+    from manimgx.cli.scenes import scene
+    started = time.perf_counter()
+    kind = scene(Path(sys.argv[1]), None)
+    m.config.pixel_width, m.config.pixel_height, m.config.frame_rate = 64, 36, 5
+    with Path(sys.argv[2]).open('wb') as stream:
+        film = kind().render(take=stream.write)
+    print(json.dumps({'seconds': time.perf_counter() - started, 'frames': film.frame_count}), flush=True)
+    """,
+            str(scene),
+            str(output / "recording.take"),
+        ],
+        "replay": [
+            "-c",
+            """
+    import hashlib, json, sys, time
+    from pathlib import Path
+    from manimgx import _engine
+    def measure(name, action):
+        started = time.perf_counter()
+        result = action()
+        print(json.dumps({'phase': name, 'seconds': time.perf_counter() - started}), flush=True)
+        return result
+    replay = measure('decode', lambda: _engine.Replay(Path(sys.argv[1]).read_bytes()))
+    print(json.dumps(measure('device_and_eager_pipelines', _engine.adapter_info)), flush=True)
+    for frame in dict.fromkeys([0, replay.frames // 2, replay.frames - 1]):
+        first = measure(f'frame_{frame}_first', lambda: replay.render(frame))
+        repeat = measure(f'frame_{frame}_repeat', lambda: replay.render(frame))
+        assert first == repeat
+        print(json.dumps({'frame': frame, 'sha256': hashlib.sha256(first).hexdigest()}), flush=True)
+    expected = []
+    for sweep in range(2):
+        for shot, (frame, repeat) in enumerate(replay.timeline):
+            started = time.perf_counter()
+            pixels = replay.render(frame)
+            seconds = time.perf_counter() - started
+            digest = hashlib.sha256(pixels).hexdigest()
+            if sweep == 0:
+                expected.append(digest)
+            else:
+                assert digest == expected[shot]
+            print(json.dumps({'sweep': sweep, 'frame': frame, 'repeat': repeat, 'seconds': seconds, 'sha256': digest}), flush=True)
+    """,
+            str(output / "recording.take"),
+        ],
+    }
+    try:
+        for phase, command in programs.items():
+            if command[0] == "-c":
+                command[1] = textwrap.dedent(command[1])
+            started = time.perf_counter()
+            with (output / f"{phase}.log").open("wb") as log:
+                try:
+                    subprocess.run(
+                        [sys.executable, *command],
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        timeout=300,
+                        check=True,
+                    )
+                except (
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ) as error:
+                    failures.append(f"{phase}: {error}")
+                finally:
+                    timings[phase] = time.perf_counter() - started
+                    print(phase, timings[phase], flush=True)
+    finally:
+        (output / "timings.json").write_text(
+            json.dumps({"seconds": timings, "failures": failures}, indent=2),
+            encoding="utf-8",
+        )
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--fresh", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--fresh", action="store_true")
+    mode.add_argument("--workload", type=Path)
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    if args.workload is not None:
+        workload(args.workload.resolve(), output)
+        return
     timings: dict[str, float] = {}
     runner = timed(
         "import_runner",
