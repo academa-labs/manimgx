@@ -25,7 +25,7 @@ def test_the_readme_reaches_the_site_it_is_on() -> None:
     assert 'srcset="/showcase/logo-dark.svg"' in html
     assert 'src="/showcase/logo-light.svg"' in html
     # the wall's films, and the scene's film on each ground
-    assert 'src="/showcase/quadratic_formula.avif"' in html
+    assert 'src="/showcase/quadratic_formula.gif"' in html
     assert 'srcset="/films/readme-Hello3D.svg"' in html
     assert 'src="/films/readme-Hello3D-light.svg#readme"' in html
     # a URL written as text, which an agent is told to follow, stays as it is
@@ -38,8 +38,8 @@ def test_the_welcome_page_uses_the_readme_s_same_showcase_images() -> None:
 
     readme = README.read_text(encoding="utf-8")
     raw = f"https://{links.RAW_HOST}{links.RAW_SHOWCASE}"
-    images = re.findall(rf'src="{re.escape(raw)}([^"/]+\.avif)"', readme)
-    assert len(images) == 6
+    images = re.findall(rf'src="{re.escape(raw)}([^"/]+\.gif)"', readme)
+    assert len(images) == 7
     html = markdown.markdown(
         WELCOME.read_text(encoding="utf-8"),
         extensions=["pymdownx.snippets", links.makeExtension()],
@@ -50,7 +50,7 @@ def test_the_welcome_page_uses_the_readme_s_same_showcase_images() -> None:
             }
         },
     )
-    assert re.findall(r'src="/showcase/([^"/]+\.avif)"', html) == images
+    assert re.findall(r'src="/showcase/([^"/]+\.gif)"', html) == images
     assert raw not in html
 
 
@@ -82,22 +82,22 @@ def test_raw_showcase_urls_become_local_without_losing_url_parts() -> None:
 
     raw = f"https://{links.RAW_HOST}{links.RAW_SHOWCASE}"
     assert links.paths(
-        f'<img src="{raw}hopf_fibration.avif?v=2#preview" '
-        f'srcset="{raw}one.avif 1x, {raw}two.avif 2x">'
+        f'<img src="{raw}hopf_fibration.gif?v=2#preview" '
+        f'srcset="{raw}one.gif 1x, {raw}two.gif 2x">'
     ) == (
-        '<img src="/showcase/hopf_fibration.avif?v=2#preview" '
-        'srcset="/showcase/one.avif 1x, /showcase/two.avif 2x">'
+        '<img src="/showcase/hopf_fibration.gif?v=2#preview" '
+        'srcset="/showcase/one.gif 1x, /showcase/two.gif 2x">'
     )
 
 
 @pytest.mark.parametrize(
     "url",
     [
-        "https://raw.githubusercontent.com/other/manimgx/main/docs/content/showcase/a.avif",
-        "https://raw.githubusercontent.com/academa-labs/manimgx/main/examples/a.avif",
-        "https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase-other/a.avif",
-        "https://raw.githubusercontent.com/academa-labs/manimgx/other/docs/content/showcase/a.avif",
-        "https://raw.githubusercontent.com.example.org/academa-labs/manimgx/main/docs/content/showcase/a.avif",
+        "https://raw.githubusercontent.com/other/manimgx/main/docs/content/showcase/a.gif",
+        "https://raw.githubusercontent.com/academa-labs/manimgx/main/examples/a.gif",
+        "https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase-other/a.gif",
+        "https://raw.githubusercontent.com/academa-labs/manimgx/other/docs/content/showcase/a.gif",
+        "https://raw.githubusercontent.com.example.org/academa-labs/manimgx/main/docs/content/showcase/a.gif",
     ],
 )
 def test_other_raw_urls_are_preserved(url: str) -> None:

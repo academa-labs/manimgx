@@ -1,26 +1,29 @@
-"""The README and docs share six small animated AVIF previews, each linked to its film.
+"""The README and docs share seven GIF previews, each linked to its film.
 
 `uv run --frozen python -m scripts.showcase.wall` runs each film in `CLIPS` and keeps
 five seconds at 50 fps, cropped around what moves and without fixed titles or readouts.
 Each preview is 320 × 180 pixels on #0d1117. Premultiplied pixels are resized before
-compositing, keeping translucent edges intact while avoiding an alpha channel to decode.
+compositing, keeping translucent edges intact. Both pages use the same opaque images.
 
-Pillow encodes AVIF at quality 50 and speed 6, with 4:4:4 color for thin lines. All six images
-together must stay strictly below 1.2 MB, and each below 500 KB. The complete set is staged and its dimensions,
-frame count, timing, opacity and budgets are validated before any published file is
-replaced. The rendered images are committed and used unchanged by both pages.
+Gifski encodes all 250 source frames at full quality, combining visually equivalent
+samples into longer holds on the same 20 ms timeline. Every file must stay strictly below 12 MB and all
+seven together below 18 MB. The complete set is staged; its dimensions, duration, timing,
+opacity, looping and budgets are validated before any published file is replaced. Install
+Gifski and put `gifski` on PATH to regenerate the committed images.
 `scripts/showcase/logo.py` draws their SVG logo.
 """
 
 import importlib.util
 import math
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
-from PIL import Image, features
-from PIL.AvifImagePlugin import AvifImageFile
+from PIL import Image
+from PIL.GifImagePlugin import GifImageFile
 
 import manimgx as m
 from manimgx.rendering.film import Cut, Frame
@@ -32,9 +35,8 @@ FILM = 1920, 1080  # the films' size, in which the clips' boxes are
 TILE = 320, 180  # one image size, shared by the README and the docs
 FPS, SECONDS = 50, 5
 BACKGROUND = 13, 17, 23  # #0d1117
-QUALITY, SPEED = 50, 6
-MAX_BYTES = 500_000  # each image, strictly less
-MAX_TOTAL_BYTES = 1_200_000  # the complete wall, strictly less
+MAX_BYTES = 12_000_000  # each image, strictly less
+MAX_TOTAL_BYTES = 18_000_000  # the complete wall, strictly less
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ CLIPS = [  # the wall's, three a row
     Clip("derivative", 17.6, 0, 0, 1920),
     Clip("complex_maps", 2.4, 0, 0, 1920),
     Clip("lorenz_attractor", 7.5, 320, 150, 1280),
+    Clip("heavy_top", 24, 0, 0, 1920),
 ]
 
 
@@ -126,29 +129,40 @@ def frames(clip: Clip) -> list[Image.Image]:
 
 def name(clip: Clip) -> str:
     """The single animated image used by both pages for a film."""
-    return f"{clip.name}.avif"
+    return f"{clip.name}.gif"
 
 
 def validate(path: Path) -> None:
-    """Reject an AVIF that exceeds the budget or changes the preview's playback."""
+    """Reject a GIF that exceeds the budget or changes the preview's playback."""
     if path.stat().st_size >= MAX_BYTES:
         raise ValueError(f"{path.name}: must be below {MAX_BYTES:,} bytes")
-    with Image.open(path) as image:
-        if not isinstance(image, AvifImageFile) or image.size != TILE:
-            raise ValueError(f"{path.name}: must be a {TILE[0]} × {TILE[1]} AVIF")
-        if image.n_frames != FPS * SECONDS:
-            raise ValueError(f"{path.name}: must contain {FPS * SECONDS} frames")
-        if image.mode != "RGB":
-            raise ValueError(f"{path.name}: must be opaque RGB")
-        for index in range(image.n_frames):
-            image.seek(index)
-            image.load()  # AVIF timing is populated by decoding, not by seek().
-            if image.info.get("duration") != 1000 // FPS:
-                raise ValueError(
-                    f"{path.name}: frame {index} must last {1000 // FPS} ms"
-                )
-            if image.info.get("timestamp") != index * 1000 // FPS:
-                raise ValueError(f"{path.name}: frame {index} starts at the wrong time")
+    try:
+        with Image.open(path) as image:
+            if not isinstance(image, GifImageFile) or image.size != TILE:
+                raise ValueError(f"{path.name}: must be a {TILE[0]} × {TILE[1]} GIF")
+            if not image.is_animated:
+                raise ValueError(f"{path.name}: must remain animated")
+            if image.info.get("loop") != 0:
+                raise ValueError(f"{path.name}: must loop forever")
+            total = 0
+            for index in range(image.n_frames):
+                image.seek(index)
+                image.load()
+                duration = image.info.get("duration", 0)
+                if duration <= 0 or duration % (1000 // FPS):
+                    raise ValueError(
+                        f"{path.name}: frame {index} must last a positive multiple "
+                        f"of {1000 // FPS} ms"
+                    )
+                total += duration
+                # GIF may use transparency to reuse the preceding frame's pixels; its
+                # fully composited display must still be opaque, including the first frame.
+                if image.convert("RGBA").getchannel("A").getextrema() != (255, 255):
+                    raise ValueError(f"{path.name}: frame {index} must be opaque")
+            if total != SECONDS * 1000:
+                raise ValueError(f"{path.name}: must last exactly {SECONDS * 1000} ms")
+    except (EOFError, IndexError, OSError) as error:
+        raise ValueError(f"{path.name}: cannot decode the complete GIF") from error
 
 
 def validate_set(paths: list[Path]) -> None:
@@ -160,31 +174,56 @@ def validate_set(paths: list[Path]) -> None:
         raise ValueError(f"the complete wall must be below {MAX_TOTAL_BYTES:,} bytes")
 
 
-def encode(tiles: list[Image.Image], path: Path) -> None:
-    """Encode opaque animated AVIF with evenly timed frames."""
-    first, *rest = tiles
-    first.save(
-        path,
-        format="AVIF",
-        save_all=True,
-        append_images=rest,
-        duration=1000 // FPS,
-        quality=QUALITY,
-        speed=SPEED,
-        subsampling="4:4:4",
-        max_threads=2,
-    )
+def encode(tiles: list[Image.Image], path: Path, gifski: str) -> None:
+    """Encode ordered lossless source frames, preserving their 50 fps presentation times."""
+    if len(tiles) != FPS * SECONDS:
+        raise ValueError(f"{path.name}: must encode {FPS * SECONDS} source frames")
+    with TemporaryDirectory(prefix=".frames-", dir=path.parent) as directory:
+        inputs = []
+        for index, image in enumerate(tiles):
+            frame = Path(directory) / f"frame{index:04d}.png"
+            image.save(frame, compress_level=1)
+            inputs.append(str(frame))
+        result = subprocess.run(
+            [
+                gifski,
+                "--quiet",
+                "--fps",
+                str(FPS),
+                "--repeat",
+                "0",
+                "--no-sort",
+                "--quality",
+                "100",
+                "--motion-quality",
+                "100",
+                "--lossy-quality",
+                "100",
+                "--output",
+                str(path),
+                *inputs,
+            ],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(
+                f"Gifski failed: {result.stderr.decode(errors='replace')}"
+            )
 
 
 def main() -> None:
-    if not features.check("avif"):
-        raise RuntimeError("Pillow must have AVIF support to regenerate the previews")
+    gifski = shutil.which("gifski")
+    if gifski is None:
+        raise RuntimeError(
+            "Install Gifski and put gifski on PATH to regenerate the GIFs"
+        )
     SHOWCASE.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=".wall-", dir=SHOWCASE) as directory:
         paths = []
         for clip in CLIPS:
             path = Path(directory) / name(clip)
-            encode(frames(clip), path)
+            encode(frames(clip), path, gifski)
             paths.append(path)
         validate_set(paths)
         for path in paths:

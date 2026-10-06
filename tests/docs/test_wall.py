@@ -1,10 +1,11 @@
-"""Shared AVIF previews: correct compositing, bounded files and evenly timed playback."""
+"""Shared GIF previews: correct compositing, bounded files and evenly timed playback."""
 
+import re
 from pathlib import Path
 
 import pytest
 from PIL import Image
-from PIL.AvifImagePlugin import AvifImageFile
+from PIL.GifImagePlugin import GifImageFile
 from scripts.showcase import wall
 
 README = Path(__file__).parents[2] / "README.md"
@@ -46,18 +47,21 @@ def test_resize_filters_premultiplied_pixels_before_compositing(
 
 
 @pytest.mark.parametrize("clip", wall.CLIPS, ids=lambda clip: clip.name)
-def test_committed_avif_has_even_timing_and_stays_below_budget(clip: wall.Clip) -> None:
+def test_committed_gif_has_even_timing_and_stays_below_budget(clip: wall.Clip) -> None:
     path = wall.SHOWCASE / wall.name(clip)
     wall.validate(path)
     with Image.open(path) as image:
-        assert isinstance(image, AvifImageFile)
+        assert isinstance(image, GifImageFile)
+        assert image.info["loop"] == 0
         total = 0
         for index in range(image.n_frames):
             image.seek(index)
             image.load()
-            assert image.info["timestamp"] == total
-            total += image.info["duration"]
-            assert image.mode == "RGB"
+            duration = image.info["duration"]
+            assert duration > 0
+            assert duration % 20 == 0
+            total += duration
+            assert image.convert("RGBA").getchannel("A").getextrema() == (255, 255)
         assert total == 5000
 
 
@@ -65,13 +69,32 @@ def test_the_complete_committed_wall_stays_below_budget() -> None:
     wall.validate_set([wall.SHOWCASE / wall.name(clip) for clip in wall.CLIPS])
 
 
+def save_gif(
+    images: list[Image.Image], path: Path, duration: int = 20, loop: int = 0
+) -> None:
+    """Small independent fixtures exercise validation without the production encoder."""
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=duration,
+        loop=loop,
+        disposal=2,
+        optimize=False,
+    )
+
+
 @pytest.mark.parametrize(
-    ("size", "frame_count", "duration", "mode", "message"),
+    ("size", "frame_count", "duration", "transparent", "loop", "message"),
     [
-        ((3, 2), 50, 20, "RGB", "must be a"),
-        ((2, 2), 49, 20, "RGB", "must contain"),
-        ((2, 2), 50, 40, "RGB", "must last 20 ms"),
-        ((2, 2), 50, 20, "RGBA", "must be opaque RGB"),
+        ((3, 2), 50, 20, False, 0, "must be a"),
+        ((2, 2), 1, 1000, False, 0, "must remain animated"),
+        ((2, 2), 49, 20, False, 0, "must last exactly 1000 ms"),
+        ((2, 2), 50, 40, False, 0, "must last exactly 1000 ms"),
+        ((2, 2), 50, 30, False, 0, "positive multiple of 20 ms"),
+        ((2, 2), 50, 0, False, 0, "positive multiple of 20 ms"),
+        ((2, 2), 50, 20, True, 0, "must be opaque"),
+        ((2, 2), 50, 20, False, 1, "must loop forever"),
     ],
 )
 def test_validation_rejects_changed_playback(
@@ -80,33 +103,93 @@ def test_validation_rejects_changed_playback(
     size: tuple[int, int],
     frame_count: int,
     duration: int,
-    mode: str,
+    transparent: bool,
+    loop: int,
     message: str,
 ) -> None:
     monkeypatch.setattr(wall, "TILE", (2, 2))
     monkeypatch.setattr(wall, "SECONDS", 1)
     images = [
-        Image.new(
-            mode, size, (index, 50, 100, 128) if mode == "RGBA" else (index, 50, 100)
-        )
-        for index in range(frame_count)
+        Image.new("RGBA", size, (index, 50, 100, 255)) for index in range(frame_count)
     ]
-    path = tmp_path / "invalid.avif"
-    images[0].save(
-        path,
-        save_all=True,
-        append_images=images[1:],
-        duration=duration,
-        max_threads=2,
-    )
+    if transparent:
+        for image in images:
+            image.putpixel((0, 0), (0, 0, 0, 0))
+    path = tmp_path / "invalid.gif"
+    save_gif(images, path, duration, loop)
     with pytest.raises(ValueError, match=message):
         wall.validate(path)
+
+
+def test_validation_rejects_a_truncated_gif(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wall, "TILE", (2, 2))
+    monkeypatch.setattr(wall, "SECONDS", 1)
+    images = [Image.new("RGB", (2, 2), (index, 50, 100)) for index in range(50)]
+    path = tmp_path / "truncated.gif"
+    save_gif(images, path)
+    wall.validate(path)
+    data = path.read_bytes()
+    path.write_bytes(data[: len(data) // 2])
+    with pytest.raises((ValueError, OSError, EOFError)):
+        wall.validate(path)
+
+
+def test_validation_accepts_combined_identical_frame_holds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(wall, "TILE", (2, 2))
+    monkeypatch.setattr(wall, "SECONDS", 1)
+    images = [Image.new("RGB", (2, 2), (index, 50, 100)) for index in range(25)]
+    path = tmp_path / "combined.gif"
+    save_gif(images, path, duration=40)
+    wall.validate(path)
+
+
+def test_gifski_combines_holds_without_moving_color_transitions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gifski = wall.shutil.which("gifski")
+    if gifski is None:
+        pytest.skip("Gifski is needed only to regenerate the previews")
+    monkeypatch.setattr(wall, "TILE", (2, 2))
+    monkeypatch.setattr(wall, "SECONDS", 1)
+    colors = [(17, 34, 51)] * 10 + [(230, 160, 90)] * 40
+    images = [Image.new("RGB", (2, 2), color) for color in colors]
+    path = tmp_path / "encoded.gif"
+    wall.encode(images, path, gifski)
+    wall.validate(path)
+    with Image.open(path) as image:
+        assert isinstance(image, GifImageFile)
+        assert image.n_frames < len(images)
+        timeline = []
+        for index in range(image.n_frames):
+            image.seek(index)
+            image.load()
+            color = image.convert("RGB").getpixel((0, 0))
+            timeline.extend([color] * (image.info["duration"] // 20))
+        assert timeline == colors
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_encode_requires_the_complete_source_timeline_before_starting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(wall, "SECONDS", 1)
+    path = tmp_path / "incomplete.gif"
+    with pytest.raises(ValueError, match="must encode 50 source frames"):
+        wall.encode([Image.new("RGB", (2, 2))] * 49, path, "unused-encoder")
+    assert not list(tmp_path.iterdir())
 
 
 def test_the_per_file_budget_is_strict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "too-large.avif"
+    path = tmp_path / "too-large.gif"
     path.write_bytes(b"1234")
     monkeypatch.setattr(wall, "MAX_BYTES", 4)
     with pytest.raises(ValueError, match="must be below 4 bytes"):
@@ -122,8 +205,12 @@ def test_the_combined_budget_is_checked_before_replacing_any_image(
     monkeypatch.setattr(wall, "CLIPS", wall.CLIPS[:2])
     images = [Image.new("RGB", (2, 2), (index, 50, 100)) for index in range(50)]
     monkeypatch.setattr(wall, "frames", lambda _clip: images)
-    reference = tmp_path / "reference.avif"
-    wall.encode(images, reference)
+    monkeypatch.setattr(wall.shutil, "which", lambda _name: "unused-encoder")
+    monkeypatch.setattr(
+        wall, "encode", lambda tiles, path, _gifski: save_gif(tiles, path)
+    )
+    reference = tmp_path / "reference.gif"
+    save_gif(images, reference)
     wall.validate(reference)
     monkeypatch.setattr(wall, "MAX_TOTAL_BYTES", reference.stat().st_size * 2)
     reference.unlink()
@@ -142,11 +229,12 @@ def test_a_failed_later_encode_does_not_publish_an_earlier_image(
     monkeypatch.setattr(wall, "SHOWCASE", tmp_path)
     monkeypatch.setattr(wall, "CLIPS", wall.CLIPS[:2])
     monkeypatch.setattr(wall, "frames", lambda _clip: [])
+    monkeypatch.setattr(wall.shutil, "which", lambda _name: "unused-encoder")
     paths = [tmp_path / wall.name(clip) for clip in wall.CLIPS]
     for path in paths:
         path.write_bytes(b"previous asset")
 
-    def fail_later(_tiles: list[Image.Image], path: Path) -> None:
+    def fail_later(_tiles: list[Image.Image], path: Path, _gifski: str) -> None:
         if path.name == paths[-1].name:
             raise RuntimeError("encoder failed")
         path.write_bytes(b"new asset")
@@ -158,12 +246,12 @@ def test_a_failed_later_encode_does_not_publish_an_earlier_image(
     assert set(tmp_path.iterdir()) == set(paths)
 
 
-def test_missing_avif_support_is_reported_before_rendering(
+def test_missing_gifski_is_reported_before_rendering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wall.features, "check", lambda _name: False)
+    monkeypatch.setattr(wall.shutil, "which", lambda _name: None)
     monkeypatch.setattr(wall, "SHOWCASE", tmp_path / "not-created")
-    with pytest.raises(RuntimeError, match="Pillow must have AVIF support"):
+    with pytest.raises(RuntimeError, match="Install Gifski and put gifski on PATH"):
         wall.main()
     assert not wall.SHOWCASE.exists()
 
@@ -176,3 +264,33 @@ def test_the_readme_shows_every_film_linked_to_its_file() -> None:
             f"docs/content/showcase/{wall.name(clip)}"
         ) in readme
         assert f"/blob/main/examples/{clip.name}.py" in readme
+
+
+def test_heavy_top_is_the_seventh_film_in_a_centered_row_at_the_same_size() -> None:
+    names = [
+        "quadratic_formula",
+        "fourier_pi",
+        "linear_maps",
+        "derivative",
+        "complex_maps",
+        "lorenz_attractor",
+        "heavy_top",
+    ]
+    assert [clip.name for clip in wall.CLIPS] == names
+    assert wall.CLIPS[-1].start == 24
+    assert wall.CLIPS[-1].box == (0, 0, *wall.FILM)
+    assert wall.scene("heavy_top").__name__ == "HeavyTop"
+    readme = README.read_text(encoding="utf-8")
+    first = readme.index("/examples/quadratic_formula.py")
+    start = readme.rfind('<p align="center">', 0, first)
+    end = readme.index("</p>", first)
+    assert start >= 0
+    rows = [
+        re.findall(r'/showcase/([^"/]+\.gif)" width="([^"]+)"', row)
+        for row in readme[start:end].split("<br>")
+    ]
+    assert rows == [
+        [(f"{name}.gif", "32%") for name in names[:3]],
+        [(f"{name}.gif", "32%") for name in names[3:6]],
+        [("heavy_top.gif", "32%")],
+    ]

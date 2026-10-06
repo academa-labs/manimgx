@@ -23,13 +23,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/quadratic_formula.py"><img alt="The quadratic formula: completing a square by moving colored rectangles and equation terms" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/quadratic_formula.avif" width="32%"></a>
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/fourier_pi.py"><img alt="Fourier series: a chain of rotating arrows draws the outline of π" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/fourier_pi.avif" width="32%"></a>
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/linear_maps.py"><img alt="A matrix moves the plane: a grid, basis arrows and a unit square transform together" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/linear_maps.avif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/quadratic_formula.py"><img alt="The quadratic formula: completing a square by moving colored rectangles and equation terms" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/quadratic_formula.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/fourier_pi.py"><img alt="Fourier series: a chain of rotating arrows draws the outline of π" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/fourier_pi.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/linear_maps.py"><img alt="A matrix moves the plane: a grid, basis arrows and a unit square transform together" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/linear_maps.gif" width="32%"></a>
   <br>
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/derivative.py"><img alt="A tangent slides along a curve as its slope traces the derivative" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/derivative.avif" width="32%"></a>
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/complex_maps.py"><img alt="Complex functions bend a grid into parabolas, circles and rays" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/complex_maps.avif" width="32%"></a>
-  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/lorenz_attractor.py"><img alt="The Lorenz attractor: nearby trajectories separate as they trace a butterfly in three dimensions" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/lorenz_attractor.avif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/derivative.py"><img alt="A tangent slides along a curve as its slope traces the derivative" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/derivative.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/complex_maps.py"><img alt="Complex functions bend a grid into parabolas, circles and rays" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/complex_maps.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/lorenz_attractor.py"><img alt="The Lorenz attractor: nearby trajectories separate as they trace a butterfly in three dimensions" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/lorenz_attractor.gif" width="32%"></a>
+  <br>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/heavy_top.py"><img alt="Three spinning tops precess and nod as their axes trace curves on glass spheres" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/heavy_top.gif" width="32%"></a>
 </p>
 
 **10 seconds of 3D video, rendered in 0.85 seconds.** On our 1080p60 benchmark,

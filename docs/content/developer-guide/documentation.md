@@ -111,7 +111,7 @@ the User Guide's first page, is the README: `pymdownx.snippets` includes it
 (`--8<-- "README.md"`), so the two can't drift. The README reaches the site's images and
 pages by absolute URLs, for GitHub and PyPI; on the site they become its own paths
 ([`docs/links.py`](https://github.com/academa-labs/manimgx/blob/main/docs/links.py)), so
-`just serve-docs` shows the images it built. The showcase logos and AVIFs use this repository's
+`just serve-docs` shows the images it built. The showcase logos and GIFs use this repository's
 raw GitHub URLs, which the same extension makes local showcase paths: the README and Welcome
 page show the same files. GitHub selects the banner's light or dark source using its reader's
 chosen theme. On the docs site, `javascripts/manimgx.js` follows the Zensical theme toggle,
@@ -124,8 +124,8 @@ code, hides it (`stylesheets/manimgx.css`).
 The README is the front page on GitHub and on PyPI, which render it themselves, so it is
 written in plain GitHub Markdown, with absolute links (PyPI resolves no relative link). Its
 images are the site's. GitHub and PyPI play no video, so what moves in them is an animated
-image: SVGs that play themselves where the picture is made of paths, and AVIFs for the wall
-of example films. The same banner and AVIFs appear on the docs' Welcome page, included from
+image: SVGs that play themselves where the picture is made of paths, and GIFs for the wall
+of example films. The same banner and GIFs appear on the docs' Welcome page, included from
 the README.
 
 - **The banner** (`showcase/logo-dark.svg` and `logo-light.svg`): the logo, which plays
@@ -138,21 +138,24 @@ the README.
   [`scripts/showcase/logo.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/logo.py)
   draws it, the header's still logo (`images/logo-*.svg`) and the favicon;
   `uv run --frozen python -m scripts.showcase.logo` draws them again.
-- **The wall** (`showcase/<film>.avif`): five seconds of six example
-  films, three a row, each its own image, linked to its film.
+- **The wall** (`showcase/<film>.gif`): five seconds of seven example
+  films, three a row with HeavyTop centered in the last row, each its own image linked to
+  its film.
   [`scripts/showcase/wall.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/wall.py)
   renders each film directly at 50 frames a second, without what it fixes in the frame
   (its titles and readouts). Each clip is cropped and resized to 320 × 180, composited onto
-  a dark background, and encoded as opaque AVIF at quality 50 and speed 6, with 4:4:4 color
-  to preserve thin colored lines. There are 250 frames per image, each lasting 20 ms.
-  Each file must stay below 500,000 bytes,
-  and the complete wall below 1,200,000 bytes; the generator validates the whole staged
-  set before replacing any published file. The README points directly to
+  a dark background, and encoded by [Gifski](https://gif.ski/) with quality, motion quality
+  and lossy quality all set to 100. The 250 source frames are spaced 20 ms apart. Samples
+  that become visually equivalent during encoding can combine into longer holds while
+  preserving the five-second timeline and continuous looping.
+  Each file must stay below 12,000,000 bytes, and the complete wall below 18,000,000 bytes;
+  the generator validates the whole staged set before replacing any published file.
+  The README points directly to
   `raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/`.
   The docs resolve that exact prefix to their local `/showcase/` assets. There is one image
-  per film and one shared wall, in both places and on both color schemes. The AVIFs are
+  per film and one shared wall, in both places and on both color schemes. The GIFs are
   committed; `uv run --frozen python -m scripts.showcase.wall` makes them again with
-  Pillow's AVIF encoder.
+  Gifski installed and `gifski` on PATH.
 - **The chart** (`images/benchmark-light.svg` and `benchmark-dark.svg`): the benchmark, as
   a race; `scripts/benchmark/chart.py` draws it from `scripts/benchmark/results.json`.
 - **The scene's film** (`films/readme-<scene>.svg`): `docs/examples.py` records the README's
