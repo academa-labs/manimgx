@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: LLVM Project contributors
+# SPDX-FileCopyrightText: 2026 Academa, Inc.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+--- a/llvm/lib/CodeGen/SplitKit.cpp
++++ b/llvm/lib/CodeGen/SplitKit.cpp
+@@ -593,4 +593,2 @@
+-                                               SlotIndex UseIdx) const {
+-  const MachineInstr *UseMI = LIS.getInstructionFromIndex(UseIdx);
+-  if (!UseMI)
+-    return false;
++                                               SlotIndex UseIdx,
++                                               Register DestReg) const {
+@@ -607,0 +606,10 @@
++  // A split destination may have been inflated beyond the defining opcode's
++  // register class. This must hold even at block boundaries with no use MI:
++  // cloning the definition must not introduce an illegal register operand.
++  if (!DefConstrainRC->hasSubClassEq(MRI.getRegClass(DestReg)))
++    return true;
++
++  const MachineInstr *UseMI = LIS.getInstructionFromIndex(UseIdx);
++  if (!UseMI)
++    return false;
++
+@@ -642 +650 @@
+-      if (!rematWillIncreaseRestriction(RM.OrigMI, MBB, UseIdx)) {
++      if (!rematWillIncreaseRestriction(RM.OrigMI, MBB, UseIdx, Reg)) {
+--- a/llvm/lib/CodeGen/SplitKit.h
++++ b/llvm/lib/CodeGen/SplitKit.h
+@@ -386 +386 @@
+-                                    SlotIndex UseIdx) const;
++                                    SlotIndex UseIdx, Register DestReg) const;
