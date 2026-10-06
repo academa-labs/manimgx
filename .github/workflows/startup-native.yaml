@@ -9,7 +9,7 @@ on:
         required: false
         type: string
       area_experiment:
-        description: Apply the isolated constant-storage area candidate before building
+        description: Remove the angular approximation in the original polygon clipper
         required: false
         type: boolean
         default: false
@@ -60,10 +60,10 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/contents/uv.lock?ref=${commit}" \
             --header 'Accept: application/vnd.github.raw+json' > baseline/uv.lock
 
-      - name: Apply the isolated streaming-area experiment
+      - name: Apply the isolated exact-area experiment
         if: ${{ inputs.area_experiment }}
         run: |
-          git apply scripts/engine/area_streaming.patch
+          git apply scripts/engine/area_exact.patch
           git diff --binary > startup-area.patch
           cargo test --locked --release --manifest-path rust/Cargo.toml \
             -p manimgx-engine --no-default-features --features render,player,export \

@@ -1,118 +1,8 @@
---- a/rust/engine/src/vector.wgsl
-+++ b/rust/engine/src/vector.wgsl
-@@ -1028,6 +1028,57 @@
-     return -t;
- }
-
-+// Stream a clipped polygon into its area integral: its first/previous input vertices and
-+// first/previous output vertices are enough, regardless of the number of intersections.
-+struct ClippedArea {
-+    first: vec2<f32>,
-+    previous: vec2<f32>,
-+    begin: vec2<f32>,
-+    end: vec2<f32>,
-+    area: f32,
-+    started: bool,
-+    emitted: bool,
-+};
-+
-+fn area_vertex(point: vec2<f32>, state: ptr<function, ClippedArea>) {
-+    if (!(*state).emitted) {
-+        (*state).begin = point;
-+        (*state).emitted = true;
-+    }
-+    let last = (*state).end;
-+    (*state).area += last.x * point.y - point.x * last.y;
-+    (*state).end = point;
-+}
-+
-+fn clipped_vertex(point: vec2<f32>, line: vec3<f32>, state: ptr<function, ClippedArea>) {
-+    if ((*state).started) {
-+        let previous = (*state).previous;
-+        let a = dot(previous, line.xy) - line.z;
-+        let b = dot(point, line.xy) - line.z;
-+        if (a >= 0.0) {
-+            area_vertex(previous, state);
-+        }
-+        if ((a >= 0.0) != (b >= 0.0)) {
-+            area_vertex(previous + (point - previous) * (a / (a - b)), state);
-+        }
-+    } else {
-+        (*state).first = point;
-+        (*state).started = true;
-+    }
-+    (*state).previous = point;
-+}
-+
-+fn intersect_area_edge(p: vec2<f32>, q: vec2<f32>, first: vec3<f32>, second: vec3<f32>, state: ptr<function, ClippedArea>) {
-+    let a = dot(p, first.xy) - first.z;
-+    let b = dot(q, first.xy) - first.z;
-+    if (a >= 0.0) {
-+        clipped_vertex(p, second, state);
-+    }
-+    if ((a >= 0.0) != (b >= 0.0)) {
-+        clipped_vertex(p + (q - p) * (a / (a - b)), second, state);
-+    }
-+}
-+
- // The area of the unit pixel (centred at 0) inside both half-planes p.n1 >= d1 and p.n2 >= d2.
- fn both_area(n1: vec2<f32>, d1: f32, n2: vec2<f32>, d2: f32) -> f32 {
-     let cosine = dot(n1, n2);
-@@ -1037,41 +1088,16 @@
-     if (cosine < -0.995) {
-         return max(side_area(n1, d1) + side_area(n2, d2) - 1.0, 0.0); // facing: their overlap
-     }
--    var poly: array<vec2<f32>, 8>;
--    var count = 4u;
--    poly[0] = vec2<f32>(-0.5, -0.5);
--    poly[1] = vec2<f32>(0.5, -0.5);
--    poly[2] = vec2<f32>(0.5, 0.5);
--    poly[3] = vec2<f32>(-0.5, 0.5);
--    for (var h = 0u; h < 2u; h++) {
--        let n = select(n2, n1, h == 0u);
--        let d = select(d2, d1, h == 0u);
--        var next: array<vec2<f32>, 8>;
--        var m = 0u;
--        for (var i = 0u; i < count; i++) {
--            let p = poly[i];
--            let q = poly[(i + 1u) % count];
--            let sp = dot(p, n) - d;
--            let sq = dot(q, n) - d;
--            if (sp >= 0.0 && m < 8u) {
--                next[m] = p;
--                m++;
--            }
--            if ((sp >= 0.0) != (sq >= 0.0) && m < 8u) {
--                next[m] = p + (q - p) * (sp / (sp - sq));
--                m++;
--            }
--        }
--        poly = next;
--        count = m;
--    }
--    var area = 0.0;
--    for (var i = 0u; i < count; i++) {
--        let p = poly[i];
--        let q = poly[(i + 1u) % count];
--        area += p.x * q.y - q.x * p.y;
--    }
--    return 0.5 * abs(area);
-+    let first = vec3<f32>(n1, d1);
-+    let second = vec3<f32>(n2, d2);
-+    var state: ClippedArea;
-+    intersect_area_edge(vec2<f32>(-0.5, -0.5), vec2<f32>(0.5, -0.5), first, second, &state);
-+    intersect_area_edge(vec2<f32>(0.5, -0.5), vec2<f32>(0.5, 0.5), first, second, &state);
-+    intersect_area_edge(vec2<f32>(0.5, 0.5), vec2<f32>(-0.5, 0.5), first, second, &state);
-+    intersect_area_edge(vec2<f32>(-0.5, 0.5), vec2<f32>(-0.5, -0.5), first, second, &state);
-+    clipped_vertex(state.first, second, &state);
-+    let closing = state.end.x * state.begin.y - state.begin.x * state.end.y;
-+    return 0.5 * abs(state.area + closing);
- }
-
- // What covers a pixel, or a part of it, as the composite mixes it: the raster base's two targets in one value
+diff --git a/rust/engine/src/vector.rs b/rust/engine/src/vector.rs
+index 9e7ef99..4edd21c 100644
 --- a/rust/engine/src/vector.rs
 +++ b/rust/engine/src/vector.rs
-@@ -1493,3 +1493,85 @@
+@@ -1493,3 +1493,86 @@ pub(crate) enum Out<'a> {
      /// at each pixel, where nearer, the depth of the nearest opaque layer of the plan that covers it.
      Opaque(&'a wgpu::TextureView),
  }
@@ -143,11 +33,12 @@
 +
 +    #[test]
 +    fn half_plane_intersection_matches_independent_polygon_clipping() {
-+        let normals = [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0], [0.6, 0.8], [-0.6, 0.8], [0.6, -0.8], [-0.6, -0.8]];
++        let mut normals = vec![[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0], [0.6, 0.8], [-0.6, 0.8], [0.6, -0.8], [-0.6, -0.8]];
++        for angle in [1e-7f32, 0.01, 0.099, std::f32::consts::PI - 0.099] { normals.push([angle.cos(), angle.sin()]); }
 +        let offsets = [-1.0, -0.5, -0.49999997, -0.25, 0.0, 0.25, 0.49999997, 0.5, 1.0];
 +        let mut inputs = Vec::new();
 +        let mut areas = Vec::new();
-+        for n in normals { for m in normals { for a in offsets { for b in offsets {
++        for &n in &normals { for &m in &normals { for a in offsets { for b in offsets {
 +            let first = [n[0], n[1], a, 0.0];
 +            let second = [m[0], m[1], b, 0.0];
 +            inputs.extend([first, second]);
@@ -198,3 +89,21 @@
 +        }).unwrap();
 +    }
 +}
+diff --git a/rust/engine/src/vector.wgsl b/rust/engine/src/vector.wgsl
+index 8d14649..3ac8952 100644
+--- a/rust/engine/src/vector.wgsl
++++ b/rust/engine/src/vector.wgsl
+@@ -1030,13 +1030,6 @@ fn offset_for(n: vec2<f32>, c: f32) -> f32 {
+
+ // The area of the unit pixel (centred at 0) inside both half-planes p.n1 >= d1 and p.n2 >= d2.
+ fn both_area(n1: vec2<f32>, d1: f32, n2: vec2<f32>, d2: f32) -> f32 {
+-    let cosine = dot(n1, n2);
+-    if (cosine > 0.995) {
+-        return min(side_area(n1, d1), side_area(n2, d2)); // nested
+-    }
+-    if (cosine < -0.995) {
+-        return max(side_area(n1, d1) + side_area(n2, d2) - 1.0, 0.0); // facing: their overlap
+-    }
+     var poly: array<vec2<f32>, 8>;
+     var count = 4u;
+     poly[0] = vec2<f32>(-0.5, -0.5);
