@@ -26,8 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: linux-x86_64, runner: ubuntu-24.04 }
-          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          # The same glibc 2.28 SDKs as cibuildwheel 4.2.1; the launcher is native too.
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            sdk: quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            sdk: quay.io/pypa/manylinux_2_28_aarch64@sha256:ad74e53b713f3b07d8c889c526dc0c6500da9827b45e38739570875fef52e28f
           - { platform: macos-arm64, runner: macos-26 }
           - { platform: windows-x86_64, runner: windows-2025 }
     runs-on: ${{ matrix.runner }}
@@ -50,16 +55,36 @@ jobs:
           name: wheel-${{ matrix.platform }}
           path: dist
 
-      # the executable renders a scene before it is kept: Linux draws it with Mesa's lavapipe
-      # (macOS has Metal, Windows WARP)
-      - name: Install a GPU driver
+      # Both the launcher and its Python packages must obey the wheel's Linux ABI floor.
+      - name: Create the Linux executable in its SDK
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
+          docker run --rm -v "$PWD:/project" -w /project \
+            -v "$(command -v uv):/usr/local/bin/uv:ro" "$SDK" bash -euxc '
+              curl --proto "=https" --tlsv1.2 --silent --show-error --fail https://sh.rustup.rs | sh -s -- -y --profile minimal
+              export PATH="$HOME/.cargo/bin:$PATH"
+              uv run --no-project scripts/release/create_executable.py
+            '
+        env:
+          SDK: ${{ matrix.sdk }}
 
       - name: Create the executable
+        if: runner.os != 'Linux'
         run: just create-executable
+
+      # A fresh glibc 2.28 runtime: no build tools, Python, driver, network, or warm cache.
+      - name: Run the Linux executable at its minimum glibc
+        if: runner.os == 'Linux'
+        run: |
+          mkdir dist/executable
+          tar -xzf dist/manimgx-linux-*.tar.gz -C dist/executable
+          docker run --rm --network none -v "$PWD:/source:ro" \
+            debian@sha256:bb3dc79fddbca7e8903248ab916bb775c96ec61014b3d02b4f06043b604726dc sh -euxc '
+              if command -v python || command -v python3; then exit 1; fi
+              test -z "$(find /lib /usr/lib -iname "*vulkan*" -print -quit)"
+              ldd --version | head -1
+              /source/dist/executable/manimgx self python /source/scripts/release/smoke_test.py /source/dist/executable/manimgx
+            '
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -67,4 +92,10 @@ jobs:
           path: |
             dist/manimgx-*.tar.gz
             dist/manimgx-*.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sources-executable-${{ matrix.platform }}
+          path: release-sources/
           if-no-files-found: error
