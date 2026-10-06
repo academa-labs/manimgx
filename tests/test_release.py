@@ -3,6 +3,7 @@ The release must route only that project's distributions to it, and publish the 
 before anything that installs manimgx from PyPI.
 """
 
+import io
 import json
 import subprocess
 import tarfile
@@ -203,14 +204,26 @@ def test_executable_sources_reject_missing_and_changed_platform_archives(
         source.mkdir()
         archive = source / "pyapp.tar.xz"
         archive.write_bytes(b"the actual launcher sources and locked dependencies")
+        (source / "python-inputs.tar.xz").write_bytes(archive.read_bytes())
         (source / "manifest.json").write_text(
-            json.dumps({"source_sha256": create_executable.sha256(archive)}),
+            json.dumps(
+                {
+                    "source_sha256": create_executable.sha256(archive),
+                    "python": {"inputs_sha256": create_executable.sha256(archive)},
+                }
+            ),
             encoding="utf-8",
         )
         if platform != "windows-x86_64":
             with pytest.raises(FileNotFoundError):
                 create_executable.verify_sources(tmp_path)
     create_executable.verify_sources(tmp_path)
+    python_inputs = source / "python-inputs.tar.xz"
+    original = python_inputs.read_bytes()
+    python_inputs.write_bytes(b"changed Python provenance")
+    with pytest.raises(ValueError, match="retained Python inputs changed"):
+        create_executable.verify_sources(tmp_path)
+    python_inputs.write_bytes(original)
     archive.write_bytes(b"other sources")
     with pytest.raises(ValueError, match="retained source changed"):
         create_executable.verify_sources(tmp_path)
@@ -232,6 +245,7 @@ def test_launcher_build_keeps_compiled_output_out_of_its_source_archive(
         assert env is not None
         target = Path(env["CARGO_TARGET_DIR"])
         assert not target.is_relative_to(source)
+        assert env["PYAPP_PYTHON_VERSION"] == "3.14"
         assert "--offline" in command
         assert "--locked" in command
         target.mkdir()
@@ -264,9 +278,10 @@ def test_launcher_vendoring_preserves_upstream_target_configuration(
     original = '[target.windows]\nrustflags = ["-C", "target-feature=+crt-static"]\n'
     (upstream / ".cargo/config.toml").write_text(original, encoding="utf-8")
 
-    def download(*_args: object, **_kwargs: object) -> None:
+    def download(*_args: object, **_kwargs: object) -> Path:
         with tarfile.open(tmp_path / create_executable.PYAPP_SHA256, "w:gz") as out:
             out.add(upstream, arcname=f"pyapp-{create_executable.PYAPP}")
+        return tmp_path / create_executable.PYAPP_SHA256
 
     def vendor(command: list[str], *, cwd: Path, stdout: TextIO, check: bool) -> None:
         assert command == ["cargo", "vendor", "--locked", "vendor"]
@@ -278,7 +293,7 @@ def test_launcher_vendoring_preserves_upstream_target_configuration(
         )
         stdout.write('[source.crates-io]\nreplace-with = "vendored-sources"\n')
 
-    monkeypatch.setattr(create_executable, "run", download)
+    monkeypatch.setattr(create_executable, "fetch", download)
     monkeypatch.setattr(create_executable.subprocess, "run", vendor)
     source = create_executable.launcher_sources(tmp_path)
     config = tomllib.loads((source / ".cargo/config.toml").read_text(encoding="utf-8"))
@@ -371,3 +386,147 @@ def test_only_the_installed_librarys_verified_source_is_retained(
                 "sha256": linux_sources.digest(archive),
             }
         ]
+
+
+@pytest.mark.parametrize("target", create_executable.PYTHONS)
+@pytest.mark.parametrize("failure", ["", "metadata", "notice", "unsafe"])
+def test_standalone_python_retains_exact_input_metadata_and_every_declared_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, failure: str
+) -> None:
+    system, machine = target.split("-", 1)
+    monkeypatch.setattr(create_executable, "SYSTEM", system)
+    monkeypatch.setattr(create_executable, "MACHINE", machine)
+    triple, options, digest = create_executable.PYTHONS[target]
+    metadata = {
+        "python_version": create_executable.PYTHON,
+        "target_triple": triple,
+        "build_options": options,
+        "license_path": "licenses/LICENSE.cpython.txt",
+        "build_info": {
+            "extensions": {
+                "_zstd": [
+                    {
+                        "license_paths": ["licenses/LICENSE.zstd.txt"],
+                    }
+                ]
+            }
+        },
+    }
+    if failure == "metadata":
+        metadata["python_version"] = "3.14.0"
+    elif failure == "notice":
+        metadata["license_path"] = "licenses/LICENSE.missing.txt"
+    elif failure == "unsafe":
+        metadata["license_path"] = "../outside"
+    original = json.dumps(metadata).encode()
+    downloads = tmp_path / "fixtures"
+    downloads.mkdir()
+
+    def pack(name: str, files: dict[str, bytes]) -> Path:
+        result = downloads / name
+        with tarfile.open(result, "w:gz") as archive:
+            for path, data in files.items():
+                member = tarfile.TarInfo(path)
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+        return result
+
+    dependency = pack(
+        "zstd", {"cpython-source-deps-zstd-1.5.7/LICENSE": b"actual zstd notice"}
+    )
+    recipe = {
+        "zstd": {
+            "version": "1.5.7",
+            "url": "https://source.invalid/zstd",
+            "sha256": "zstd",
+        }
+    }
+    archives = {
+        digest: pack(
+            "runtime",
+            {
+                "python/PYTHON.json": original,
+                "python/install/bin/python3": b"runtime",
+                "python/licenses/LICENSE.cpython.txt": b"actual Python notice",
+                "python/build/compiled.o": b"not source, not runtime",
+            },
+        ),
+        create_executable.PBS_SOURCE_SHA256: pack(
+            "recipe",
+            {
+                f"python-build-standalone-{create_executable.PBS_COMMIT}/pythonbuild/downloads.json": json.dumps(
+                    recipe
+                ).encode(),
+            },
+        ),
+        "zstd": dependency,
+    }
+
+    def fetch(url: str, sha: str, directory: Path, *, source: bool = True) -> Path:
+        assert source == (sha != digest)
+        if not source:
+            assert (
+                f"{create_executable.PYTHON}+{create_executable.PBS_RELEASE}-{triple}-{options}"
+                in url
+            )
+        return archives[sha]
+
+    monkeypatch.setattr(create_executable, "fetch", fetch)
+    retained = tmp_path / "retained"
+    if failure:
+        with pytest.raises(
+            ValueError,
+            match={
+                "metadata": "unexpected metadata",
+                "notice": "omits declared notice",
+                "unsafe": "unsafe Python notice path",
+            }[failure],
+        ):
+            create_executable.install_python(tmp_path, retained)
+        assert not (retained / "python-inputs.tar.xz").exists()
+        return
+    runtime, receipt = create_executable.install_python(tmp_path, retained)
+    assert (runtime / "bin/python3").read_bytes() == b"runtime"
+    assert not (runtime.parent / "build").exists()
+    assert (runtime / "share/manimgx-python/PYTHON.json").read_bytes() == original
+    assert (tmp_path / "PYTHON.json").read_bytes() == original
+    notice = (tmp_path / "LICENSE-PYTHON").read_bytes()
+    assert b"actual Python notice" in notice
+    assert b"actual zstd notice" in notice
+    assert receipt["sha256"] == digest
+    with tarfile.open(retained / "python-inputs.tar.xz") as archive:
+        assert "python-inputs/python-build-standalone.tar.gz" in archive.getnames()
+        assert "python-inputs/zstd.tar.gz" in archive.getnames()
+        assert not any(
+            "install/" in name or "compiled.o" in name for name in archive.getnames()
+        )
+
+
+def test_python_binary_acquisition_is_verified_and_never_retained_as_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MANIMGX_SOURCES", str(tmp_path / "sources"))
+    downloaded = tmp_path / "download"
+    downloaded.write_bytes(b"verified input")
+    digest = create_executable.sha256(downloaded)
+
+    def run(
+        *command: str | Path, env: dict[str, str] | None = None, cwd: Path = ROOT
+    ) -> None:
+        assert env is not None
+        assert "MANIMGX_SOURCES" not in env
+        assert command[-2:] == ("https://example.invalid/input", digest)
+        (tmp_path / digest).write_bytes(downloaded.read_bytes())
+
+    monkeypatch.setattr(create_executable, "run", run)
+    assert (
+        create_executable.fetch(
+            "https://example.invalid/input", digest, tmp_path, source=False
+        ).read_bytes()
+        == b"verified input"
+    )
+    downloaded.write_bytes(b"changed input")
+    with pytest.raises(ValueError, match="download changed"):
+        create_executable.fetch(
+            "https://example.invalid/input", digest, tmp_path, source=False
+        )
