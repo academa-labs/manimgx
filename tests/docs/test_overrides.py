@@ -1,8 +1,8 @@
 """The theme's overrides, copied from Zensical, and what they add: the header's lockup (the logo
-and "by Academa" below it, each its own link) and the footer's band, Academa's. Each copy is
-checked against what it copies: Zensical's templates, and the numbers of the byline's SVG
-(`scripts/showcase/logo.py`) that the stylesheet repeats. And the band offers the newsletter
-only with the door its field posts to."""
+and "by Academa" beside it, each its own link) and the footer's band, Academa's. Each copy is
+checked against Zensical's templates. The logo and byline share a vertical canvas, so CSS
+needs no alignment offsets. And the band offers the newsletter only with the door its field
+posts to."""
 
 import re
 import tomllib
@@ -57,15 +57,15 @@ def test_the_footer_is_zensicals_but_for_the_band() -> None:
     ]
 
 
-def test_the_stylesheet_places_the_byline_where_its_svg_says() -> None:
-    _, _, _, logo = view("logo-light.svg")
-    x, y, _, height = view("byline-light.svg")
-    assert view("byline-dark.svg") == view("byline-light.svg")
-    assert x == 0  # from the logo's left edge
+def test_the_header_images_share_a_vertical_canvas_without_css_offsets() -> None:
+    for ground in ("light", "dark"):
+        x, y, _, height = view(f"byline-{ground}.svg")
+        _, top, _, logo_height = view(f"logo-{ground}.svg")
+        assert x == 0
+        assert (y, height) == (top, logo_height)
     css = STYLESHEET.read_text(encoding="utf-8")
-    assert f"calc(var(--mx-logo) / {logo:g})" in css
-    assert f"calc(({y:g} - {logo:g}) * var(--mx-unit))" in css
-    assert f"calc({height:g} * var(--mx-unit))" in css
+    lockup = re.findall(r"\.mx-(?:lockup|byline)[^{}]*\{([^{}]*)\}", css)
+    assert not any("transform:" in rule or "margin-top:" in rule for rule in lockup)
 
 
 def band(extra: dict[str, object]) -> str:

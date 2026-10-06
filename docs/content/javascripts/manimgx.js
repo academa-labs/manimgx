@@ -14,6 +14,71 @@
     }
   }, { threshold: 0.5 })
 
+  // The README's pictures follow the site's selected palette. Zensical resolves system
+  // preference into this same body attribute. Keep the original media in the DOM so a
+  // cached page restored by instant navigation still knows which source is light or dark.
+  let palette
+  function pictures() {
+    const scheme = document.body.getAttribute("data-md-color-scheme")
+    for (const source of document.querySelectorAll("picture > source[media]")) {
+      const original = source.getAttribute("data-mx-color-media") ?? source.media
+      const match = /^\(prefers-color-scheme:\s*(light|dark)\)$/.exec(original)
+      if (!match) continue
+      source.setAttribute("data-mx-color-media", original)
+      const selected = scheme === "slate" ? "dark" : scheme === "default" ? "light" : null
+      const media = selected === null ? original : selected === match[1] ? "all" : "not all"
+      if (source.media !== media) source.media = media
+    }
+  }
+
+  // Most pages need no math renderer. Load it once on the first page with math, with its
+  // stylesheet beside the scripts in the persistent body: instant navigation replaces
+  // the head and page container, but keeps these assets. A failed download can be retried
+  // on the next navigation, while successfully loaded dependencies remain available.
+  const KATEX = "https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/"
+  const mathAssets = new Map()
+  function mathAsset(path) {
+    if (!mathAssets.has(path)) {
+      const style = path.endsWith(".css")
+      const asset = document.createElement(style ? "link" : "script")
+      if (style) {
+        asset.rel = "stylesheet"
+        asset.href = KATEX + path
+      } else asset.src = KATEX + path
+      mathAssets.set(path, new Promise((resolve, reject) => {
+        asset.onload = resolve
+        asset.onerror = () => {
+          asset.remove()
+          mathAssets.delete(path)
+          reject(new Error(`Could not load ${path}`))
+        }
+        document.body.appendChild(asset)
+      }))
+    }
+    return mathAssets.get(path)
+  }
+
+  function mathematics() {
+    const roots = document.querySelectorAll(".arithmatex")
+    if (!roots.length) return
+    Promise.all([
+      mathAsset("katex.min.css"),
+      mathAsset("katex.min.js").then(() => mathAsset("contrib/auto-render.min.js")),
+    ]).then(() => {
+      for (const math of roots) {
+        if (!math.isConnected) continue // the reader navigated away while assets loaded
+        renderMathInElement(math, {
+          delimiters: [
+            { left: "\\(", right: "\\)", display: false },
+            { left: "\\[", right: "\\]", display: true },
+          ],
+        })
+      }
+    }).catch(() => {
+      // Keep the readable source if the CDN is unavailable; a later page can retry.
+    })
+  }
+
   // A rate function explorer, <div class="mx-rates" data-rates="smooth linear …">: a button for
   // each function named, its curve with a dot that rides it as time passes, and under it a
   // square that the function moves, beside a faint one that keeps one speed. It plays while it
@@ -179,9 +244,9 @@
   }
 
   // The footer's newsletter field (overrides/partials/academa.html). Its address goes to
-  // academa.ai's door as JSON, the one way that door takes an address from another site; then
-  // the field says what the door answered: the signup, or why not. Every page has a footer of
-  // its own, so the field's form is found when it is submitted
+  // academa.ai's door as JSON. A signup is shown immediately; a refusal or network failure
+  // restores the same field, with its address intact. Every page has a footer of its own,
+  // so the field's form is found when it is submitted
   document.addEventListener("submit", async event => {
     const form = event.target
     if (!(form instanceof HTMLFormElement) || !form.matches(".mx-footer__subscribe")) return
@@ -189,7 +254,11 @@
     const answer = form.parentElement.querySelector(".mx-footer__answer")
     const button = form.querySelector("button")
     button.disabled = true
+    form.remove()
+    answer.classList.add("mx-footer__answer--joined")
+    answer.textContent = "You are on the list."
     let reply = null
+    let accepted = false
     try {
       const response = await fetch(form.action, {
         method: "POST",
@@ -198,18 +267,16 @@
         body: JSON.stringify({ email: form.elements.email.value }),
       })
       reply = await response.json()
+      accepted = response.ok && reply?.success === true
     } catch {
       // the door unreachable, or an answer this page may not read
-    } finally {
-      button.disabled = false
     }
-    if (reply?.success === true) {
-      form.remove()
-      answer.classList.add("mx-footer__answer--joined")
-      answer.textContent = "You are on the list."
-    } else {
+    if (!accepted) {
+      answer.classList.remove("mx-footer__answer--joined")
       answer.textContent =
         typeof reply?.error === "string" ? reply.error : "Something went wrong. Please try again."
+      button.disabled = false
+      answer.before(form)
     }
   })
   // a refusal is about what was typed: typing again clears it
@@ -221,24 +288,31 @@
   })
 
   // Every page, including those reached by instant navigation: its films, its math and its
-  // rate function explorers
+  // rate function explorers and theme-aware pictures
   document$.subscribe(() => {
+    palette ??= new MutationObserver(pictures)
+    palette.disconnect()
+    palette.observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] })
+    pictures()
     films.disconnect()
     for (const film of document.querySelectorAll("video.mx-film")) films.observe(film)
-    for (const math of document.querySelectorAll(".arithmatex")) {
-      renderMathInElement(math, {
-        delimiters: [
-          { left: "\\(", right: "\\)", display: false },
-          { left: "\\[", right: "\\]", display: true },
-        ],
-      })
-    }
+    mathematics()
     explorers.disconnect()
     const roots = document.querySelectorAll(".mx-rates")
     if (!roots.length) return
-    curves ??= fetch(RATES).then(response => response.json())
+    curves ??= fetch(RATES).then(response => {
+      if (!response.ok) throw new Error(`Could not load rate functions: ${response.status}`)
+      return response.json()
+    }).catch(error => {
+      curves = undefined // a later page can retry a failed download
+      throw error
+    })
     curves.then(data => {
-      for (const root of roots) root.mxSeen ? explorers.observe(root) : explore(root, data)
+      for (const root of roots) {
+        if (root.isConnected) root.mxSeen ? explorers.observe(root) : explore(root, data)
+      }
+    }).catch(() => {
+      // The rate functions' reference remains readable if its interactive data is unavailable.
     })
   })
 })()
