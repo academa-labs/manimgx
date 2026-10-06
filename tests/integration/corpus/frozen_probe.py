@@ -18,7 +18,6 @@ from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
-import numpy as np
 from PIL import Image
 from tests.integration.corpus.case import (
     FPS,
@@ -33,6 +32,8 @@ from tests.integration.corpus.case import (
 from tests.integration.corpus.engines import TIMEOUT, environment
 from tests.integration.corpus.frames import rgb
 from tests.integration.corpus.frozen import (
+    Comparison,
+    Difference,
     NativeInterpreter,
     interpreter,
     prepare,
@@ -82,49 +83,37 @@ def compare(
     manimgx.config.frame_rate = FPS
     module = load(case.scene, source, f"corpus_scene_{case.name}")
     scene = the_scene(module, manimgx.Scene)()
-    timeline = expected.timeline
-    first, shot, cached_shot = 0, 0, -1
-    wanted = b""
     mismatches: list[Json] = []
-    changed_frames = 0
+
+    def changed(difference: Difference, old: bytes, new: bytes) -> None:
+        mismatches.append(
+            {
+                "first": difference.first,
+                "repeat": difference.repeat,
+                "changed_pixels": difference.changed_pixels,
+                "max_channel_difference": difference.max_channel_difference,
+            }
+        )
+        if len(mismatches) <= 3:
+            Image.frombytes("RGB", SIZE, old).save(
+                output / f"reference-{difference.first:05}.png"
+            )
+            Image.frombytes("RGB", SIZE, new).save(
+                output / f"actual-{difference.first:05}.png"
+            )
+
+    comparison = Comparison(expected, changed)
 
     def observe(frame: Frame) -> None:
-        nonlocal first, shot, cached_shot, wanted, changed_frames
-        actual = rgb(frame.pixels(), SIZE)
-        end = first + frame.repeat
-        while first < end and first < expected.frames:
-            while shot + 1 < len(timeline) and timeline[shot + 1][0] <= first:
-                shot += 1
-            start, repeat = timeline[shot]
-            if cached_shot != shot:
-                wanted = rgb(expected.render(start), SIZE)
-                cached_shot = shot
-            stop = min(end, start + repeat)
-            if actual != wanted:
-                old = np.frombuffer(wanted, np.uint8).reshape(SIZE[1], SIZE[0], 3)
-                new = np.frombuffer(actual, np.uint8).reshape(SIZE[1], SIZE[0], 3)
-                delta = np.abs(old.astype(np.int16) - new)
-                mismatches.append(
-                    {
-                        "first": first,
-                        "repeat": stop - first,
-                        "changed_pixels": int(np.any(delta, axis=2).sum()),
-                        "max_channel_difference": int(delta.max()),
-                    }
-                )
-                changed_frames += stop - first
-                if len(mismatches) <= 3:
-                    Image.fromarray(old).save(output / f"reference-{first:05}.png")
-                    Image.fromarray(new).save(output / f"actual-{first:05}.png")
-            first = stop
-        first = end
+        comparison.add(frame.index, frame.repeat, rgb(frame.pixels(), SIZE))
 
     started = time.monotonic()
     film = scene.render(frames=observe)
+    comparison.finish(film.frame_count)
     same_duration = exact(seconds(scene.clock)) == exact(
         seconds(Fraction(metadata["duration"]))
     )
-    same_frames = first == expected.frames == film.frame_count
+    same_frames = comparison.frames == expected.frames == film.frame_count
     return {
         "case": case.name,
         "status": "exact"
@@ -136,13 +125,13 @@ def compare(
         "adapter": cast(dict[str, Json], adapter),
         "reference_take_version": baseline.TAKE_VERSION,
         "actual_take_version": _engine.TAKE_VERSION,
-        "frames": first,
+        "frames": comparison.frames,
         "reference_frames": expected.frames,
         "duration": str(scene.clock),
         "reference_duration": str(metadata["duration"]),
         "same_duration": same_duration,
         "same_frame_count": same_frames,
-        "changed_frames": changed_frames,
+        "changed_frames": comparison.changed_frames,
         "mismatches": mismatches,
         "seconds": time.monotonic() - started,
     }
