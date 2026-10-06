@@ -72,6 +72,10 @@ regression=(-mtriple=x86_64-- -run-pass=greedy -verify-machineinstrs -verify-reg
 llc "${regression[@]}" -o "$output/patched-subregister.mir"
 cmp "$output/installed-subregister.mir" "$output/patched-subregister.mir"
 "$python" "$root/scripts/release/linux_mesa.py" prepare "$project" "$output/patched-mesa"
+cat >> "$project/scripts/release/build_lavapipe.diagnostic.sh" <<'PROVENANCE'
+cp mesa-build/meson-logs/meson-log.txt "$out/meson-log.txt"
+ninja -C mesa-build -t commands src/gallium/targets/lavapipe/libvulkan_lvp.so > "$out/build-commands.txt"
+PROVENANCE
 mkdir "$work/mesa-tmp"
 /usr/bin/time -v -o "$output/mesa-build-time.txt" \
   env TMPDIR="$work/mesa-tmp" sh "$project/scripts/release/build_lavapipe.diagnostic.sh" "$output/driver"
