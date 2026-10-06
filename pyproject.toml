@@ -13,9 +13,10 @@ requires-python = ">=3.13"
 # (OFL-1.1, LPPL-1.3c as the GUST Font License, GPL-3.0-or-later with its font exception,
 # DejaVu's Bitstream Vera and Arev terms), HTML data (W3C) and citation styles (CC-BY-SA-3.0);
 # and in the Linux wheels, Mesa's lavapipe with LLVM (Apache-2.0 WITH LLVM-exception;
-# LICENSE-LAVAPIPE). The Noto fonts are manimgx-fonts'.
-license = "MIT AND GPL-2.0-or-later AND LGPL-2.1-or-later AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MPL-2.0 AND Unicode-3.0 AND Zlib AND 0BSD AND OFL-1.1 AND LPPL-1.3c AND GPL-3.0-or-later WITH Font-exception-2.0 AND Bitstream-Vera AND LicenseRef-Arev-Fonts AND W3C-20150513 AND CC-BY-SA-3.0 AND Apache-2.0 WITH LLVM-exception"
-license-files = ["LICENSE", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE"]
+# LICENSE-LAVAPIPE); and Windows wheels' DXC (NCSA, LICENSE-DXC). The Noto fonts are
+# manimgx-fonts'.
+license = "MIT AND GPL-2.0-or-later AND LGPL-2.1-or-later AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MPL-2.0 AND Unicode-3.0 AND Zlib AND 0BSD AND OFL-1.1 AND LPPL-1.3c AND GPL-3.0-or-later WITH Font-exception-2.0 AND Bitstream-Vera AND LicenseRef-Arev-Fonts AND W3C-20150513 AND CC-BY-SA-3.0 AND Apache-2.0 WITH LLVM-exception AND NCSA AND MIT-Khronos-old"
+license-files = ["LICENSE", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE", "LICENSE-DXC"]
 authors = [
     { name = "Sina Atalay", email = "sina.atalay@academa.ai" },
     { name = "Abdullah Geduk", email = "geduk@academa.ai" },
@@ -45,6 +46,8 @@ dependencies = [
     "skia-pathops>=0.8; sys_platform != 'emscripten'",
     "svgelements>=1.9.6",
     "typer>=0.27.2; sys_platform != 'emscripten'",
+    # closed TypedDicts (PEP 728) for the keyword arguments, which typing has from 3.15
+    "typing-extensions>=4.13",
 ]
 
 [project.scripts]
@@ -61,9 +64,13 @@ build-backend = "maturin"
 [tool.maturin]
 module-name = "manimgx._engine"
 manifest-path = "rust/engine/Cargo.toml"
+locked = true
 # what a wheel takes besides the package's sources: the lavapipe a Linux wheel bundles, built
 # before it (scripts/release/build_lavapipe.sh) and ignored by git
-include = [{ path = "manimgx/lavapipe/libvulkan_lvp.so", format = "wheel" }]
+include = [
+    { path = "manimgx/lavapipe/libvulkan_lvp.so", format = "wheel" },
+    { path = "dxcompiler.dll", from = "out-dir", to = "manimgx/" },
+]
 
 # the font packages, as they are here: manimgx requires them at exact versions, and in the
 # workspace those are fonts/'s, installed editable, like manimgx, whose engine uv builds
@@ -137,6 +144,8 @@ before-all = [
     "sh scripts/release/build_lavapipe.sh {package}/src/manimgx/lavapipe",
 ]
 environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+environment-pass = ["MANIMGX_SOURCES"]
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel} && python {project}/scripts/release/linux_sources.py {dest_dir}"
 
 [tool.cibuildwheel.pyodide]
 # the browser's wheel (`just build-wheel pyodide`): the engine without the GPU (typesetting,
@@ -188,12 +197,16 @@ also_copy = ["src/manimgx/"]
 pytest_add_cli_args = ["-p", "no:randomly", "--hypothesis-profile=mutation"]
 
 [tool.coverage.run]
-# the package, measured in the tests' processes and in the ones they start (the corpus renders
-# each case in its own)
-source_pkgs = ["manimgx"]
+# Bind coverage to the installed product's directory, including its subprocesses.
+# A frozen reference has the same import name but is not the code under test.
+# Reporting defaults to the checkout after the platform paths have been combined.
+source = ["${MANIMGX_COVERAGE_SOURCE-src/manimgx}"]
 patch = ["subprocess"]
 # paths relative to the repository, so each OS's runs combine into one report
 relative_files = true
+
+[tool.coverage.paths]
+source = ["src/manimgx", "*/site-packages/manimgx"]
 
 [tool.ruff]
 # first-party: the package (the tests import it as a third party would)

@@ -44,8 +44,8 @@ The Developer Guide has everything a change needs:
 ## Pull requests
 
 - Keep a pull request to one change, and link the issue it resolves.
-- A fix or a feature comes with a test that shows it, and a user-visible change with a line
-  under "Unreleased" in the changelog.
+- A fix or a feature comes with a test that shows it. After the first release, a user-visible
+  change also gets a line under "Unreleased" in the changelog.
 - Before you open it, run `just check` and `just test`, and say in the pull request what you
   ran and what you looked at. If the change could slow rendering down, run `just bench main`
   and put its table in it.

@@ -10,8 +10,8 @@ abstract: >-
   videos from Python scenes. Scenes use the API of Manim Community Edition, and manimgx
   annotates all of it with types, so a type checker finds errors before a render. A Rust core
   draws each frame on the GPU, typesets text and LaTeX mathematics with Typst, and encodes the
-  video and its sound to MP4. The engine calculates each frame at its exact time, so a scene
-  is the same at all frame rates. A check command runs a scene without video, prints its
+  video and its sound to MP4. The engine evaluates animations at each frame's authored time.
+  The inspect command runs a scene without video, prints its
   timeline and layout problems, for example text over other text, and writes a storyboard. In
   a web browser, Pyodide runs the same scenes in a Web Worker, and a WebAssembly build of the
   core draws them with WebGPU.
