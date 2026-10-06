@@ -42,27 +42,29 @@ jobs:
           uv sync --frozen --no-install-project
           uv pip install --no-deps dist/*.whl
 
-      - name: Measure eager and demanded passes in fresh processes
+      - name: Measure combined and independent flatten kernels
         env:
           UV_NO_SYNC: "1"
         run: |
-          MANIMGX_DIAGNOSTIC_EAGER=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-eager --fresh 2>&1 | tee startup-eager.log
-          uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-demand --fresh 2>&1 | tee startup-demand.log
+          uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-combined --fresh 2>&1 | tee startup-combined.log
+          MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-families --fresh 2>&1 | tee startup-families.log
 
       - name: Isolate flattening from coverage execution
         env:
           UV_NO_SYNC: "1"
           MANIMGX_DIAGNOSTIC_SPLIT: "1"
-        run: uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-split 2>&1 | tee startup-split.log
+        run: |
+          uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-split 2>&1 | tee startup-split.log
+          MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-families-split 2>&1 | tee startup-families-split.log
 
       - name: Verify instrumentation preserved every scene
         run: |
           uv run --no-project --python 3.13 python - <<'PY'
           import json
           from pathlib import Path
-          runs = [json.loads(Path(f"startup-{mode}/startup.json").read_text()) for mode in ["eager", "demand", "split"]]
-          assert runs[0]["records"] == runs[1]["records"] == runs[2]["records"]
-          print("All eager, demanded and split-pass frames agree exactly.")
+          runs = [json.loads(Path(f"startup-{mode}/startup.json").read_text()) for mode in ["combined", "families", "split", "families-split"]]
+          assert all(run["records"] == runs[0]["records"] for run in runs[1:])
+          print("All combined, independent-output and split-pass frames agree exactly.")
           PY
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

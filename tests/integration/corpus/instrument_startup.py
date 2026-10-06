@@ -89,15 +89,55 @@ def instrument(root: Path) -> None:
     vector = root / "vector.rs"
     replace(
         vector,
-        "self.composite(device, key, plan.crossings)",
-        'self.composite(device, key, plan.crossings || std::env::var("MANIMGX_DIAGNOSTIC_EAGER").as_deref() == Ok("1"))',
+        "flatten: wgpu::ComputePipeline,",
+        "flatten: Vec<wgpu::ComputePipeline>,",
     )
+    replace(
+        vector,
+        'let flatten = device.timed_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("flatten"), layout: Some(&pipeline_layout(&[Some(&scene_layout), None, Some(&write_layout)])), module: &shader, entry_point: Some("flatten"), compilation_options: options, cache: None });',
+        """let entries: &[&str] = if std::env::var("MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT").as_deref() == Ok("1") {
+            &["flatten_fill", "flatten_stroke"]
+        } else { &["flatten"] };
+        let flatten = entries.iter().map(|entry| device.timed_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(entry), layout: Some(&pipeline_layout(&[Some(&scene_layout), None, Some(&write_layout)])),
+            module: &shader, entry_point: Some(entry), compilation_options: options.clone(), cache: None,
+        })).collect();""",
+    )
+    replace(
+        vector,
+        "let slots = group.fills.saturating_add(group.strokes).div_ceil(64); // workgroups: a thread per slot\n        if slots > 0 {",
+        """for (index, pipeline) in self.flatten.iter().enumerate() {
+            let (count, label) = if self.flatten.len() == 1 {
+                (group.fills.saturating_add(group.strokes), "execute.flatten")
+            } else if index == 0 { (group.fills, "execute.flatten.fill") }
+            else { (group.strokes, "execute.flatten.stroke") };
+            let slots = count.div_ceil(64);
+            if slots == 0 { continue; }""",
+    )
+    replace(vector, "pass.set_pipeline(&self.flatten);", "pass.set_pipeline(pipeline);")
+    compute = root / "vector_compute.wgsl"
+    with compute.open("a", encoding="utf-8") as stream:
+        stream.write("""
+
+// Temporary independent-output experiment: identical slot functions and record layouts.
+@compute @workgroup_size(64)
+fn flatten_fill(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+    let q = gid.x + gid.y * groups.x * 64u;
+    if (q < frame.tiles.z) { fill_out[q] = fill_slot(q); }
+}
+
+@compute @workgroup_size(64)
+fn flatten_stroke(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+    let q = gid.x + gid.y * groups.x * 64u;
+    if (q < frame.tiles.w) { stroke_out[q] = stroke_slot(q); }
+}
+""")
     replace(
         vector,
         "pass.dispatch_workgroups(slots.min(65535), slots.div_ceil(65535), 1);\n        }",
         "pass.dispatch_workgroups(slots.min(65535), slots.div_ceil(65535), 1);\n"
         "            drop(pass);\n"
-        '            crate::startup_timing::flush(device, queue, encoder, "execute.flatten");\n        }',
+        "            crate::startup_timing::flush(device, queue, encoder, label);\n        }",
     )
     replace(
         vector,
