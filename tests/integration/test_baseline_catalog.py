@@ -29,7 +29,9 @@ def artifact(content: bytes) -> baseline.Artifact:
 
 
 def generation() -> baseline.Generation:
-    return baseline.Generation("a" * 40, "b" * 64, "c" * 64, (artifact(b"wheel"),))
+    return baseline.Generation(
+        "a" * 40, "b" * 64, "c" * 64, "d" * 64, (artifact(b"wheel"),)
+    )
 
 
 def test_invalid_download_never_becomes_a_cached_artifact(
@@ -85,6 +87,7 @@ def test_same_version_font_edits_invalidate_the_frozen_runtime(
     monkeypatch.setattr(
         baseline, "runtime_lock", lambda: baseline.digest(tmp_path / "uv.lock")
     )
+    monkeypatch.setattr(baseline, "execution", lambda: "d" * 64)
     frozen = replace(
         generation(),
         dependency_lock=baseline.digest(tmp_path / "uv.lock"),
@@ -328,3 +331,54 @@ def test_exact_clock_comparison_is_between_packages_on_this_host(
         if changed:
             assert isinstance(compared.frames, Failure)
             assert "duration" in compared.frames.error
+
+
+@pytest.mark.parametrize(
+    ("module", "before", "after"),
+    [
+        ("runtime.py", "random.seed(0)", "random.seed(1)"),
+        ("frames.py", "frame[:, :, :3]", "frame[:, :, :3] // 2"),
+        ("engines.py", 'env["PYTHONHASHSEED"] = "0"', 'env["PYTHONHASHSEED"] = "1"'),
+    ],
+)
+def test_shared_execution_changes_fail_before_acquisition_or_promotion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    module: str,
+    before: str,
+    after: str,
+) -> None:
+    source = baseline.ROOT / "tests" / "integration" / "corpus"
+    destination = tmp_path / "tests" / "integration" / "corpus"
+    shutil.copytree(source, destination)
+    monkeypatch.setattr(baseline, "ROOT", tmp_path)
+    monkeypatch.setattr(baseline, "runtime_lock", lambda: "b" * 64)
+    monkeypatch.setattr(baseline, "fonts", lambda: "c" * 64)
+    frozen = replace(generation(), execution=baseline.execution())
+    frozen.validate_runtime()
+    for diagnostic in ("__main__.py", "baseline.py", "probe.py"):
+        with (destination / diagnostic).open("a", encoding="utf-8") as stream:
+            stream.write(
+                "\n# A review or diagnostic change does not alter execution.\n"
+            )
+    frozen.validate_runtime()
+    path = destination / module
+    original = path.read_text(encoding="utf-8")
+    assert before in original
+    path.write_text(original.replace(before, after), encoding="utf-8")
+
+    def acquire(*_args: object, **_kwargs: object) -> Path:
+        pytest.fail("a changed shared execution contract must fail before acquisition")
+
+    monkeypatch.setattr(baseline.Artifact, "acquire", acquire)
+    with pytest.raises(ValueError, match="execution contract changed"):
+        baseline.promote(baseline.Catalog({}, {}), frozen, [], tmp_path / "promotion")
+    path.write_text(original, encoding="utf-8")
+    frozen.validate_runtime()
+
+
+def test_unbound_execution_generations_require_explicit_freezing() -> None:
+    legacy = asdict(generation())
+    del legacy["execution"]
+    with pytest.raises(ValueError, match="does not bind its execution contract"):
+        baseline.Generation.read(legacy)

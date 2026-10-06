@@ -118,6 +118,29 @@ def runtime_lock() -> str:
     return hashlib.sha256(result.stdout).hexdigest()
 
 
+def execution() -> str:
+    """Bind the shared process, authoring and observation contract, excluding review tools.
+
+    Both packages run through this code, so changing it can otherwise alter both sides
+    together without changing the scene or either wheel. A change requires a new canonical
+    movie proof, just as a change to the numerical runtime does.
+    """
+    directory = ROOT / "tests" / "integration" / "corpus"
+    return _hash(
+        {
+            name: digest(directory / name)
+            for name in (
+                "case.py",
+                "engines.py",
+                "frames.py",
+                "frozen.py",
+                "run_manimgx.py",
+                "runtime.py",
+            )
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Artifact:
     filename: str
@@ -165,6 +188,7 @@ class Generation:
     commit: str
     dependency_lock: str
     font_payload: str
+    execution: str
     wheels: tuple[Artifact, ...]
 
     def __post_init__(self) -> None:
@@ -172,6 +196,7 @@ class Generation:
             raise ValueError("a reference generation requires a full commit SHA")
         _sha(self.dependency_lock)
         _sha(self.font_payload)
+        _sha(self.execution)
         if not self.wheels or len({wheel.filename for wheel in self.wheels}) != len(
             self.wheels
         ):
@@ -196,6 +221,11 @@ class Generation:
         return min(ranked, key=lambda pair: pair[0])[1]
 
     def validate_runtime(self) -> None:
+        if self.execution != execution():
+            raise ValueError(
+                "the reference execution contract changed: review and promote its canonical "
+                "movies before accepting changes to process launch, authoring or observation"
+            )
         if self.dependency_lock != runtime_lock() or self.font_payload != fonts():
             raise ValueError(
                 "the reference dependencies or font payload changed: use its frozen runtime "
@@ -205,6 +235,10 @@ class Generation:
     @classmethod
     def read(cls, value: object) -> Self:
         data = _object(value)
+        if "execution" not in data:
+            raise ValueError(
+                "the reference generation does not bind its execution contract"
+            )
         wheels = []
         for value in _list(data["wheels"]):
             item = _object(value)
@@ -217,6 +251,7 @@ class Generation:
             _str(data["commit"]),
             _sha(data["dependency_lock"]),
             _sha(data["font_payload"]),
+            _sha(data["execution"]),
             tuple(wheels),
         )
 

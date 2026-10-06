@@ -203,6 +203,7 @@ def baselines(args: argparse.Namespace) -> None:
             args.commit,
             baseline.runtime_lock(),
             baseline.fonts(),
+            baseline.execution(),
             tuple(
                 baseline.Artifact(Path(path).name, baseline.digest(Path(path)), url)
                 for url, path in args.wheel
