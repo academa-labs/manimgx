@@ -111,7 +111,9 @@ def instrument(root: Path) -> None:
                 (group.fills.saturating_add(group.strokes), "execute.flatten")
             } else if index == 0 { (group.fills, "execute.flatten.fill") }
             else { (group.strokes, "execute.flatten.stroke") };
-            let slots = count.div_ceil(64);
+            let empty = count == 0 && std::env::var("MANIMGX_DIAGNOSTIC_EMPTY_FLATTEN").as_deref() == Ok("1");
+            let slots = if empty { 1 } else { count.div_ceil(64) };
+            let label = if empty { "execute.flatten.empty" } else { label };
             if slots == 0 { continue; }""",
     )
     replace(vector, "pass.set_pipeline(&self.flatten);", "pass.set_pipeline(pipeline);")

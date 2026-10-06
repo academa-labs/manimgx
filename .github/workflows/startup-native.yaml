@@ -56,13 +56,14 @@ jobs:
         run: |
           uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-split 2>&1 | tee startup-split.log
           MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-families-split 2>&1 | tee startup-families-split.log
+          MANIMGX_DIAGNOSTIC_EMPTY_FLATTEN=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-empty-flatten 2>&1 | tee startup-empty-flatten.log
 
       - name: Verify instrumentation preserved every scene
         run: |
           uv run --no-project --python 3.13 python - <<'PY'
           import json
           from pathlib import Path
-          runs = [json.loads(Path(f"startup-{mode}/startup.json").read_text()) for mode in ["combined", "families", "split", "families-split"]]
+          runs = [json.loads(Path(f"startup-{mode}/startup.json").read_text()) for mode in ["combined", "families", "split", "families-split", "empty-flatten"]]
           assert all(run["records"] == runs[0]["records"] for run in runs[1:])
           print("All combined, independent-output and split-pass frames agree exactly.")
           PY
