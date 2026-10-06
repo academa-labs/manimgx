@@ -187,8 +187,8 @@ impl Drop for StartupTimer {
                 tofile=f"b/{name}",
             )
         )
-        path.write_text(after, encoding="utf-8")
-    (root / "startup-trace.patch").write_text(patch, encoding="utf-8")
+        path.write_text(after, encoding="utf-8", newline="\n")
+    (root / "startup-trace.patch").write_text(patch, encoding="utf-8", newline="\n")
     registered = (
         f'name = "wgpu-hal"\nversion = "{package["version"]}"\n'
         f'source = "{package["source"]}"\nchecksum = "{package["checksum"]}"\n'
@@ -199,6 +199,7 @@ impl Drop for StartupTimer {
             registered, f'name = "wgpu-hal"\nversion = "{package["version"]}"\n'
         ),
         encoding="utf-8",
+        newline="\n",
     )
     subprocess.run(
         ["cargo", "metadata", "--locked", "--offline", "--format-version", "1"],
