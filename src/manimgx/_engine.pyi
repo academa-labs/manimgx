@@ -134,6 +134,12 @@ def start_gpu() -> bool:
     exits. A process that will draw calls it as early as it knows; one that never draws never
     brings the GPU up."""
 
+def adapter_info() -> dict[str, str]:
+    """The active GPU's name, vendor, device, device_type, driver, driver_info and backend.
+
+    Brings the GPU up if necessary; available in the native engine.
+    """
+
 def decode_audio(data: bytes, rate: int) -> tuple[bytes, int]:
     """A file's audio (its bytes, any container and codec the engine's FFmpeg decodes: WAV,
     AIFF, CAF, MP3, AAC, Opus, Vorbis, FLAC, ALAC; in MP4, MOV, WebM, Matroska) at `rate` samples

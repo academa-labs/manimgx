@@ -475,6 +475,23 @@ fn start_gpu() -> bool {
     began
 }
 
+/// The adapter actually used by this engine, after bringing it up if necessary. Diagnostic
+/// consumers can distinguish renderer changes from a different backend, device or driver.
+#[cfg(feature = "player")]
+#[pyfunction]
+fn adapter_info(py: Python<'_>) -> PyResult<std::collections::BTreeMap<String, String>> {
+    let info = py.detach(|| with_gpu(|gpu| gpu.adapter.get_info())).map_err(PyRuntimeError::new_err)?;
+    Ok([
+        ("name", info.name),
+        ("vendor", info.vendor.to_string()),
+        ("device", info.device.to_string()),
+        ("device_type", format!("{:?}", info.device_type)),
+        ("driver", info.driver),
+        ("driver_info", info.driver_info),
+        ("backend", format!("{:?}", info.backend)),
+    ].into_iter().map(|(key, value)| (key.to_string(), value)).collect())
+}
+
 /// Waits for the GPU's warm-up, at most 30 s; Python calls it as it exits. Exit unloads the
 /// drivers, and must not unload one still starting on the warm-up's thread: lavapipe crashed a
 /// process that loaded the engine and exited at once. A forked child has no warm-up to wait for.
@@ -510,7 +527,10 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "window")]
     m.add_function(wrap_pyfunction!(window, m)?)?;
     #[cfg(feature = "player")]
-    m.add_class::<Replay>()?;
+    {
+        m.add_class::<Replay>()?;
+        m.add_function(wrap_pyfunction!(adapter_info, m)?)?;
+    }
     m.add_class::<Recorder>()?;
     m.add_function(wrap_pyfunction!(note, m)?)?;
     m.add_function(wrap_pyfunction!(web, m)?)?;

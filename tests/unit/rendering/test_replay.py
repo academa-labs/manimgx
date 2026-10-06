@@ -4,11 +4,25 @@ import numpy as np
 import pytest
 
 import manimgx as m
-from manimgx._engine import TAKE_VERSION, Player, Recorder, Replay
+from manimgx._engine import TAKE_VERSION, Player, Recorder, Replay, adapter_info
 from manimgx.rendering.feed import Feeder
 
 
 def test_recorded_geometry_and_images_replay_exactly_in_any_order() -> None:
+    adapter = adapter_info()
+    assert set(adapter) == {
+        "name",
+        "vendor",
+        "device",
+        "device_type",
+        "driver",
+        "driver_info",
+        "backend",
+    }
+    assert adapter["name"]
+    assert adapter["backend"]
+    assert int(adapter["vendor"]) >= 0
+    assert int(adapter["device"]) >= 0
     width, height, fps = 130, 74, 29.97  # readback rows require padding
     player, recorder = Player(width, height), Recorder(width, height, fps)
     direct, recorded = Feeder(width, height, player), Feeder(width, height, recorder)
@@ -54,6 +68,7 @@ def test_recorded_geometry_and_images_replay_exactly_in_any_order() -> None:
     for frame in [-1, replay.frames]:
         with pytest.raises(IndexError, match="outside"):
             replay.render(frame)
+    assert adapter_info() == adapter
 
 
 def test_independent_takes_own_their_resources_when_keys_overlap() -> None:
