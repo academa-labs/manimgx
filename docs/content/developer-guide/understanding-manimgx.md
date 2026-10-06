@@ -256,9 +256,17 @@ behaves differently at 30 and at 60 frames per second. What a scene shows would 
 its frame rate.
 
 Scene time is exact, a `Fraction` of seconds, and frames sample it.
+Floating durations, lag ratios and frame rates mean the simplest rational that rounds
+back to the supplied float: `5 / 6` stays exactly five sixths, while distinct floats stay
+distinct and a positive duration never rounds down to zero. Compositions keep their
+computed durations as fractions; observation and animation evaluation use floats.
 
-- A play or wait of duration _d_ that begins at time _T_ owns the frames whose times fall
-  in [_T_, _T_ + _d_). Frame _k_ shows the world at exactly _k_/fps.
+- A play or wait of duration _d_ that begins at time _T_ owns the frames whose observed
+  times fall in [_T_, _T_ + _d_). Frame _k_ samples _k_/fps. An event and a sample that
+  round to the same binary64 instant are observed together: the frame sees every event
+  there, in exact order, without rewinding the last event. This applies to nested
+  animations as well as successive plays: rounding differences that leave an observed
+  instant unchanged do not add a frame. Still exports select from this same sample grid.
 - Then the world is brought to _T_ + _d_ itself, where `construct` goes on.
 - When `construct` returns, a closing frame shows the scene as it ends.
 

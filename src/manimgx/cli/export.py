@@ -13,6 +13,7 @@ from typing import Annotated
 import typer
 from PIL import Image
 
+from manimgx.animation import clock
 from manimgx.animation.timeline import Animation
 from manimgx.cli.scenes import (
     File,
@@ -142,7 +143,7 @@ def moments(given: list[str]) -> list[str]:
                 raise fail(
                     f"error: {part!r} is not a time: seconds from the start, or 'end'"
                 )
-            part = f"{seconds:g}"
+            part = str(seconds).removesuffix(".0")
         if part not in out:
             out.append(part)
     return out or [END]
@@ -153,7 +154,7 @@ def on_screen(plays: list[Play], time: Fraction) -> Play | None:
     as it left the world)."""
     shown = None
     for play in plays:
-        if play.start <= time:
+        if float(play.start) <= float(time):
             shown = play
     return shown
 
@@ -198,9 +199,9 @@ def still(
     look = (
         Format.own()
     )  # the frames the video shows (drawn at its size, reduced to tiles)
-    fps = Fraction(look.fps).limit_denominator(1000)
-    # the frame on screen at t shows time ⌊t·fps⌋ / fps
-    at = {m: math.floor(float(m) * look.fps + 1e-9) for m in wanted if m != END}
+    fps = clock.rational(look.fps)
+    # The last sample no later than the requested observed instant.
+    at = {m: clock.frame_at(float(m), fps, after=True) - 1 for m in wanted if m != END}
     through = Fraction(max(at.values(), default=0)) / fps
     drawn: dict[int, Image.Image] = {}
     last: list[Frame] = []
@@ -213,7 +214,7 @@ def still(
         last[:] = [frame]
 
     def enough(_: Scene, play: Play, __: tuple[Animation, ...]) -> None:
-        if END not in wanted and play.end > through:
+        if END not in wanted and float(play.end) > float(through):
             raise Cut  # the play showing the last frame asked for is over
 
     made, film = take(kind, look, frames=keep, plays=enough)

@@ -10,6 +10,50 @@ every frame rate. `speed` runs off scene time, warped by ChangeSpeed."""
 from collections.abc import Callable
 from fractions import Fraction
 from itertools import pairwise
+from math import inf, nextafter, ulp
+
+
+def _rounding_cell(value: float) -> tuple[Fraction, Fraction, bool]:
+    """The binary64 rounding interval, and whether its ties belong to this value."""
+    magnitude = abs(value)
+    exact = Fraction(magnitude)
+    low = (exact + Fraction(nextafter(magnitude, -inf))) / 2
+    high = exact + Fraction(ulp(magnitude)) / 2
+    closed = float(low) == magnitude
+    return (-high, -low, closed) if value < 0 else (low, high, closed)
+
+
+def rational(value: float | Fraction) -> Fraction:
+    """Recover the simplest rational that rounds to an authored float.
+
+    A duration such as 5/6 keeps its frame boundary, while distinct floats stay distinct
+    and a positive duration never becomes zero. Integers and explicit fractions are exact.
+    """
+    exact = Fraction(value)
+    if not isinstance(value, float) or exact.denominator == 1:
+        return exact
+    low, high, _ = _rounding_cell(abs(value))
+    # Both midpoints have larger denominators than exact itself, so excluding ties
+    # cannot exclude the simplest candidate and avoids either neighbor's tie rule.
+    # The continued fractions of the rounding interval share these integer parts.
+    # The first integer strictly inside it gives the smallest possible denominator.
+    a, b, c, d = low.numerator, low.denominator, high.numerator, high.denominator
+    before, denominator = 1, 0
+    while True:
+        whole = a // b
+        if (whole + 1) * d < c:
+            denominator = (whole + 1) * denominator + before
+            return Fraction(round(exact * denominator), denominator)
+        before, denominator = denominator, whole * denominator + before
+        a, b, c, d = d, c - whole * d, b, a - whole * b
+
+
+def frame_at(time: float | Fraction, rate: Fraction, *, after: bool = False) -> int:
+    """First frame at this observed instant or later (strictly later with `after`)."""
+    low, high, closed = _rounding_cell(float(time))
+    at = (high if after else low) * rate
+    return int(at // 1 + 1 if closed == after else -(-at // 1))
+
 
 now = Fraction(0)
 """The instant being computed — or, between plays, the end of the last one (where the scene's

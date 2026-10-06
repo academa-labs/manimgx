@@ -163,6 +163,14 @@ class Sound(Animation[Mobject]):
         return len(self.samples) / RATE
 
     @property
+    def _duration(self) -> Fraction:
+        return (
+            Fraction(len(self.samples), RATE)
+            if self._edit.loop is None
+            else super()._duration
+        )
+
+    @property
     def run_time(self) -> float:
         """Its duration: a sound plays for as long as it lasts. An endless one (`loop()`)
         cannot be played: add it ([`add_sound`][manimgx.Scene.add_sound]), and stop it.
@@ -201,7 +209,7 @@ class Clip:
     def stop(self, fade: float = 0.05) -> None:
         """Stop the sound: it fades out from now (the instant the scene is computing) over
         `fade` seconds, and is silent after."""
-        self.end, self.fade = clock.now + Fraction(fade).limit_denominator(RATE), fade
+        self.end, self.fade = clock.now + clock.rational(fade), fade
 
 
 def _source_samples(sound: Sound) -> np.ndarray:

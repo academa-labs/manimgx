@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal, get_args
 from warnings import deprecated
 
 from manimgx import _engine
+from manimgx.animation import clock
 from manimgx.config import config
 from manimgx.rendering import feed
 from manimgx.rendering.feed import CameraView, Feeder
@@ -260,7 +261,7 @@ class Film:
             raise ValueError(
                 f"a video needs an even width and height, not {width}x{height}"
             )
-        self.fps = Fraction(fps).limit_denominator(1000)
+        self.fps = clock.rational(fps)
         """How many frames a second the film has: the configuration's when it began."""
         # the GPU draws the film; or its take is recorded, to be drawn by manimgx's player: by
         # choice, or where the engine has no GPU (in Pyodide)

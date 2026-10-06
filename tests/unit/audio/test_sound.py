@@ -39,6 +39,15 @@ def click() -> m.Sound:
     return m.Sound(x, rate=RATE)
 
 
+def test_a_stop_keeps_its_time_until_audio_is_sampled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(clock, "now", Fraction(3, 10))
+    clip = Clip(click(), Fraction(0))
+    clip.stop(1e-8)
+    assert clip.end == Fraction(3, 10) + Fraction(1, 100000000)
+
+
 def starts(scene: type[m.Scene], fps: float) -> list[Fraction]:
     saved = config.frame_rate
     config.frame_rate = fps
