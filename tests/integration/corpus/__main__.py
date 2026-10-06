@@ -23,11 +23,12 @@ import sys
 import tempfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from tests.integration.corpus import engines, references, typecheck
+from tests.integration.corpus import baseline, engines, references, typecheck
 from tests.integration.corpus.case import (
     ENGINES,
     METRICS,
@@ -35,7 +36,7 @@ from tests.integration.corpus.case import (
     Case,
     Engine,
     Facts,
-    Frames,
+    Failure,
     Settings,
     State,
     discover,
@@ -151,26 +152,30 @@ def diff(case: Case, count: int) -> None:
 
 
 def leaks(cases: list[Case]) -> None:
-    """Render every scene in one process, in order; name those that come out differently from
-    their references — the engine carried state over from an earlier scene."""
+    """Compare a sequence with fresh processes on this host: only preceding scenes differ."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "sequence.json"
-        subprocess.run(
-            [sys.executable, "-m", "tests.integration.corpus.run_manimgx"]
-            + [str(case.scene) for case in cases]
-            + ["--out", str(out), "--sequence"],
-            env=engines.environment(),
-            check=True,
-        )
-        rendered = json.loads(out.read_text(encoding="utf-8"))
-    leaked = []
-    for case in cases:
-        facts = case.facts()
-        if facts is None or not isinstance(facts.manimgx, Frames):
-            continue
-        runs = [(str(h), int(n)) for h, n in rendered[case.name]]
-        if runs != list(facts.manimgx.runs):
-            leaked.append(case.name)
+
+        def run(selected: list[Case]) -> dict[str, list[tuple[str, int]]]:
+            if not selected:
+                return {}
+            subprocess.run(
+                [sys.executable, "-m", "tests.integration.corpus.run_manimgx"]
+                + [str(case.scene) for case in selected]
+                + ["--out", str(out), "--sequence"],
+                env=engines.environment(),
+                timeout=engines.TIMEOUT["manimgx"] * len(selected),
+                check=True,
+            )
+            return {
+                name: [(str(h), int(n)) for h, n in runs]
+                for name, runs in json.loads(out.read_text(encoding="utf-8")).items()
+            }
+
+        rendered = run(cases)
+        leaked = [
+            case.name for case in cases if rendered[case.name] != run([case])[case.name]
+        ]
     print(f"{len(leaked)} of {len(cases)} scenes render differently after others:")
     for name in leaked:
         print(f"  {name}")
@@ -192,6 +197,70 @@ def types() -> None:
         f" diagnostics, {len(report.escapes)} with escapes, {len(report.imprecise)}"
         " with types manimgx leaves Any/Unknown"
     )
+
+
+def baselines(args: argparse.Namespace) -> None:
+    """Freeze artifact identities, stage promotions, or exercise the verified catalog."""
+    if args.action == "freeze":
+        generation = baseline.Generation(
+            args.commit,
+            baseline.runtime_lock(),
+            baseline.fonts(),
+            baseline.execution(),
+            tuple(
+                baseline.Artifact(Path(path).name, baseline.digest(Path(path)), url)
+                for url, path in args.wheel
+            ),
+        )
+        with args.output.open("x", encoding="utf-8") as stream:
+            json.dump(asdict(generation), stream, indent=2)
+            stream.write("\n")
+        print(f"{generation.identity}: {args.output}")
+        return
+    catalog = (
+        baseline.Catalog.load(args.catalog)
+        if args.catalog.exists()
+        else baseline.Catalog({}, {})
+    )
+    if args.action == "acquire":
+        if not catalog.cases:
+            sys.exit("no promoted baseline catalog")
+        for generation in catalog.generations.values():
+            generation.validate_runtime()
+            print(generation.wheel().acquire(args.cache))
+        return
+    cases = _select(args.cases, args.all)
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        if args.action == "stage":
+            if args.output.exists():
+                raise FileExistsError(args.output)
+            directory = args.output.with_suffix(".evidence")
+            directory.mkdir()
+            generation = baseline.Generation.read(
+                json.loads(args.candidate.read_text(encoding="utf-8"))
+            )
+            promoted = baseline.promote(
+                catalog, generation, cases, directory, args.cache
+            )
+            promoted.write(args.output)
+            print(f"{len(cases)} movie-verified mappings staged in {args.output}")
+        else:
+            prepared = baseline.References(catalog, directory, args.cache)
+            for case in cases:
+                prepared.package(case)
+
+            def work(case: Case) -> str:
+                output = args.output / case.name
+                result = prepared.compare(case, output)
+                if isinstance(result.frames, Failure):
+                    raise ValueError(result.frames.error)
+                if result.differences:
+                    changed = sum(d.repeat for d in result.differences)
+                    raise ValueError(f"{changed} frames differ; see {output}")
+                return "exact"
+
+            sys.exit(1 if _parallel(cases, args.jobs, work) else 0)
 
 
 def main() -> None:
@@ -221,9 +290,36 @@ def main() -> None:
     p.add_argument("--frames", type=int, default=5)
     commands.add_parser("types", help="the type report for every scene")
     commands.add_parser("leaks", help="scenes that render differently after others")
+    p = commands.add_parser("baseline", help="verified frozen authoring baselines")
+    actions = p.add_subparsers(dest="action", required=True)
+    p = actions.add_parser("freeze", help="record immutable candidate wheel identities")
+    p.add_argument("output", type=Path)
+    p.add_argument("--commit", required=True)
+    p.add_argument(
+        "--wheel",
+        nargs=2,
+        action="append",
+        required=True,
+        metavar=("HTTPS_URL", "WHEEL"),
+    )
+    for action in ("stage", "check", "acquire"):
+        p = actions.add_parser(action)
+        p.add_argument("--catalog", type=Path, default=baseline.CATALOG)
+        p.add_argument("--cache", type=Path, default=baseline.CACHE)
+        if action == "stage":
+            p.add_argument("candidate", type=Path)
+            p.add_argument("output", type=Path)
+        if action != "acquire":
+            p.add_argument("cases", nargs="*")
+            p.add_argument("--all", action="store_true")
+        if action == "check":
+            p.add_argument("--output", type=Path, default=DIFFS / "baseline")
+            p.add_argument("-j", "--jobs", type=int, default=4)
     args = parser.parse_args()
 
     match args.command:
+        case "baseline":
+            baselines(args)
         case "render":
             wanted: set[Engine] = (
                 set(ENGINES) if args.engine == "both" else {args.engine}
