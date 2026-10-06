@@ -15,7 +15,7 @@ import numpy as np
 from manimgx.caches import Memo
 from manimgx.constants import DEFAULT_FONT_SIZE, DOWN, LEFT, ORIGIN, RIGHT, UP
 from manimgx.drawing.geometry import Blend
-from manimgx.drawing.paint import BLACK, Paint, Style
+from manimgx.drawing.paint import BLACK, Paint, Style, _Style
 from manimgx.mobject import Mobject, ValueTracker, VGroup, VMobject, copied, prototype
 from manimgx.mobjects.text import MathTex, SingleStringMathTex, Text
 from manimgx.typing import ManimTextLabel, Vector3DLike
@@ -26,12 +26,8 @@ _ROWS: Memo[tuple[object, ...], dict[str, object]] = Memo(1 << 12)
 _ROW = ("submobjects", "initial_height", "background_rectangle")
 
 
-class NumberStyle(Style, total=False):
-    """How a number is written: [DecimalNumber][manimgx.DecimalNumber]'s keywords but
-    its number of decimal places, for the classes that pass them on.
-
-    Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
-    """
+class _NumberStyle(_Style, total=False):
+    """NumberStyle's keys, open, for the keywords that add to them."""
 
     mob_class: type[ManimTextLabel]
     """The class each character is typeset with (default [MathTex][manimgx.MathTex])."""
@@ -61,7 +57,15 @@ class NumberStyle(Style, total=False):
     """The characters' font size, as `mob_class` measures it (default 48)."""
 
 
-class DecimalNumberOptions(NumberStyle, total=False):
+class NumberStyle(_NumberStyle, total=False, closed=True):
+    """How a number is written: [DecimalNumber][manimgx.DecimalNumber]'s keywords but
+    its number of decimal places, for the classes that pass them on.
+
+    Beyond these, they take the [style keywords][manimgx.drawing.paint.Style].
+    """
+
+
+class DecimalNumberOptions(_NumberStyle, total=False, closed=True):
     """[DecimalNumber][manimgx.DecimalNumber]'s keywords, for the classes that pass them
     on: a number line's labels.
 
@@ -73,7 +77,7 @@ class DecimalNumberOptions(NumberStyle, total=False):
     """How many digits follow the decimal point (default 2)."""
 
 
-class DecimalNumber(VMobject):
+class DecimalNumber[V: (float, complex) = float](VMobject):
     r"""A number, written with a fixed number of decimal places: white and filled
     unless styled.
 
@@ -86,6 +90,10 @@ class DecimalNumber(VMobject):
     number, keeping the font size, the color and the edge `edge_to_fix` where they are:
     driven by a [value tracker][manimgx.ValueTracker], or by
     [ChangeDecimalToValue][manimgx.ChangeDecimalToValue], the number counts on screen.
+
+    A type checker follows the initial value's kind: real by default, complex for a
+    complex initial value. Use `DecimalNumber[complex](0)` to start real and later
+    accept complex values.
 
     Args:
         number: The number to show; a complex one too.
@@ -131,7 +139,7 @@ class DecimalNumber(VMobject):
     @prototype
     def __init__(
         self,
-        number: float = 0,
+        number: V = 0,
         num_decimal_places: int = 2,
         mob_class: type[ManimTextLabel] = MathTex,
         include_sign: bool = False,
@@ -191,7 +199,7 @@ class DecimalNumber(VMobject):
             self.show_ellipsis,
         )
 
-    def _set_submobjects_from_number(self, number: float) -> tuple[object, ...]:
+    def _set_submobjects_from_number(self, number: V) -> tuple[object, ...]:
         """The glyphs of `number` about the origin at the constructed font size: laid out once per
         string and layout, then copied."""
         self.number = number
@@ -282,11 +290,11 @@ class DecimalNumber(VMobject):
         tuple[tuple[object, ...], tuple[tuple[Mobject, Blend, Paint], ...]] | None
     ) = None
 
-    def get_value(self) -> float:
+    def get_value(self) -> V:
         """The number shown, as it was given: not rounded."""
         return self.number
 
-    def increment_value(self, delta_t: float = 1) -> Self:
+    def increment_value(self, delta_t: V = 1) -> Self:
         """Show the number plus `delta_t`.
 
         Args:
@@ -294,7 +302,7 @@ class DecimalNumber(VMobject):
         """
         return self.set_value(self.get_value() + delta_t)
 
-    def set_value(self, number: float) -> Self:
+    def set_value(self, number: V) -> Self:
         """Show another number, keeping the look: the font size, the edge `edge_to_fix`
         where it is, and the color — every character takes the number's own, so a color
         given to single characters is not kept.

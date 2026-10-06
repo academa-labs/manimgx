@@ -23,6 +23,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Style,
+    _Style,
 )
 from manimgx.mobject import (
     GridArrangement,
@@ -59,7 +60,7 @@ with the keywords of `element_to_mobject_config` (a class, as
 [MathTex][manimgx.MathTex], or any function)."""
 
 
-class MatrixOptions(Style, total=False):
+class MatrixOptions(_Style, total=False, closed=True):
     """A [Matrix][manimgx.Matrix]'s keywords but its entries, for the methods that pass
     them on (a [vector's coordinate label][manimgx.Vector.coordinate_label]): its
     entries' kind, with its layout, brackets and style."""
@@ -622,6 +623,7 @@ class Table(_Grid, VGroup):
         )
         self.elements_without_labels = VGroup(*it.chain(*cells))
         """The entries but the labels, row by row."""
+        empty_corner = None
         if self.row_labels is not None:
             for k in range(len(self.row_labels)):
                 cells[k] = [self.row_labels[k]] + cells[k]
@@ -631,8 +633,8 @@ class Table(_Grid, VGroup):
                     col_labels = [self.top_left_entry] + self.col_labels
                     cells.insert(0, col_labels)
                 else:
-                    dummy_mobject = VMobject()
-                    col_labels = [dummy_mobject] + self.col_labels
+                    empty_corner = VMobject()
+                    col_labels = [empty_corner] + self.col_labels
                     cells.insert(0, col_labels)
             else:
                 cells.insert(0, self.col_labels)
@@ -644,8 +646,8 @@ class Table(_Grid, VGroup):
             rows=len(self.cells), cols=len(self.cells[0]), buff=(h_buff, v_buff)
         )
         self.elements.arrange_in_grid(**(layout | arrange_in_grid_config))
-        if len(self.elements[0].get_all_points()) == 0:
-            self.elements.remove(self.elements[0])
+        if empty_corner is not None:
+            self.elements.remove(empty_corner)
         self.add(self.elements)
         self.center()
         for axis in (0, 1):
@@ -725,6 +727,8 @@ class Table(_Grid, VGroup):
 
         Returns:
             The entry; or every entry, row by row, in a group.
+            The absent corner between row and column labels is an empty mobject,
+            omitted from the group.
 
         Examples:
             ```python
@@ -744,18 +748,8 @@ class Table(_Grid, VGroup):
             ```
         """
         if pos is not None:
-            if (
-                self.row_labels is not None
-                and self.col_labels is not None
-                and (self.top_left_entry is None)
-            ):
-                index = len(self.cells[0]) * (pos[0] - 1) + pos[1] - 2
-                return self.elements[index]
-            else:
-                index = len(self.cells[0]) * (pos[0] - 1) + pos[1] - 1
-                return self.elements[index]
-        else:
-            return self.elements
+            return self.cells[pos[0] - 1][pos[1] - 1]
+        return self.elements
 
     def get_entries_without_labels(self, pos: Sequence[int] | None = None) -> Mobject:
         """The table's entries but its labels, or the one at a position among them.
@@ -787,10 +781,10 @@ class Table(_Grid, VGroup):
             ```
         """
         if pos is not None:
-            index = self.col_dim * (pos[0] - 1) + pos[1] - 1
-            return self.elements_without_labels[index]
-        else:
-            return self.elements_without_labels
+            row = pos[0] - 1 + (self.col_labels is not None)
+            column = pos[1] - 1 + (self.row_labels is not None)
+            return self.cells[row][column]
+        return self.elements_without_labels
 
     def get_row_labels(self) -> VGroup:
         """The table's row labels, from the top down.

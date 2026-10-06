@@ -19,6 +19,69 @@ import manimgx as m
 from manimgx.typing import Vector3D
 
 
+@pytest.mark.parametrize(
+    ("row_labels", "col_labels", "corner"),
+    [
+        (False, False, None),
+        (True, False, None),
+        (False, True, None),
+        (True, True, None),
+        (True, True, "empty"),
+        (True, True, "visible"),
+    ],
+)
+def test_table_positions_retain_cell_identity_including_empty_entries(
+    row_labels: bool, col_labels: bool, corner: str | None
+) -> None:
+    data = [[m.VMobject(), m.Square()], [m.Circle(), m.VMobject()]]
+    top_left = m.VMobject() if corner == "empty" else m.Square() if corner else None
+    row_names = [m.Circle(), m.Circle()] if row_labels else []
+    column_names = [m.Square(), m.Square()] if col_labels else []
+    table = m.MobjectTable(
+        data,
+        row_labels=row_names,
+        col_labels=column_names,
+        top_left_entry=top_left,
+    )
+    expected = ([top_left] if top_left is not None else []) + column_names
+    for r, row in enumerate(data):
+        if row_labels:
+            expected.append(row_names[r])
+        expected.extend(row)
+    assert list(table.get_entries()) == expected
+    assert list(table.get_entries_without_labels()) == [
+        entry for row in data for entry in row
+    ]
+    for r, row in enumerate(data, 1):
+        for c, entry in enumerate(row, 1):
+            assert table.get_entries_without_labels((r, c)) is entry
+            assert table.get_entries((r + col_labels, c + row_labels)) is entry
+    for r, label in enumerate(row_names, 1):
+        assert table.get_entries((r + col_labels, 1)) is label
+    for c, label in enumerate(column_names, 1):
+        assert table.get_entries((1, c + row_labels)) is label
+    if row_labels and col_labels:
+        actual_corner = table.get_entries((1, 1))
+        if top_left is not None:
+            assert actual_corner is top_left
+        else:
+            assert actual_corner not in expected
+            assert actual_corner.get_all_points().size == 0
+
+
+def test_highlighting_an_empty_label_corner_does_not_change_a_data_entry() -> None:
+    entry = m.Square()
+    table = m.MobjectTable([[entry]], row_labels=[m.Circle()], col_labels=[m.Circle()])
+    table.add_highlighted_cell((1, 1))
+    corner = table.cells[0][0]
+    assert entry.background_rectangle is None
+    assert corner.background_rectangle is not None
+    assert corner.background_rectangle in table.submobjects
+    np.testing.assert_allclose(
+        corner.background_rectangle.get_center(), table.get_cell((1, 1)).get_center()
+    )
+
+
 @pytest.mark.parametrize("corner", [m.DR, m.UL, m.ORIGIN])
 @pytest.mark.parametrize("stretch", [True, False])
 def test_matrix_cells_keep_constructor_grid_spacing(

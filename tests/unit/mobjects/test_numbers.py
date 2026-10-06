@@ -35,7 +35,7 @@ def spelled(value: float, places: int, sign: bool = False, commas: bool = False)
     return f"{rounded:{'+' if sign else ''}{',' if commas else ''}.{places}f}"
 
 
-def written(number: m.DecimalNumber) -> str:
+def written[V: (float, complex)](number: m.DecimalNumber[V]) -> str:
     characters = []
     for part in number:
         assert isinstance(part, m.MathTex)
@@ -129,7 +129,7 @@ def test_a_complex_number_spells_each_part(
 ) -> None:
     value = scalar(complex(real, imaginary))
     number = m.DecimalNumber(
-        value,  # ty: ignore[invalid-argument-type]  # (typed float, documented complex too)
+        value,
         num_decimal_places=places,
         include_sign=sign,
         group_with_commas=commas,
@@ -223,3 +223,28 @@ def test_a_variable_shows_its_tracker_in_the_number_class_asked_for(
     variable.update()
     assert variable.value.number == 2.875
     assert written(variable.value) == spelled(2.875, places)
+
+
+@pytest.mark.parametrize("targeted", [False, True])
+def test_complex_number_animations_preserve_both_components(targeted: bool) -> None:
+    start, target = 1 + 2j, -3 + 4j
+    number = m.DecimalNumber(start, num_decimal_places=3)
+
+    def value(alpha: float) -> complex:
+        return start + (target - start) * (alpha if targeted else alpha**2)
+
+    animation = (
+        m.ChangeDecimalToValue(number, target, rate_func=m.linear)
+        if targeted
+        else m.ChangingDecimal(number, value, rate_func=m.linear)
+    )
+    animation.begin()
+    for alpha in (0, 0.75, 0.25, 1):
+        animation.interpolate(alpha)
+        expected = value(alpha)
+        assert number.get_value() == expected
+        assert (
+            written(number)
+            == spelled(expected.real, 3) + spelled(expected.imag, 3, sign=True) + "i"
+        )
+    animation.finish()
