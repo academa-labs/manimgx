@@ -1135,21 +1135,39 @@ class Feeder:
         ]
         starts: dict[int, list[Interval]] = {}
         moving: dict[int, list[Materialize]] = {}
+        restores: dict[int, list[tuple[Mobject, np.ndarray, int, set[Mobject]]]] = {}
         for leaf, keys, path, index, t in leaves:
             k = position.get(id(leaf))
             if k is None:
                 continue
             present[index == -2, k] = False
-            for interval in dict.fromkeys(index[index >= 0].tolist()):
+            initial = None
+            for interval in dict.fromkeys(index[index >= -1].tolist()):
                 at = np.nonzero(index == interval)[0]
                 # A nonmonotone clock can leave an interval and return: its inputs may
                 # have been evicted while absent, so entering it prepares them again.
                 for run in np.split(at, np.flatnonzero(np.diff(at) != 1) + 1):
+                    if interval == -1:
+                        if run[0] > 0:
+                            # A clock can return to before the animation began. Keep
+                            # its original CPU state, not its now-unused uploads.
+                            if initial is None:
+                                initial = leaf.copy()
+                            pinned = fixed | {initial} if leaf in fixed else fixed
+                            restores.setdefault(int(run[0]), []).append(
+                                (initial, run, k, pinned)
+                            )
+                        continue
                     starts.setdefault(int(run[0]), []).append(
                         (leaf, keys[interval], keys[interval + 1], path, run, t[run], k)
                     )
         for f in range(frames):
             self.sweep()
+            for initial, at, k, pinned in restores.pop(f, ()):
+                r = unpack(self.record(initial, *args[:-1], pinned))
+                present[at, k] = r is not None
+                if r is not None:
+                    rows[at, k] = r
             for leaf, a, b, path, at, t, k in starts.pop(f, ()):
                 distinct = dict.fromkeys(t.tolist())
                 ts = np.array(list(distinct))

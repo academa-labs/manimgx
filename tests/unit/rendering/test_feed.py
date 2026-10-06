@@ -485,6 +485,46 @@ def test_streaming_still_mixes_whole_keyframe_intervals(
         )
 
 
+@pytest.mark.parametrize("fixed", [False, True])
+def test_a_delayed_tween_can_return_before_its_start_after_eviction(
+    fixed: bool,
+) -> None:
+    from manimgx.scene import _tracks
+
+    points = np.array(
+        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
+    )
+    start = m.PMobject().add_points(points)
+    keys = [
+        start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[x, x, 0]]))
+        for x in [0, 0.5, 1]
+    ]
+    # The state before the play need not be its first explicit keyframe.
+    leaf = start.copy().shift(0.125 * m.UP)
+    tween = m.Transform(leaf, keys=keys, rate_func=m.linear)
+    clock = m.Succession(m.Wait(1), tween, rate_func=m.there_and_back)
+    clock.begin_all()
+    leaves = _tracks(clock, [(tween, m.straight_path())], np.linspace(0, 1, 4), set())
+    assert leaves[0][3].tolist() == [-1, 1, 1, -1]
+    camera, sink = m.Camera(), Sink()
+    if fixed:
+        camera.fixed_in_frame_mobjects.add(leaf)
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    original = feeder.frame(camera, [leaf])[1]
+    for number, (_, records) in enumerate(feeder.tween(camera, [leaf], leaves)):
+        if number in (0, 3):
+            assert records == original
+        used = {
+            int(row[name])
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in (*feed.KEYS, "texture")
+            if row[name]
+        }
+        assert used <= set(sink.resident)
+        feeder.sweep(pressed=True)
+        assert set(sink.resident) == used
+
+
 def test_pressure_preserves_pending_current_and_camera_resources() -> None:
     sink = Sink()
     feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
