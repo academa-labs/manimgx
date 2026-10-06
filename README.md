@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <b>Blazingly fast 3D animation for agents, with <a href="https://www.manim.community">Manim CE's API</a>.</b><br>
+  <b>Blazingly fast 3D animation engine for agents, with <a href="https://www.manim.community">Manim CE's API</a>.</b><br>
   Powered by Rust and wgpu. Install with a prompt or pip. Run in the browser.
 </p>
 
