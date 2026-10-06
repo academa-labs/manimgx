@@ -9,6 +9,11 @@ on:
         description: Test run whose Windows wheel and source to investigate
         type: string
         required: true
+      python_version:
+        description: Python version for the installed abi3 wheel
+        type: choice
+        options: ["3.13", "3.14"]
+        default: "3.13"
       testargs:
         description: Arguments passed directly to pytest
         type: string
@@ -51,7 +56,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          python-version: "3.13"
+          python-version: ${{ inputs.python_version }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
