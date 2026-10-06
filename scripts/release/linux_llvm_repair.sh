@@ -15,7 +15,7 @@ dnf -q -y install llvm llvm-devel llvm-static libxml2-devel
 test "$(llvm-config --version)" = 21.1.8
 llvm-config --version --cxxflags --ldflags --assertion-mode > compiler-config.txt
 rpm -qa | sort > rpm-packages.txt
-mkdir -p upstream/llvm/lib/CodeGen upstream/llvm/tools/llc
+mkdir -p upstream/llvm/lib/CodeGen upstream/llvm/tools/llc upstream/llvm/test/CodeGen/X86
 while read -r digest path; do
   curl --proto '=https' --tlsv1.2 --silent --show-error --fail \
     "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.8/$path" \
@@ -27,6 +27,7 @@ a2f10c4adbbdffe5d22b54dd79edac37942225d6e68b69e0d268e876813d6dcc llvm/lib/CodeGe
 12f474e698c300338f89ade075f6197c94171f891f0f8e5835d239b5428c8081 llvm/tools/llc/llc.cpp
 ad73b8f66d166f1e4d167426da94c4ed6177d4382bfceebf1e62bc59c7eea141 llvm/tools/llc/NewPMDriver.cpp
 7e9b588f3f375d3df72406ddd9404cb4a48b0149cb03be675d75f757bca297ed llvm/tools/llc/NewPMDriver.h
+fc9f0779da3ccddfe3e137d3bdf315652b9c8b524276eb2751a5f9b7f7005722 llvm/test/CodeGen/X86/splitkit-remat-broken-subreg-constraint.mir
 SOURCES
 cp -r upstream patched
 cp "$root/scripts/release/llvm/destination-class.patch" .
@@ -59,6 +60,10 @@ for variant in upstream patched; do
   llvm-ar r "$archive" "$variant/SplitKit.cpp.o"
   llvm-ranlib "$archive"
   c++ llc.o NewPMDriver.o "${ldflags[@]}" -o "$variant/llc"
+  "$variant/llc" -mtriple=x86_64-- -run-pass=greedy -verify-machineinstrs \
+    -verify-regalloc -stress-regalloc=2 \
+    upstream/llvm/test/CodeGen/X86/splitkit-remat-broken-subreg-constraint.mir \
+    -o "$variant/subregister.mir"
   for level in 1 2; do
     status=0
     "$variant/llc" "${target[@]}" -O"$level" -verify-machineinstrs optimized.bc \
@@ -75,6 +80,7 @@ for variant in upstream patched; do
   done
 done
 cmp installed.s upstream/O2.s
+cmp upstream/subregister.mir patched/subregister.mir
 sha256sum ./*.bc ./*.s ./*.patch upstream/*.o upstream/*.s patched/*.o patched/*.s > hashes.txt
 # The patched archive is left in this disposable container for an optional Mesa relink.
 # Do not retain large executable copies; all source inputs and compiler commands remain.
