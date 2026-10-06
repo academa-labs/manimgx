@@ -7,8 +7,12 @@ from multiprocessing import get_context
 from pathlib import Path
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 from docs import examples
+from examples.cherenkov_cone import CherenkovCone
+
+from manimgx.rendering.film import Cut
 
 
 def test_a_broken_runtime_stops_before_workers_start_or_films_change(
@@ -53,3 +57,11 @@ def test_a_narrated_example_says_what_docs_voice_keeps(
     assert narrated
     for example in narrated:
         examples.load(example)().render()  # its frames counted, not drawn
+
+
+def test_unborn_cherenkov_photons_have_no_invalid_numerical_state() -> None:
+    # Below the emission threshold every photon slot is empty. Its -inf timestamp
+    # must be excluded before periodic arithmetic, not masked after cos(-inf).
+    with np.errstate(invalid="raise"):
+        film = CherenkovCone().render(plays=Mock(side_effect=Cut))
+    assert film.frame_count > 0
