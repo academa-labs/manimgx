@@ -1,6 +1,6 @@
-//! A view's paths, drawn exactly (see `vector.wgsl`): from their control points, flattened per
+//! A view's paths, drawn with analytic segment coverage (see `vector.wgsl`): flattened per
 //! frame on the GPU to the size they are drawn at through the view's camera (projectively in 3D),
-//! their exact area accumulated into a float atlas and composited per 16×16 tile in depth order
+//! their segment areas accumulated into a float atlas and composited per 16×16 tile in depth order
 //! (the draw order among equal depths: a 2D view's whole order), each pixel kept as two regions. A
 //! 2D view's point clouds and meshes are drawn by the raster pipeline (`blend.wgsl`), each alone in
 //! its rectangle of a raster atlas, which the composite lays in its place in the order; a 3D view's
@@ -632,7 +632,7 @@ struct GroupBuffers {
     tiles: Data,
 }
 
-/// The GPU side of drawing views exactly: its pipelines, and what they draw with.
+/// The GPU's path coverage and view composition: its pipelines, and what they draw with.
 pub(crate) struct Vector {
     limit: u32, // the largest texture side
     shader: wgpu::ShaderModule,

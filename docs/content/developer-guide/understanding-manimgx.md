@@ -324,10 +324,11 @@ in `audio/fal.py`, while any function returning a Speech can be a voice.
 ## Step 6: The engine
 
 The engine is a Rust crate compiled into the package as `manimgx._engine`. It draws the
-records on the GPU with [wgpu](https://wgpu.rs), 2D paths exactly (each pixel covered by
-the area inside it, computed from the control points), and 3D scenes, point clouds and
-meshes with a raster pipeline. For a video, it converts only the parts of a frame that
-changed, hands them to x264 on a thread of its own, and writes the MP4. It also typesets.
+records on the GPU with [wgpu](https://wgpu.rs): paths use analytic segment coverage after
+curve flattening, while point clouds and meshes use a raster pipeline. The view's
+composite combines their coverage, paint, and depth. For a video, it converts only the
+parts of a frame that changed, hands them to x264 on a thread of its own, and writes the
+MP4. It also typesets.
 
 [The engine](engine.md) describes it.
 

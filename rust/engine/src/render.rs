@@ -2075,7 +2075,7 @@ impl Player {
             }
             let camera = Camera::new(&f.view);
             let drawing = if camera.three_d {
-                // its paths are exact vector layers over the raster base (its meshes and points), depth tested
+                // its paths are analytic vector layers over the raster base (its meshes and points), depth tested
                 // against it; everything else is the base
                 let order = self.order(&camera, &f.records)?;
                 let path = |k: &usize| self.store.shapes.get(&f.records[*k].key1).is_some_and(|s| s.kind == Kind::Path);

@@ -52,8 +52,8 @@ The crate's dependencies do the heavy lifting:
 | [`src/window.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/window.rs) | The player in a window on this machine's screen (winit) |
 | [`src/web.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/web.rs) | The player on a page's canvas (WebAssembly) |
 | [`src/export.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/export.rs) | A film's video: frames converted and handed to the encoder |
-| [`src/vector.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.rs), [`src/vector.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.wgsl) | A 2D view, drawn exactly |
-| [`src/blend.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/blend.wgsl) | The raster pipeline: 3D views, point clouds and meshes |
+| [`src/vector.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.rs), [`src/vector.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.wgsl) | Path coverage and the view's composite |
+| [`src/blend.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/blend.wgsl) | The raster pipeline: point clouds and meshes |
 | [`src/paint.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/paint.wgsl) | Paint, as both pipelines evaluate it |
 | [`src/nv12.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/nv12.wgsl) | A frame's changed macroblocks, converted for the encoder |
 | [`src/encode.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/encode.rs) | H.264 through x264 |
@@ -119,19 +119,27 @@ it: neither the system's loader nor the environment is involved, and a machine w
 never loads it. An engine built from source has none of its own; there, the system's Mesa
 draws.
 
-### A 2D view, exactly
+### Path coverage and compositing
 
-No tessellation, no stencil, no multisampling: each pixel's coverage is the area of the
-object inside it, computed from the control points.
+Paths use analytic coverage of flattened segments instead of counting multisample hits.
+The same pipeline draws paths in 2D and through a 3D camera.
 
 1. A compute pass flattens every curve of every path into as many segments as its size on
-   screen needs (Wang's bound, to 1/32 of a pixel), every frame, at the size it is drawn.
+   screen needs (Wang's bound targets 1/32 of a pixel, with at most 256 segments per curve),
+   every frame, at the size it is drawn.
 2. A raster pass adds each segment's exact area into the object's rectangle of a float
-   atlas: a fill by its winding, a stroke as pieces along the curve's exact normals, with
+   atlas: a fill by its winding, a stroke as pieces along the curve's normals, with
    its joints and caps.
 3. A compute pass composites each 16×16 tile of the view over the objects that reach it,
-   in draw order. It keeps each pixel as two regions split by a line, so edges that two
-   shapes share do not show what lies under them.
+   in depth order, with draw order breaking ties. It keeps each pixel as two regions split
+   by a line to retain the overlap of shared edges.
+
+The segment areas are analytic; the complete image is an approximation. Curves are
+flattened, coverage is accumulated in floating point, and each partially covered layer's
+boundary is reconstructed as a half-plane. Two regions cannot retain every intersection
+of several partial layers. The composite also approximates nearly parallel boundaries
+as parallel, and merges its regions between atlas groups. These limits matter when
+several edges or transparent surfaces meet inside one pixel.
 
 A 2D view's point clouds and meshes are drawn by the raster pipeline, into layers that the
 composite lays in their place in the order.
@@ -140,25 +148,25 @@ See `vector.rs` and `vector.wgsl`.
 
 ### The raster pipeline
 
-The raster pipeline draws every object of a 3D view, and a 2D view's point clouds and
-meshes, with real depth. A vertex is placed by the blend itself:
+The raster pipeline draws point clouds and meshes, with per-sample depth. In a 3D view,
+their raster base is combined with the paths' analytic coverage and depth planes.
+A vertex is placed by the blend itself:
 clip = C₁·S₁ + C₂·S₂, where Cₖ = camera · Mₖ is composed on the CPU once per object (the
 second term only while a shape morphs). The kinds differ only in how their vertices become
 triangles:
 
-- A path's fill is a fan counted into the stencil, then covered, unless the shape is
-  convex, fully shown and still; its stroke is a ribbon in screen space.
 - A point is a disk that faces the camera.
 - A mesh is its triangles, optionally textured.
 
-Where 3D surfaces can be seen through, each fragment is appended to a list per pixel, and
-the lists are composited in depth order: a pixel shows every surface on its ray, the nearer
-over the farther, whatever order they were drawn in.
+Transparent mesh fragments are collected in lists and composited in depth order. Point
+sprites are sorted and drawn between the other geometry's depth layers. Raster sample
+coverage and the paths' reconstructed coverage are different representations; their
+combination does not preserve every subpixel overlap.
 
 A camera's picture, as a [`ZoomedScene`][manimgx.ZoomedScene] shows it, is a view drawn
 first into a texture, which the frame then samples by its key.
 
-See `blend.wgsl`, and the `Player` in `lib.rs`.
+See `blend.wgsl`, and the `Player` in `render.rs`.
 
 ### Paint
 
@@ -319,9 +327,11 @@ the same record slot drew the frame before, which the writer reads off the frame
 film whose shapes change a little every frame is sent as their changes: the example films'
 takes are 14 times smaller for it (50 GB in all before, 3.6 GB after), and a 3D film of 30
 seconds is tens of megabytes, where it was gigabytes. A mesh's points, uvs and normals go as
-float32, the precision the GPU draws them at; everything else goes exactly as Python gave it. The frames the browser draws match the native engine's: of the
-integration corpus's 841 scenes, 534 are identical in every frame, and the others differ by
-rounding, one level in a few pixels.
+float32, the precision the GPU draws them at; everything else goes exactly as Python gave it.
+The browser and native player share the take decoder and renderer. Replay and direct
+rendering are checked for identical pixels on the same adapter and runtime. Different
+GPU backends, drivers, and authoring runtimes can produce different floating-point results;
+sharing the renderer does not guarantee identical pixels across them.
 
 Each take starts with its format version, exposed to Python as `_engine.TAKE_VERSION`.
 It covers the layouts of views, records, uploads and coded arrays. The shared projector
