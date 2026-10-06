@@ -5,14 +5,16 @@ before anything that installs manimgx from PyPI.
 
 import json
 import subprocess
+import tarfile
 import tomllib
 import zipfile
 from fnmatch import fnmatchcase
 from pathlib import Path
+from typing import TextIO
 
 import pytest
 import yaml
-from scripts.release import linux_sources, smoke_test
+from scripts.release import create_executable, linux_sources, smoke_test
 
 ROOT = Path(__file__).parents[1]
 JOBS = yaml.safe_load(
@@ -184,13 +186,107 @@ def test_linux_source_inventory_covers_every_library_that_was_bundled(
 
 
 def test_source_archive_waits_for_the_platform_builds_that_choose_its_sources() -> None:
-    assert JOBS["sdist"]["needs"] == "wheels"
+    assert set(JOBS["sdist"]["needs"]) == {"wheels", "executables"}
     download = next(
         step["with"]
         for step in JOBS["sdist"]["steps"]
         if step.get("uses", "").startswith("actions/download-artifact@")
     )
-    assert download["pattern"] == "sources-linux-*"
+    assert download["pattern"] == "sources-*"
+
+
+def test_executable_sources_reject_missing_and_changed_platform_archives(
+    tmp_path: Path,
+) -> None:
+    for platform in ("linux-x86_64", "linux-arm64", "macos-arm64", "windows-x86_64"):
+        source = tmp_path / f"executable-{platform}"
+        source.mkdir()
+        archive = source / "pyapp.tar.xz"
+        archive.write_bytes(b"the actual launcher sources and locked dependencies")
+        (source / "manifest.json").write_text(
+            json.dumps({"source_sha256": create_executable.sha256(archive)}),
+            encoding="utf-8",
+        )
+        if platform != "windows-x86_64":
+            with pytest.raises(FileNotFoundError):
+                create_executable.verify_sources(tmp_path)
+    create_executable.verify_sources(tmp_path)
+    archive.write_bytes(b"other sources")
+    with pytest.raises(ValueError, match="retained source changed"):
+        create_executable.verify_sources(tmp_path)
+
+
+def test_launcher_build_keeps_compiled_output_out_of_its_source_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Cargo.lock").write_text("locked sources", encoding="utf-8")
+
+    def install(
+        *command: str | Path,
+        env: dict[str, str] | None = None,
+        cwd: Path = ROOT,
+    ) -> None:
+        assert cwd == source
+        assert env is not None
+        target = Path(env["CARGO_TARGET_DIR"])
+        assert not target.is_relative_to(source)
+        assert "--offline" in command
+        assert "--locked" in command
+        target.mkdir()
+        (target / "compiled.o").write_bytes(b"not source")
+        binary = (
+            tmp_path
+            / "pyapp/bin"
+            / ("pyapp.exe" if create_executable.WINDOWS else "pyapp")
+        )
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"the built launcher")
+
+    monkeypatch.setattr(create_executable, "run", install)
+    executable = create_executable.build_pyapp(
+        tmp_path / "python.tar.gz", "0.1.0", tmp_path, source
+    )
+    assert executable.read_bytes() == b"the built launcher"
+    archive = tmp_path / "source.tar.xz"
+    with tarfile.open(archive, "w:xz") as output:
+        output.add(source, arcname="pyapp")
+    with tarfile.open(archive) as packed:
+        assert packed.getnames() == ["pyapp", "pyapp/Cargo.lock"]
+
+
+def test_launcher_vendoring_preserves_upstream_target_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upstream = tmp_path / "upstream"
+    (upstream / ".cargo").mkdir(parents=True)
+    original = '[target.windows]\nrustflags = ["-C", "target-feature=+crt-static"]\n'
+    (upstream / ".cargo/config.toml").write_text(original, encoding="utf-8")
+
+    def download(*_args: object, **_kwargs: object) -> None:
+        with tarfile.open(tmp_path / create_executable.PYAPP_SHA256, "w:gz") as out:
+            out.add(upstream, arcname=f"pyapp-{create_executable.PYAPP}")
+
+    def vendor(command: list[str], *, cwd: Path, stdout: TextIO, check: bool) -> None:
+        assert command == ["cargo", "vendor", "--locked", "vendor"]
+        assert check
+        assert (
+            (cwd / ".cargo/config.toml")
+            .read_text(encoding="utf-8")
+            .startswith(original)
+        )
+        stdout.write('[source.crates-io]\nreplace-with = "vendored-sources"\n')
+
+    monkeypatch.setattr(create_executable, "run", download)
+    monkeypatch.setattr(create_executable.subprocess, "run", vendor)
+    source = create_executable.launcher_sources(tmp_path)
+    config = tomllib.loads((source / ".cargo/config.toml").read_text(encoding="utf-8"))
+    assert config["target"]["windows"]["rustflags"] == [
+        "-C",
+        "target-feature=+crt-static",
+    ]
+    assert config["source"]["crates-io"]["replace-with"] == "vendored-sources"
 
 
 def test_source_archive_rejects_missing_platforms_and_changed_sources(

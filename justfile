@@ -173,10 +173,10 @@ build-npm:
 build-sdist:
     uv build --sdist --out-dir dist
 
-# (the Linux builds' source artifacts merged into release-sources/, with the source distribution,
+# (the platform builds' source artifacts merged into release-sources/, with the source distribution,
 # every crate and each checked archive the engine uses. System build tools are prerequisites;
 # distribution source RPMs describe the exact libraries bundled by the Linux builds)
-# Build the wheels' complete source into dist/, from the source distribution
+# Build the wheels' and launchers' complete source into dist/, from the source distribution
 [group('release')]
 build-source sources="release-sources": build-sdist
     #!/usr/bin/env bash
@@ -184,6 +184,7 @@ build-source sources="release-sources": build-sdist
     version="$(uv version --short)"
     sources="$(realpath "{{ sources }}")"
     uv run --no-project scripts/release/linux_sources.py --verify "${sources}"
+    uv run --no-project scripts/release/create_executable.py --verify-sources "${sources}"
     work="$(mktemp -d)"
     trap 'rm -rf "${work}"' EXIT
     tar -xzf "dist/manimgx-${version}.tar.gz" -C "${work}"

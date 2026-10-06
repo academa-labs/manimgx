@@ -93,3 +93,9 @@ jobs:
             dist/manimgx-*.tar.gz
             dist/manimgx-*.zip
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sources-executable-${{ matrix.platform }}
+          path: release-sources/
+          if-no-files-found: error

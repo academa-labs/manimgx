@@ -13,6 +13,8 @@ Run it with `just create-executable`; it writes dist/manimgx-<os>-<arch>.tar.gz 
 Windows), after running what it made once.
 """
 
+import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -23,6 +25,7 @@ import zipfile
 from pathlib import Path
 
 PYAPP = "0.29.0"
+PYAPP_SHA256 = "0ad1267db069a83e16dad2a42b0d01c727f5a9da7614330f44b66876da2d15f6"
 PYTHON = "3.14"
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,9 +38,13 @@ MACHINE = {"x86_64": "x86_64", "amd64": "x86_64", "arm64": "arm64", "aarch64": "
 ]
 
 
-def run(*command: str | Path, env: dict[str, str] | None = None) -> None:
+def run(
+    *command: str | Path,
+    env: dict[str, str] | None = None,
+    cwd: Path = ROOT,
+) -> None:
     print("$", *command, flush=True)
-    subprocess.run([str(part) for part in command], check=True, env=env)
+    subprocess.run([str(part) for part in command], check=True, env=env, cwd=cwd)
 
 
 def the_wheel() -> Path:
@@ -78,11 +85,44 @@ def install_manimgx(python: Path, wheel: Path, work: Path) -> None:
         marker.unlink()
 
 
-def build_pyapp(distribution: Path, version: str, work: Path) -> Path:
+def launcher_sources(work: Path) -> Path:
+    """The exact launcher input, including its own complete locked Cargo graph."""
+    url = f"https://static.crates.io/crates/pyapp/pyapp-{PYAPP}.crate"
+    run(
+        "cargo", "run", "--locked", "--manifest-path", ROOT / "rust/Cargo.toml",
+        "-p", "fetch", "--bin", "fetch-file", "--", url, PYAPP_SHA256,
+        env=os.environ | {"OUT_DIR": str(work)},
+    )  # fmt: skip
+    with tarfile.open(work / PYAPP_SHA256) as archive:
+        archive.extractall(work, filter="data")
+    source = work / f"pyapp-{PYAPP}"
+    config = source / ".cargo" / "config.toml"
+    config.parent.mkdir(exist_ok=True)
+    # Keep upstream target flags, including Windows' static C runtime.
+    with config.open("a", encoding="utf-8") as output:
+        output.write("\n")
+        output.flush()
+        subprocess.run(
+            ["cargo", "vendor", "--locked", "vendor"],
+            cwd=source,
+            stdout=output,
+            check=True,
+        )
+    return source
+
+
+def sha256(path: Path) -> str:
+    with path.open("rb") as file:
+        return hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def build_pyapp(distribution: Path, version: str, work: Path, source: Path) -> Path:
     """PyApp, built with the distribution inside it: it unpacks it and runs `manimgx`."""
     # the distribution itself runs manimgx, installed in it already: no virtual environment,
     # no installation at runtime
     env = os.environ | {
+        # Keep compiled output outside the source closure retained for the release.
+        "CARGO_TARGET_DIR": str(work / "target"),
         "PYAPP_PROJECT_NAME": "manimgx",
         "PYAPP_PROJECT_VERSION": version,
         "PYAPP_PYTHON_VERSION": PYTHON,
@@ -96,8 +136,8 @@ def build_pyapp(distribution: Path, version: str, work: Path) -> Path:
         "PYAPP_EXPOSE_CACHE": "1",
     }
     run(
-        "cargo", "install", "pyapp", "--version", PYAPP, "--locked", "--force",
-        "--root", work / "pyapp", env=env,
+        "cargo", "install", "--path", source, "--locked", "--offline", "--force",
+        "--root", work / "pyapp", env=env, cwd=source,
     )  # fmt: skip
     binary = work / "pyapp" / "bin" / ("pyapp.exe" if WINDOWS else "pyapp")
     executable = work / ("manimgx.exe" if WINDOWS else "manimgx")
@@ -123,20 +163,79 @@ def main() -> None:
         with tarfile.open(distribution, "w:gz") as archive:
             for path in python.iterdir():
                 archive.add(path, arcname=path.name)
-        executable = build_pyapp(distribution, version, work)
+        source = launcher_sources(work)
+        retained = ROOT / "release-sources" / f"executable-{SYSTEM}-{MACHINE}"
+        retained.mkdir(parents=True, exist_ok=True)
+        # PyApp's build script copies the binary distribution into its source tree.
+        # Retain the input before that generated payload is written.
+        with tarfile.open(retained / "pyapp.tar.xz", "w:xz") as out:
+            out.add(source, arcname="pyapp")
+        executable = build_pyapp(distribution, version, work, source)
+        target = next(
+            line.removeprefix("host: ")
+            for line in subprocess.check_output(
+                ["rustc", "-vV"], text=True, encoding="utf-8"
+            ).splitlines()
+            if line.startswith("host: ")
+        )
+        notice = work / "LICENSE-PYAPP"
+        run(
+            sys.executable,
+            ROOT / "scripts/release/licenses.py",
+            "--crate",
+            source,
+            target,
+            notice,
+        )
+        receipt = work / "build-inputs.json"
+        receipt.write_text(
+            json.dumps(
+                {
+                    "wheel": {"name": wheel.name, "sha256": sha256(wheel)},
+                    "launcher": {
+                        "version": PYAPP,
+                        "url": f"https://static.crates.io/crates/pyapp/pyapp-{PYAPP}.crate",
+                        "sha256": PYAPP_SHA256,
+                        "lock_sha256": sha256(source / "Cargo.lock"),
+                        "target": target,
+                    },
+                    "distribution_sha256": sha256(distribution),
+                    "executable_sha256": sha256(executable),
+                    "source_sha256": sha256(retained / "pyapp.tar.xz"),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (retained / "manifest.json").write_bytes(receipt.read_bytes())
         smoke_test(executable)
         # an archive keeps the file executable
         name = f"manimgx-{SYSTEM}-{MACHINE}"
         if WINDOWS:
             created = DIST / f"{name}.zip"
             with zipfile.ZipFile(created, "w", zipfile.ZIP_DEFLATED) as out:
-                out.write(executable, executable.name)
+                for path in (executable, notice, receipt):
+                    out.write(path, path.name)
         else:
             created = DIST / f"{name}.tar.gz"
             with tarfile.open(created, "w:gz") as out:
-                out.add(executable, arcname=executable.name)
+                for path in (executable, notice, receipt):
+                    out.add(path, arcname=path.name)
     print(f"created {created}")
 
 
+def verify_sources(directory: Path) -> None:
+    """Every executable contributed the unchanged sources of its actual launcher."""
+    for target in ("linux-x86_64", "linux-arm64", "macos-arm64", "windows-x86_64"):
+        source = directory / f"executable-{target}"
+        receipt = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+        if sha256(source / "pyapp.tar.xz") != receipt["source_sha256"]:
+            raise ValueError(f"{target}: the executable's retained source changed")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:2] == ["--verify-sources"]:
+        verify_sources(Path(sys.argv[2]))
+    else:
+        main()
