@@ -60,6 +60,7 @@ class TransformMatchingAbstractBase(AnimationGroup):
             than fade.
         key_map: Pairs of keys to match although they differ: the parts of `mobject`
             with the first key cross-fade into the target's parts with the second.
+            These matches take precedence over equal keys.
         **kwargs: [Transform options][manimgx.animation.transform.TransformOptions] for
             each of the animations it plays.
     """
@@ -67,17 +68,22 @@ class TransformMatchingAbstractBase(AnimationGroup):
     # the parts are matched in their own order, so the result is the same in every run
     # (CE matched through salted hashes, in set order)
 
-    def __init__(
+    def __init__[Key: Hashable](
         self,
         mobject: Mobject,
         target_mobject: Mobject,
         transform_mismatches: bool = False,
         fade_transform_mismatches: bool = False,
-        key_map: Mapping[Hashable, Hashable] | None = None,
+        key_map: Mapping[Key, Hashable] | None = None,
         **kwargs: Unpack[TransformOptions],
     ):
         source_map = self.get_shape_map(mobject)
         target_map = self.get_shape_map(target_mobject)
+        key_mapped_source, key_mapped_target = Group(), Group()
+        for key1, key2 in (key_map or {}).items():
+            if key1 in source_map and key2 in target_map:
+                key_mapped_source.add(source_map.pop(key1))
+                key_mapped_target.add(target_map.pop(key2))
         matched = [key for key in source_map if key in target_map]
         anims: list[AnimationGroup | Transform] = [
             Transform(
@@ -86,11 +92,6 @@ class TransformMatchingAbstractBase(AnimationGroup):
                 **kwargs,
             )
         ]
-        key_mapped_source, key_mapped_target = Group(), Group()
-        for key1, key2 in (key_map or {}).items():
-            if key1 in source_map and key2 in target_map:
-                key_mapped_source.add(source_map.pop(key1))
-                key_mapped_target.add(target_map.pop(key2))
         if len(key_mapped_source) > 0:
             anims.append(
                 FadeTransformPieces(key_mapped_source, key_mapped_target, **kwargs)
@@ -189,6 +190,7 @@ class TransformMatchingShapes(TransformMatchingAbstractBase):
             than fade.
         key_map: Pairs of keys to match although they differ: the parts of `mobject`
             with the first key cross-fade into the target's parts with the second.
+            These matches take precedence over equal keys.
         **kwargs: [Transform options][manimgx.animation.transform.TransformOptions] for
             each of the animations it plays.
 
@@ -244,6 +246,7 @@ class TransformMatchingTex(TransformMatchingAbstractBase):
             than fade.
         key_map: Pairs of strings to match although they differ: the parts of `mobject`
             written the first way cross-fade into the target's parts written the second.
+            These matches take precedence over equal keys.
         **kwargs: [Transform options][manimgx.animation.transform.TransformOptions] for
             each of the animations it plays.
 

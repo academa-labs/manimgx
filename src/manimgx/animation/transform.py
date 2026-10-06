@@ -18,6 +18,7 @@ from manimgx.animation.timeline import (
     Animation,
     AnimationOptions,
     Key,
+    _AnimationOptions,
     _updating,
     keyframe_at,
 )
@@ -63,6 +64,7 @@ if TYPE_CHECKING:
     from manimgx.mobjects.grid import Matrix, Table
     from manimgx.mobjects.images import ImageMobject, ImageMobjectFromCamera
     from manimgx.mobjects.plotting import (
+        Axes,
         BarChart,
         ComplexPlane,
         NumberLine,
@@ -78,8 +80,14 @@ if TYPE_CHECKING:
         Polygram,
         TipableVMobject,
     )
-    from manimgx.mobjects.text import BulletedList, MathTex
-    from manimgx.mobjects.three_d import Cone, Cylinder, Line3D, Polyhedron, Surface
+    from manimgx.mobjects.text import BulletedList, MathTex, Typst
+    from manimgx.mobjects.three_d import (
+        Cylinder,
+        Line3D,
+        Polyhedron,
+        Surface,
+        _DirectedSurface,
+    )
     from manimgx.mobjects.vector_field import StreamLines, VectorField
 
     class _Of[T](Protocol):
@@ -95,6 +103,8 @@ if TYPE_CHECKING:
         **P2 = ...,
         S3: Mobject = Never,
         **P3 = ...,
+        S4: Mobject = Never,
+        **P4 = ...,
     ]:
         """A mobject method as a proxy records it: for mobjects of kind S (the method's own
         class), the method's parameters P, returning the proxy — per kind, first match.
@@ -108,6 +118,8 @@ if TYPE_CHECKING:
         def __get__[R](self, proxy: R, owner: type[_Of[S2]]) -> Callable[P2, R]: ...
         @overload
         def __get__[R](self, proxy: R, owner: type[_Of[S3]]) -> Callable[P3, R]: ...
+        @overload
+        def __get__[R](self, proxy: R, owner: type[_Of[S4]]) -> Callable[P4, R]: ...
         def __get__(self, proxy: object, owner: type) -> object:
             raise NotImplementedError  # typing only
 
@@ -128,6 +140,24 @@ if TYPE_CHECKING:
         m1: Callable[PA, A], m2: Callable[PB, B], m3: Callable[PC, C], /
     ) -> _Method[A, PA, B, PB, C, PC]: ...
 
+    @overload
+    def recorded[
+        A: Mobject,
+        **PA,
+        B: Mobject,
+        **PB,
+        C: Mobject,
+        **PC,
+        D: Mobject,
+        **PD,
+    ](
+        m1: Callable[PA, A],
+        m2: Callable[PB, B],
+        m3: Callable[PC, C],
+        m4: Callable[PD, D],
+        /,
+    ) -> _Method[A, PA, B, PB, C, PC, D, PD]: ...
+
     def recorded(*methods: object) -> object:
         """A method a proxy records, from each kind's bound method (its kind is what it returns)."""
         raise NotImplementedError  # typing only
@@ -136,7 +166,7 @@ if TYPE_CHECKING:
 __all__ = ["Animate", "Transform"]
 
 
-class TransformOptions(AnimationOptions, total=False):
+class TransformOptions(_AnimationOptions, total=False, closed=True):
     """The options a transform takes, by keyword: the animation options and its path."""
 
     path_func: PathFunc | None
@@ -635,7 +665,7 @@ class _Methods:
         ) -> Self: ...
 
         save_state = recorded(_on(Mobject).save_state)
-        scale = recorded(_on(Arrow).scale, _on(Mobject).scale)
+        scale = recorded(_on(Arrow).scale, _on(Typst).scale, _on(Mobject).scale)
         scale_to_fit_height = recorded(_on(Mobject).scale_to_fit_height)
         scale_to_fit_width = recorded(_on(Mobject).scale_to_fit_width)
         set = recorded(_on(Mobject).set)
@@ -646,6 +676,7 @@ class _Methods:
         )
         set_coord = recorded(_on(Mobject).set_coord)
         set_fill = recorded(_on(Mobject).set_fill)
+        set_material = recorded(_on(Mobject).set_material)
         set_opacity = recorded(_on(ImageMobject).set_opacity, _on(Mobject).set_opacity)
         set_points = recorded(_on(Mobject).set_points)
         set_sheen = recorded(_on(Mobject).set_sheen)
@@ -681,18 +712,23 @@ class _Methods:
         # VMobject
         add_cubic_bezier_curve = recorded(_on(VMobject).add_cubic_bezier_curve)
         add_cubic_bezier_curve_to = recorded(_on(VMobject).add_cubic_bezier_curve_to)
+        add_cubic_bezier_curves = recorded(_on(VMobject).add_cubic_bezier_curves)
         add_line_to = recorded(_on(VMobject).add_line_to)
         add_points_as_corners = recorded(_on(VMobject).add_points_as_corners)
         add_quadratic_bezier_curve_to = recorded(
             _on(VMobject).add_quadratic_bezier_curve_to
         )
         add_smooth_curve_to = recorded(_on(VMobject).add_smooth_curve_to)
+        add_subpath = recorded(_on(VMobject).add_subpath)
         append_points = recorded(_on(VMobject).append_points)
+        append_vectorized_mobject = recorded(_on(VMobject).append_vectorized_mobject)
         change_anchor_mode = recorded(_on(VMobject).change_anchor_mode)
         clear_points = recorded(_on(VMobject).clear_points)
+        close_path = recorded(_on(VMobject).close_path)
         force_direction = recorded(_on(VMobject).force_direction)
         get_subcurve = recorded(_on(VMobject).get_subcurve)
         insert_n_curves = recorded(_on(VMobject).insert_n_curves)
+        make_jagged = recorded(_on(VMobject).make_jagged)
         make_smooth = recorded(_on(VMobject).make_smooth)
         reverse_direction = recorded(_on(VMobject).reverse_direction)
         scale_handle_to_anchor_distances = recorded(
@@ -705,9 +741,12 @@ class _Methods:
         set_shade_in_3d = recorded(_on(VMobject).set_shade_in_3d)
         start_new_path = recorded(_on(VMobject).start_new_path)
         # the kinds' own
+        add_background_to_entries = recorded(_on(Table).add_background_to_entries)
         add_bases = recorded(_on(Cylinder).add_bases)
         add_coordinates = recorded(
-            _on(PolarPlane).add_coordinates, _on(ComplexPlane).add_coordinates
+            _on(PolarPlane).add_coordinates,
+            _on(ComplexPlane).add_coordinates,
+            _on(Axes).add_coordinates,
         )
         add_display_frame = recorded(_on(ImageMobjectFromCamera).add_display_frame)
         add_highlighted_cell = recorded(_on(Table).add_highlighted_cell)
@@ -731,6 +770,8 @@ class _Methods:
         increment_value = recorded(
             _on(ValueTracker[complex]).increment_value,
             _on(ValueTracker).increment_value,
+            _on(DecimalNumber).increment_value,
+            _on(DecimalNumber[complex]).increment_value,
         )
         match_colors = recorded(_on(PMobject).match_colors)
         move_arc_center_to = recorded(_on(Arc).move_arc_center_to)
@@ -755,7 +796,7 @@ class _Methods:
         set_column_colors = recorded(
             _on(Matrix).set_column_colors, _on(Table).set_column_colors
         )
-        set_direction = recorded(_on(Cone).set_direction, _on(Cylinder).set_direction)
+        set_direction = recorded(_on(_DirectedSurface).set_direction)
         set_fill_by_checkerboard = recorded(_on(Surface).set_fill_by_checkerboard)
         set_fill_by_value = recorded(_on(Surface).set_fill_by_value)
         set_length = recorded(_on(Line).set_length)
@@ -769,6 +810,7 @@ class _Methods:
             _on(ComplexValueTracker).set_value,
             _on(ValueTracker).set_value,
             _on(DecimalNumber).set_value,
+            _on(DecimalNumber[complex]).set_value,
         )
         start_animation = recorded(_on(StreamLines).start_animation)
         start_submobject_movement = recorded(_on(VectorField).start_submobject_movement)
@@ -832,10 +874,24 @@ class Animate[M: Mobject](Transform[M], _Methods):
         self._chosen: PathFunc | None = self._path_func
         self.keys = (None, self._replay)
 
-    def __call__(self, **anim_args: Unpack[TransformOptions]) -> Self:
-        """Set the animation's options, before any method is recorded.
+    def __call__(
+        self,
+        function: Callable[[M], object] | None = None,
+        /,
+        **anim_args: Unpack[TransformOptions],
+    ) -> Self:
+        """Set the animation's options, before any method is recorded; and record a
+        function of the mobject, as a method's call is recorded.
+
+        A function can make any change, with methods of your own class too, and a type
+        checker checks it against the mobject's class: `box.animate(lambda b: b.grow(2))`.
+        (`box.animate.grow(2)` works as well, but through `animate` a type checker knows
+        only manimgx's methods.)
 
         Args:
+            function: A function that changes the mobject: tried at once on a copy, so a
+                wrong call fails where it is written, and carried out as recorded methods
+                are. None for none.
             **anim_args: [Transform options][manimgx.animation.transform.TransformOptions].
 
         Returns:
@@ -860,9 +916,29 @@ class Animate[M: Mobject](Transform[M], _Methods):
                 else self._path_func
             )
             self.keys = (None, self._replay)
+        if function is not None:
+            if self._override is not None:
+                raise NotImplementedError(
+                    "Method chaining is currently not supported for overridden animations"
+                )
+            self._record(function, (), {})
+            self._chaining = True
         return self
 
-    def __getattr__(self, name: str) -> Callable[..., Animation]:
+    def _record(
+        self,
+        function: Callable[..., object],
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> None:
+        """Record a call of `function` on the mobject, tried at once on the target: a
+        wrong call fails where it is written."""
+        function(self._target, *args, **kwargs)
+        own = {id(m) for mob in (self.mobject, self._target) for m in mob.get_family()}
+        self.methods.append(_Call(function, args, kwargs, own))
+
+    def _recorder(self, name: str) -> Callable[..., Animation]:
+        """The mobject's method `name`, which records its calls."""
         if name.startswith("_") or "_target" not in self.__dict__:
             raise AttributeError(name)
         method = getattr(self._target, name)
@@ -881,15 +957,16 @@ class Animate[M: Mobject](Transform[M], _Methods):
                 )
                 self._override = animation
                 return animation
-            method(*args, **kwargs)  # tried on the target: a wrong call fails here
-            own = {
-                id(m) for mob in (self.mobject, self._target) for m in mob.get_family()
-            }
-            self.methods.append(_Call(method.__func__, args, kwargs, own))
+            self._record(method.__func__, args, kwargs)
             return self
 
         self._chaining = True
         return record
+
+    if (
+        not TYPE_CHECKING
+    ):  # a type checker knows the methods by the table, and no others
+        __getattr__ = _recorder
 
     def _replay(self, target: Mobject) -> Mobject:
         """The recorded calls, carried out on (a copy of) the object as it is when the animation
@@ -975,7 +1052,8 @@ class Always[M: Mobject](_Methods):
         """The mobject whose method calls become updaters."""
         return self._mobject
 
-    def __getattr__(self, name: str) -> Callable[..., Self]:
+    def _updater(self, name: str) -> Callable[..., Self]:
+        """The mobject's method `name`, whose calls become its updaters."""
         if name.startswith("_"):
             raise AttributeError(name)
 
@@ -986,3 +1064,8 @@ class Always[M: Mobject](_Methods):
             return self
 
         return add_updater
+
+    if (
+        not TYPE_CHECKING
+    ):  # a type checker knows the methods by the table, and no others
+        __getattr__ = _updater

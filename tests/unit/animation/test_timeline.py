@@ -420,6 +420,7 @@ class TestLayout:
         ),
         lag=st.floats(0, 2),
     )
+    @example(times=[2.5, 0.0], lag=1.0000004191481406)
     def test_a_group_lasts_until_its_last_part_ends(
         self, times: list[float], lag: float
     ) -> None:
@@ -431,6 +432,19 @@ class TestLayout:
         assert m.Succession(*group.animations).run_time == pytest.approx(
             sum(times), abs=1e-6
         )
+
+    @given(times=st.lists(st.floats(0, 5), min_size=2, max_size=5))
+    @example(times=[2.500001047870352, 1e-8, 1 / 3])
+    def test_nested_successions_keep_exact_durations(self, times: list[float]) -> None:
+        parts = [m.Wait(t) for t in times]
+        flat = m.Succession(*parts)
+        nested = m.Succession(parts[0], m.Succession(*parts[1:]))
+        expected = sum((clock.rational(t) for t in times), Fraction(0))
+        assert flat._duration == nested._duration == expected
+        flat_windows, nested_windows = windows(flat), windows(nested)
+        assert [w.opens * flat._duration for w in flat_windows] == [
+            w.opens * nested._duration for w in nested_windows
+        ]
 
     @given(
         parts=st.lists(leaves(3), min_size=2, max_size=3),
@@ -608,8 +622,24 @@ def nodes(speedinfo: dict[float, float]) -> list[tuple[float, float, float]]:
     return out
 
 
+def test_a_speed_profile_composes_its_duration_exactly() -> None:
+    change = m.ChangeSpeed(m.Wait(2), speedinfo={0.4: 1, 0.5: 0.2, 0.8: 0.2, 1: 1})
+    assert change._duration == Fraction(24, 5)
+    assert m.Succession(change, m.Wait(0.2))._duration == 5
+
+
 class TestProfile:
+    @given(at=st.floats(0.05, 0.95), speed=st.floats(0.2, 4))
+    def test_splitting_a_constant_speed_profile_preserves_its_duration(
+        self, at: float, speed: float
+    ) -> None:
+        part = m.Wait(0.3)
+        whole = m.ChangeSpeed(part, speedinfo={0: speed, 1: speed})
+        split = m.ChangeSpeed(part, speedinfo={0: speed, at: speed, 1: speed})
+        assert split._duration == whole._duration
+
     @given(speedinfo=speedinfos)
+    @example(speedinfo={0.5954991299724285: 2.0, 0.3026788225275667: 2.318359375})
     def test_it_reaches_each_point_when_the_stretches_before_it_have_played(
         self, speedinfo: dict[float, float]
     ) -> None:

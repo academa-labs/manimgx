@@ -6,12 +6,68 @@
   one begun last rules while it lasts.
 """
 
+import math
+from fractions import Fraction
+
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from manimgx.animation import easing as rf
-from manimgx.animation.clock import Clock
+from manimgx.animation.clock import Clock, frame_at, rational
+
+
+@given(value=st.floats(allow_nan=False, allow_infinity=False))
+@example(value=math.ulp(0.0))
+@example(value=-math.ulp(0.0))
+@example(value=float.fromhex("0x1.fffffffffffffp+1023"))
+@example(value=1.0000004191481406)
+def test_rational_time_preserves_the_supplied_float(value: float) -> None:
+    exact = rational(value)
+    assert float(exact) == value
+    assert rational(-value) == -exact
+    if exact.denominator > 1:
+        # Independent nearest-rational oracle: a smaller denominator cannot round-trip.
+        nearer = Fraction(value).limit_denominator(exact.denominator - 1)
+        assert float(nearer) != value
+
+
+@given(numerator=st.integers(-10000, 10000), denominator=st.integers(1, 10000))
+def test_small_rational_times_keep_their_exact_boundaries(
+    numerator: int, denominator: int
+) -> None:
+    value = Fraction(numerator, denominator)
+    assert rational(float(value)) == value
+    assert rational(value) == value
+
+
+@given(exponent=st.integers(-1074, 52))
+def test_adjacent_times_at_a_binary_exponent_boundary_stay_ordered(
+    exponent: int,
+) -> None:
+    value = math.ldexp(1.0, exponent)
+    before, after = math.nextafter(value, -math.inf), math.nextafter(value, math.inf)
+    assert rational(before) < rational(value) < rational(after)
+
+
+@given(
+    time=st.fractions(min_value=-1000, max_value=1000),
+    rate=st.fractions(min_value=1, max_value=1000),
+    after=st.booleans(),
+)
+@example(time=Fraction(1), rate=Fraction(2**54), after=False)
+@example(time=Fraction(1) + Fraction(1, 2**53), rate=Fraction(2**54), after=True)
+@example(time=Fraction(1) + Fraction(3, 2**53), rate=Fraction(2**54), after=False)
+def test_sampling_chooses_the_first_representable_instant_not_before_the_event(
+    time: Fraction, rate: Fraction, after: bool
+) -> None:
+    frame = frame_at(time, rate, after=after)
+    before, here = float((frame - 1) / rate), float(frame / rate)
+    if after:
+        assert before <= float(time) < here
+    else:
+        assert before < float(time) <= here
+
 
 # monotone maps of [0, 1] onto itself, of bounded slope (at most 10)
 PROGRESSES = [rf.linear, rf.smooth, rf.rush_into, rf.rush_from, rf.ease_out_quad, rf.double_smooth,

@@ -2249,7 +2249,7 @@ class Wiggle(Animation):
         )
 
 
-class ChangingDecimal(Animation["DecimalNumber"]):
+class ChangingDecimal[V: (float, complex) = float](Animation["DecimalNumber[V]"]):
     """Change the value a number shows with the animation's progress.
 
     At every frame, the number shows `number_update_func` of the progress, from 0 to 1,
@@ -2278,8 +2278,8 @@ class ChangingDecimal(Animation["DecimalNumber"]):
 
     def __init__(
         self,
-        decimal_mob: DecimalNumber,
-        number_update_func: Callable[[float], float],
+        decimal_mob: DecimalNumber[V],
+        number_update_func: Callable[[float], V],
         **kwargs: Unpack[AnimationOptions],
     ) -> None:
         self.number_update_func = number_update_func
@@ -2289,7 +2289,7 @@ class ChangingDecimal(Animation["DecimalNumber"]):
         self.mobject.set_value(self.number_update_func(self.rate_func(alpha)))
 
 
-class ChangeDecimalToValue(ChangingDecimal):
+class ChangeDecimalToValue[V: (float, complex) = float](ChangingDecimal[V]):
     """Count a number to a value.
 
     It goes from the value it has when the animation is made to `target_number`, eased
@@ -2314,8 +2314,8 @@ class ChangeDecimalToValue(ChangingDecimal):
 
     def __init__(
         self,
-        decimal_mob: DecimalNumber,
-        target_number: float,
+        decimal_mob: DecimalNumber[V],
+        target_number: V,
         **kwargs: Unpack[AnimationOptions],
     ) -> None:
         start = decimal_mob.number

@@ -15,13 +15,13 @@ from typing import (
     Literal,
     NamedTuple,
     Self,
-    TypedDict,
     TypeIs,
     Unpack,
 )
 from warnings import deprecated
 
 import numpy as np
+from typing_extensions import TypedDict
 
 from manimgx.animation import clock
 from manimgx.animation.easing import linear, smooth
@@ -58,9 +58,8 @@ __all__ = [
 ]
 
 
-class Untimed(TypedDict, total=False):
-    """Every animation option but `run_time`, which [`Wait`][manimgx.Wait] takes by
-    position."""
+class _Untimed(TypedDict, total=False):
+    """Untimed's keys, open, for the keywords that add to them."""
 
     lag_ratio: float
     """How the parts of the mobject are staggered: each begins this fraction of its run
@@ -88,15 +87,24 @@ class Untimed(TypedDict, total=False):
     does so (default True)."""
 
 
-class AnimationOptions(Untimed, total=False):
+class Untimed(_Untimed, total=False, closed=True):
+    """Every animation option but `run_time`, which [`Wait`][manimgx.Wait] takes by
+    position."""
+
+
+class _AnimationOptions(_Untimed, total=False):
+    """AnimationOptions's keys, open, for the keywords that add to them."""
+
+    run_time: float
+    """How long the animation plays, in seconds (default 1)."""
+
+
+class AnimationOptions(_AnimationOptions, total=False, closed=True):
     """The options every animation takes, by keyword.
 
     Each animation class sets its own defaults for them: [`Create`][manimgx.Create], for
     instance, draws the parts of a mobject one after another (`lag_ratio=1`).
     """
-
-    run_time: float
-    """How long the animation plays, in seconds (default 1)."""
 
 
 _CASCADES: Memo[type, AnimationOptions] = Memo(1 << 12)
@@ -273,6 +281,11 @@ class Animation[M: Mobject = Mobject]:
                 f" value was {value}."
             )
         self._run_time = value
+
+    @property
+    def _duration(self) -> Fraction:
+        """The scene's duration; compositions retain their computed rational exactly."""
+        return clock.rational(self.run_time)
 
     @deprecated(
         "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
@@ -1074,31 +1087,31 @@ class AnimationGroup(Animation):
         self.done: set[int] = set()
         self._fresh: set[int] = set()  # the parts begun at the instant being computed
         # a run time given; None: the layout's own, where its last part ends
-        self._given: float | None = (animation_defaults(type(self)) | kwargs).get(
-            "run_time"
-        )
-        self._layout: tuple[tuple[object, ...], float, list[Placed]] = ((), 0.0, [])
+        self._given: float | Fraction | None = (
+            animation_defaults(type(self)) | kwargs
+        ).get("run_time")
+        self._layout: tuple[tuple[object, ...], Fraction, list[Placed]] = ((), _0, [])
         self._playing = False  # between `begin` and `finish`: its layout fixed
         self._placed: tuple[tuple[object, ...], list[Placed]] = ((), [])
 
-    def _laid_out(self) -> tuple[float, list[Placed]]:
+    def _laid_out(self) -> tuple[Fraction, list[Placed]]:
         """(where the last part ends, each part's window in the group's own time), from the
         lag and the parts' run times as they are now (a play's options set them after the
         group is made), fixed while it plays."""
         if self._playing:
             return self._layout[1], self._layout[2]
-        key = (self.lag_ratio, *(anim.run_time for anim in self.animations))
+        lengths = tuple(anim._duration for anim in self.animations)
+        key = (self.lag_ratio, *lengths)
         if key != self._layout[0]:
             spans, start = [], _0
-            lag = Fraction(self.lag_ratio).limit_denominator(10**6)
-            for anim in self.animations:
-                length = Fraction(anim.run_time).limit_denominator(10**6)
+            lag = clock.rational(self.lag_ratio)
+            for length in lengths:
                 spans.append((start, start + length))
                 start += length * lag
             total = max((end for _, end in spans), default=_0)
             windows = [(a / total, b / total) if total else (_0, _0) for a, b in spans]
             placed = [(float(a), float(b), b < 1, a, b) for a, b in windows]
-            self._layout = (key, float(total), placed)
+            self._layout = (key, total, placed)
         return self._layout[1], self._layout[2]
 
     def _in(self, start: Fraction, end: Fraction) -> list[Placed]:
@@ -1129,7 +1142,7 @@ class AnimationGroup(Animation):
     @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
     def max_end_time(self) -> float:
         """Where the last part ends, in seconds: the group's own run time."""
-        return self._laid_out()[0]
+        return float(self._laid_out()[0])
 
     @property
     @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
@@ -1142,7 +1155,7 @@ class AnimationGroup(Animation):
     def run_time(self) -> float:
         """How long the group plays, in seconds: the run time it was given, else where its
         last part ends."""
-        return self.max_end_time if self._given is None else self._given
+        return self.max_end_time if self._given is None else float(self._given)
 
     @run_time.setter
     def run_time(self, value: float) -> None:
@@ -1152,6 +1165,14 @@ class AnimationGroup(Animation):
                 f" value was {value}."
             )
         self._given = value
+
+    @property
+    def _duration(self) -> Fraction:
+        if type(self).run_time is not AnimationGroup.run_time:
+            return clock.rational(self.run_time)
+        return (
+            self._laid_out()[0] if self._given is None else clock.rational(self._given)
+        )
 
     def _setup_scene(self, scene: Scene) -> None:
         self.scene = scene  # each part is set up when it begins
@@ -1482,14 +1503,21 @@ class ChangeSpeed(AnimationGroup):
         self.affects_speed_updaters = affects_speed_updaters
         # each stretch: (from, to, speed at from, speed at to, where it starts in real time)
         self._stretches: list[tuple[float, float, float, float, float]] = []
-        self._total = 0.0  # real time, per second of the wrapped animation
+        total = _0  # real time, per second of the wrapped animation
         for (a, v), (b, w) in pairwise(speeds.items()):
-            self._stretches.append((a, b, v, w, self._total))
-            self._total += 2 / (v + w) * (b - a)
+            self._stretches.append((a, b, v, w, float(total)))
+            total += (
+                2
+                * (clock.rational(b) - clock.rational(a))
+                / (clock.rational(v) + clock.rational(w))
+            )
+        self._total = float(total)
         self._before = kwargs.pop("rate_func", linear)
         kwargs["rate_func"] = self._rate
-        kwargs["run_time"] = self._total * self.anim.run_time
+        duration = total * self.anim._duration
+        kwargs["run_time"] = float(duration)
         super().__init__(self.anim, **kwargs)
+        self._given = duration
 
     def _rate(self, t: float) -> float:
         """Its rate function: the wrapped animation's progress at the rate function given
@@ -1514,8 +1542,7 @@ class ChangeSpeed(AnimationGroup):
             return 1.0
         # at a node, the later stretch (CE's piecewise lets the last condition win)
         for a, b, v, w, start in reversed(self._stretches):
-            end = start + 2 / (v + w) * (b - a)
-            if start / self._total <= t <= end / self._total:
+            if start / self._total <= t:
                 x = (self._total * t - start) / (b - a)
                 d = ((w**2 - v**2) * (x * x) / 4 + v * x) * (b - a)
                 return min(max(d + a, a), b)  # never past its stretch's ends

@@ -154,7 +154,7 @@ def smootherstep(t: float) -> float:
 @unit_interval
 def rush_into(t: float, inflection: float = 10.0) -> float:
     """The first half of [smooth][manimgx.smooth], stretched over the whole time:
-    starts at rest and ends at full speed.
+    starts slowly and ends at its greatest speed.
 
     Args:
         t: The time, from 0 to 1.
@@ -169,7 +169,7 @@ def rush_into(t: float, inflection: float = 10.0) -> float:
 @unit_interval
 def rush_from(t: float, inflection: float = 10.0) -> float:
     """The second half of [smooth][manimgx.smooth], stretched over the whole time:
-    starts at full speed and comes to rest.
+    starts at its greatest speed and slows toward the end.
 
     Args:
         t: The time, from 0 to 1.
@@ -183,7 +183,7 @@ def rush_from(t: float, inflection: float = 10.0) -> float:
 
 @unit_interval
 def slow_into(t: float) -> float:
-    """√(1 − (1 − t)²), a quarter circle: starts at once at full speed and slows to a
+    """√(1 − (1 − t)²), a quarter circle: starts sharply and slows to a
     stop."""
     return float(np.sqrt(1 - (1 - t) * (1 - t)))
 
@@ -191,7 +191,7 @@ def slow_into(t: float) -> float:
 @unit_interval
 def double_smooth(t: float) -> float:
     """Two [smooth][manimgx.smooth] moves, each half the way in half the time: comes to
-    rest at the middle."""
+    its slowest speed at the middle."""
     return 0.5 * smooth(2 * t) if t < 0.5 else 0.5 * (1 + smooth(2 * t - 1))
 
 
@@ -316,7 +316,7 @@ def exponential_decay(t: float, half_life: float = 0.1) -> float:
     """1 − e^(−t / `half_life`), scaled to end at 1: shoots off, then closes in on the
     end, ever slower.
 
-    It is about 1 − 1/e ≈ 0.63 at `half_life`.
+    With the default time constant, it reaches about 1 − 1/e ≈ 0.63 at t = 0.1.
 
     Args:
         t: The time, from 0 to 1.
@@ -328,7 +328,7 @@ def exponential_decay(t: float, half_life: float = 0.1) -> float:
     return float(np.expm1(-t / half_life) / np.expm1(-1 / half_life))
 
 
-# ── the ease family, verbatim from CE ──
+# ── the ease family ──
 @unit_interval
 def ease_in_sine(t: float) -> float:
     """1 − cos(πt/2): starts slow and speeds up."""
@@ -452,13 +452,13 @@ def ease_in_out_expo(t: float) -> float:
 
 @unit_interval
 def ease_in_circ(t: float) -> float:
-    """1 − √(1 − t²), a quarter circle: starts at rest and ends at full speed."""
+    """1 − √(1 − t²), a quarter circle: starts at rest and speeds up sharply."""
     return 1 - math.sqrt(1 - pow(t, 2))
 
 
 @unit_interval
 def ease_out_circ(t: float) -> float:
-    """√(1 − (t − 1)²), a quarter circle: starts at full speed and comes to rest."""
+    """√(1 − (t − 1)²), a quarter circle: starts sharply and comes to rest."""
     return math.sqrt(1 - pow(t - 1, 2))
 
 

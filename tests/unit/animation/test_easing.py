@@ -2,8 +2,8 @@
 
 - Each starts exactly at 0 and ends exactly at 1 (the there-and-back family at 0), and holds
   its ends outside [0, 1]: an animation lands exactly where it is going.
-- Each is continuous, the exponential and elastic eases at their ends too, and the easing
-  family is monotone.
+- Each is continuous, the exponential and elastic eases at their ends too; the designated
+  monotone functions never go backward.
 - An ease-out is its ease-in turned around, and an ease-in-out runs its ease-in at double
   speed up to the middle: the thirty formulas are one family.
 - The extremes their docstrings give are their extremes.
