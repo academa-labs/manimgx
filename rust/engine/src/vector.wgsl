@@ -1851,6 +1851,11 @@ fn crossed(gid: vec2<u32>, b: Begun) -> Mix {
 // A pixel's nearest layers' depths met so far, far to near (NO_LAYER past the last), with a layer at depth z among them:
 // where all SLABS are met, only if it is nearer than the farthest, which makes room.
 fn nearer(k: vec4<f32>, z: f32) -> vec4<f32> {
+    // A boundary is a depth, not a fragment: triangles and per-sample invocations can
+    // contribute several nodes at one depth without creating another slab for points.
+    if (any(k == vec4<f32>(z))) {
+        return k;
+    }
     var out = k;
     if (out.w > NO_LAYER) {
         if (z >= out.x) {

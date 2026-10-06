@@ -36,9 +36,12 @@ its wheels.
 
 The engine draws with [wgpu](https://wgpu.rs): through Metal on macOS, Direct3D 12 on
 Windows (WARP, on the CPU, where there is no GPU), and Vulkan on Linux. It takes the
-high-performance adapter, which must be able to blend float32 render targets (a 2D view
-adds up its coverage in one). Without such an adapter, rendering raises an error that says
-what is missing.
+high-performance adapter, which must blend float32 render targets (a view adds its coverage
+in one) and support float32 depth with stencil (`depth32float-stencil8`). The reversed-Z
+projection needs floating-point depth to distinguish distant surfaces. An adapter missing
+either capability is rejected; Linux then tries the bundled lavapipe. If no suitable adapter
+is available, rendering reports the missing capability. The browser requires the same two
+WebGPU capabilities.
 
 On Linux without a GPU driver, Mesa's lavapipe draws on the CPU. The Linux wheels bundle it
 (`scripts/release/build_lavapipe.sh` builds it, and the engine loads it itself: see

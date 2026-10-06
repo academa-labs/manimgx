@@ -44,7 +44,9 @@ mod vector;
 pub(crate) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// What a 3D view with lit meshes keeps their light in, beside its display paint (`blend.wgsl`'s `Base`).
 pub(crate) const RADIANCE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
+// Reversed Z keeps distant depth differences in a float's significant digits. Depth24Plus
+// may use fixed-point depth, where those differences vanish.
+const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32FloatStencil8;
 const NONE: u32 = u32::MAX;
 const OVERLAY: u64 = 1;
 const LIT: u64 = 4;
@@ -1062,8 +1064,8 @@ pub(crate) fn blends_float32(adapter: &wgpu::Adapter) -> bool {
     adapter.get_texture_format_features(wgpu::TextureFormat::R32Float).flags.contains(wgpu::TextureFormatFeatureFlags::BLENDABLE)
 }
 
-/// An instance's high-performance adapter, which must blend float32 targets (a view adds its
-/// coverage in one).
+/// An instance's high-performance adapter: float32 coverage blending and floating-point depth
+/// with stencil, which its reversed-Z projection and stroke coverage require.
 async fn adapter(instance: &wgpu::Instance) -> Result<wgpu::Adapter, String> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })
@@ -1074,6 +1076,9 @@ async fn adapter(instance: &wgpu::Instance) -> Result<wgpu::Adapter, String> {
         })?;
     if !blends_float32(&adapter) {
         return Err("the GPU cannot blend float32 targets (a view adds its coverage in one)".into());
+    }
+    if !adapter.features().contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) {
+        return Err("the GPU cannot use float32 depth with stencil (reversed-Z depth needs floating-point precision)".into());
     }
     Ok(adapter)
 }
@@ -1107,7 +1112,7 @@ impl Gpu {
         #[cfg(not(feature = "player"))]
         drop(instance);
         let specific = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-        let required_features = adapter.features() & (specific | wgpu::Features::FLOAT32_BLENDABLE);
+        let required_features = (adapter.features() & (specific | wgpu::Features::FLOAT32_BLENDABLE)) | wgpu::Features::DEPTH32FLOAT_STENCIL8;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("manimgx"),

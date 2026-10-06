@@ -121,7 +121,7 @@ def test_shapes_a_hair_apart_meet_by_depth_at_any_distance(distance: float) -> N
     assert np.abs(shown.astype(int) - BLUE).max() <= 2
 
 
-@pytest.mark.parametrize("distance", [5.0, 20.0, 60.0])
+@pytest.mark.parametrize("distance", [5.0, 20.0, 60.0, 200.0])
 def test_meshes_a_hair_apart_meet_by_depth_at_any_distance(distance: float) -> None:
     # the nearer surface, 0.001 above, drawn first: the nearer shows, wherever the camera is
     def sheet(side: float, color: m.ManimColor, z: float) -> m.Mobject:

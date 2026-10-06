@@ -25,6 +25,9 @@ def stack(
     points: frozenset[int] = frozenset(),
     colors: tuple[m.ManimColor, ...] = COLORS,
     meshes: frozenset[int] = frozenset(),
+    *,
+    mesh_resolution: int = 1,
+    mesh_shift: float = 0.0,
 ) -> m.Scene:
     """Layers one behind another, layer k nearer than layer k - 1, in `colors[k]`, each
     see-through; added in `order`. Each is a plane filling the view (a shape, or, if in
@@ -40,11 +43,12 @@ def stack(
                 lambda u, v: np.array([u, v, 0.0]),
                 u_range=[-20, 20],
                 v_range=[-20, 20],
-                resolution=1,
+                resolution=mesh_resolution,
                 checkerboard_colors=False,
                 stroke_width=0,
                 shade_in_3d=False,  # (its color as given, as a shape's)
             ).set_fill(color, OPACITY)
+            shape.shift(mesh_shift * (m.RIGHT - m.UP))
         else:
             shape = m.Square(side_length=40.0).set_fill(color, OPACITY)
             shape.set_stroke(width=0)
@@ -118,6 +122,28 @@ def test_see_through_points_composite_in_depth_order_in_any_order(
     assert np.array_equal(forward, backward)
     center = forward[SIZE[1] // 2, SIZE[0] // 2].astype(float)
     assert np.abs(center - composite(colors)).max() <= 2.0
+
+
+@pytest.mark.parametrize("resolution", [1, 2, 4])
+@pytest.mark.parametrize("offset", [0.0, 0.02, 0.04])
+def test_surface_tessellation_preserves_points_depth_order(
+    resolution: int, offset: float
+) -> None:
+    # More triangles may meet a pixel, or a backend may append one node per sample.
+    # Neither creates more depth boundaries: each point stays between the same planes.
+    # Moving the grid by half a pixel makes its triangles share the center's samples.
+    for order in (list(range(len(COLORS))), list(reversed(range(len(COLORS))))):
+        shown = picture(
+            stack(
+                order,
+                ODD,
+                meshes=frozenset({2, 4}),
+                mesh_resolution=resolution,
+                mesh_shift=offset,
+            )
+        )
+        center = shown[SIZE[1] // 2, SIZE[0] // 2].astype(float)
+        assert np.abs(center - composite()).max() <= 2.0
 
 
 def test_a_title_fixed_in_the_frame_changes_no_pixel_but_its_own() -> None:

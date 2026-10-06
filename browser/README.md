@@ -49,7 +49,9 @@ document.body.append(player);
 
 The first film downloads Python (Pyodide, about 6 MB) and manimgx (about 20 MB); the browser
 keeps both. It needs WebGPU: Chrome and Edge 113+, Safari 26, Firefox 141+ on Windows (not yet
-with the float32 blending manimgx's renderer uses).
+with the float32 blending manimgx's renderer uses). The adapter must support float32
+blending and `depth32float-stencil8`: the renderer uses floating-point depth to preserve
+distant surfaces' depth differences.
 
 One file, no dependencies, any bundler. On the command line, `manimgx preview scene.py` plays a
 scene file in a window of its own: the same player.
