@@ -25,13 +25,15 @@ The verdict this feeds only sorts cases for review: CE has bugs of its own, "sam
 """
 
 from collections.abc import Generator
+from contextlib import closing
 from dataclasses import dataclass
 from fractions import Fraction
+from itertools import zip_longest
 from pathlib import Path
 
 import numpy as np
 from tests.integration.corpus.case import METRICS, Comparison, Frames
-from tests.integration.corpus.frames import Pixels, decode
+from tests.integration.corpus.frames import Pixels, decode, frame_hash
 
 WINDOW = 7
 
@@ -85,18 +87,33 @@ def compare(
     ce_hashes, mx_hashes = ce.hashes(), manimgx.hashes()
     known: dict[tuple[str, str], tuple[float, ...]] = {}  # held frames repeat pairs
     rows: list[tuple[int, int, tuple[float, ...]]] = []
-    ce_frames = _Cursor(decode(ce_video, size))
-    mx_frames = _Cursor(decode(manimgx_video, size))
+    ce_frames = _Cursor(_recorded(ce_video, size, ce))
+    mx_frames = _Cursor(_recorded(manimgx_video, size, manimgx))
     try:
         for i, k in pairs:  # both indices only grow: each video is read once
+            # Decode and authenticate held frames too before reusing their measurement.
+            left, right = ce_frames.at(i), mx_frames.at(k)
             key = (ce_hashes[i], mx_hashes[k])
             if key not in known:
-                known[key] = measure(ce_frames.at(i), mx_frames.at(k))
+                known[key] = measure(left, right)
             rows.append((i, k, known[key]))
+        ce_frames.finish()
+        mx_frames.finish()
     finally:
         ce_frames.close()
         mx_frames.close()
     return Comparison(pairs=tuple(rows), unpaired=tuple(unpaired))
+
+
+def _recorded(path: Path, size: tuple[int, int], facts: Frames) -> Generator[Pixels]:
+    """A complete movie whose decoded content still matches the recorded frame identities."""
+    with closing(decode(path, size)) as images:
+        for index, (pixels, identity) in enumerate(zip_longest(images, facts.hashes())):
+            if pixels is None or identity is None:
+                raise ValueError(f"{path}: frame count differs from its record")
+            if frame_hash(pixels.tobytes()) != identity:
+                raise ValueError(f"{path}: frame {index} differs from its record")
+            yield pixels
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +165,11 @@ class _Cursor:
             self._index += 1
         assert self._frame is not None
         return self._frame
+
+    def finish(self) -> None:
+        # Unpaired frames still belong to the facts we are about to publish.
+        for _ in self._frames:
+            pass
 
     def close(self) -> None:
         self._frames.close()

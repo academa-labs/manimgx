@@ -35,11 +35,18 @@ def rgb(pixels: bytes | np.ndarray, size: tuple[int, int]) -> bytes:
 class Recorder:
     """Frames as an engine draws them: their hashes, as runs, and, given a path, a video."""
 
-    def __init__(self, size: tuple[int, int], fps: int, video: Path | None) -> None:
+    def __init__(
+        self,
+        size: tuple[int, int],
+        fps: int,
+        video: Path | None,
+        *,
+        compact: bool = True,
+    ) -> None:
         self.size = size
         self.runs: list[list[str | int]] = []
         self.count = 0
-        self._video = None if video is None else _Video(video, size, fps)
+        self._video = None if video is None else _Video(video, size, fps, compact)
 
     def add(self, frame: bytes, repeat: int = 1) -> None:
         """One drawn frame (RGB bytes), shown `repeat` times."""
@@ -61,13 +68,15 @@ class Recorder:
 
 
 class _Video:
-    """Lossless video: x264 in RGB (libx264rgb) at QP 0, its slowest preset, one thread."""
+    """Lossless RGB video, compressed for archiving or for immediate comparison."""
 
-    def __init__(self, path: Path, size: tuple[int, int], fps: int) -> None:
+    def __init__(
+        self, path: Path, size: tuple[int, int], fps: int, compact: bool
+    ) -> None:
         self.size, self.rate, self.shown = size, Fraction(1, fps), 0
         self.container = av.open(str(path), "w", options={"fflags": "+bitexact"})
         options = {
-            "preset": "veryslow",
+            "preset": "veryslow" if compact else "ultrafast",
             "qp": "0",
             "threads": "1",
             "flags": "+bitexact",
