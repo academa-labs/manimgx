@@ -10,9 +10,9 @@ on:
         default: "37425715254"
         required: true
       experiment:
-        description: Capture the compiler failure or test the generic rematerialization fix
+        description: Capture, reduce, or test the generic rematerialization fix
         type: choice
-        options: [capture, repair]
+        options: [capture, repair, reduce]
         default: capture
         required: true
 
@@ -49,6 +49,7 @@ jobs:
           git rev-parse HEAD > diagnostic/diagnostic-revision.txt
           script=scripts/release/linux_llvm.sh
           if [[ "$EXPERIMENT" == repair ]]; then script=scripts/release/linux_llvm_repair.sh; fi
+          if [[ "$EXPERIMENT" == reduce ]]; then script=scripts/release/linux_llvm_reduce.sh; fi
           docker run --rm -v "$GITHUB_WORKSPACE:/work" -w /work \
             quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c \
             bash "$script" retained diagnostic 2>&1 | tee diagnostic/commands.log
