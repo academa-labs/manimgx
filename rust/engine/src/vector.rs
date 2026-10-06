@@ -1104,23 +1104,28 @@ impl Vector {
     }
 
     /// The composite's pipelines for views that lay what `key` says (`LIT`, `RASTERS`, `LISTS`: the overrides in
-    /// `vector.wgsl`), made when first needed.
-    fn composite(&mut self, device: &wgpu::Device, key: usize) {
-        if self.composite[key].is_some() {
+    /// `vector.wgsl`), made when first needed. Only a 3D view needs the passes where depths cross.
+    fn composite(&mut self, device: &wgpu::Device, key: usize, crossings: bool) {
+        if self.composite[key].is_some() && (!crossings || self.crossing[key].is_some()) {
             return;
         }
         let kind = (key & SINGLE == 0) as usize;
         let shader = if kind == 0 { self.single_shader.get_or_insert_with(|| Self::shader(device, false)) } else { &self.shader };
         let constants = [("lighting", (key & LIT) as f64), ("rasters", (key & RASTERS != 0) as u8 as f64), ("lists", (key & LISTS != 0) as u8 as f64), ("points", (key & POINTS != 0) as u8 as f64)];
         let layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
-        let (composing, counting) = (layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind])]), layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind]), Some(&self.groups_layout)]));
+        let composing = layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind])]);
         // workgroup memory is written before it is read: zeroing it would only cost time
         let make = |entry: &str, layout: &wgpu::PipelineLayout| {
             let options = wgpu::PipelineCompilationOptions { constants: &constants, zero_initialize_workgroup_memory: false };
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(layout), module: shader, entry_point: Some(entry), compilation_options: options, cache: None })
         };
-        self.composite[key] = Some([make("composite", &composing), make("keep", &composing)]);
-        self.crossing[key] = Some([make("count_crossings", &counting), make("settle_crossings", &composing)]);
+        if self.composite[key].is_none() {
+            self.composite[key] = Some([make("composite", &composing), make("keep", &composing)]);
+        }
+        if crossings && self.crossing[key].is_none() {
+            let counting = layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind]), Some(&self.groups_layout)]);
+            self.crossing[key] = Some([make("count_crossings", &counting), make("settle_crossings", &composing)]);
+        }
     }
 
     /// The pipelines of a light's map and of a view's opaque depth from its paths (`fs_nearest`), made when one is
@@ -1210,7 +1215,7 @@ impl Vector {
         let kind = (!listed.is_some_and(|l| l.samples == 1)) as usize;
         let key = (kind == 0) as usize * SINGLE | lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
         match out {
-            Out::Color { .. } => self.composite(device, key),
+            Out::Color { .. } => self.composite(device, key, plan.crossings),
             Out::Bounds { .. } => self.bounds(device),
             Out::Depth(_) | Out::Opaque(_) => self.nearest(device),
         }
@@ -1388,6 +1393,30 @@ const RASTERS: usize = 2;
 const LISTS: usize = 4;
 const POINTS: usize = 8;
 const SINGLE: usize = 16; // single-sample texture bindings, with the same compositing code
+
+#[cfg(test)]
+mod pipeline_demand {
+    use super::*;
+
+    #[test]
+    fn two_d_views_leave_crossing_passes_for_the_first_three_d_view() {
+        super::super::with_gpu(|gpu| {
+            let mut vector = Vector::new(&gpu.device, &gpu.queue);
+            for key in [0, SINGLE] {
+                for _ in 0..2 {
+                    vector.composite(&gpu.device, key, false);
+                    assert!(vector.composite[key].is_some());
+                    assert!(vector.crossing[key].is_none());
+                }
+                for crossings in [true, false, true] {
+                    vector.composite(&gpu.device, key, crossings);
+                    assert!(vector.composite[key].is_some());
+                    assert!(vector.crossing[key].is_some());
+                }
+            }
+        }).unwrap();
+    }
+}
 
 /// What group `g` of `groups` lies over and writes: each lies over what the ones before it made (the first over
 /// `first`); the last writes the target, the others alternate with the scratch image behind it.
