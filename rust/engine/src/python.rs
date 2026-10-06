@@ -3,7 +3,8 @@
 //! over the core in `render`, `take` and `typeset`.
 
 #[cfg(feature = "render")]
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -241,8 +242,11 @@ impl Recorder {
 
     #[pyo3(signature = (key, points, uvs, normals, triangles, outline = 0, block = 0))]
     #[allow(clippy::too_many_arguments)]
-    fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) {
-        self.writer.mesh(key, points, uvs, normals, triangles, outline, block);
+    fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) -> PyResult<()> {
+        crate::check_key(key).map_err(PyValueError::new_err)?;
+        let mesh = crate::mesh::Mesh::new(points, uvs, normals, triangles, outline, block).map_err(PyValueError::new_err)?;
+        self.writer.mesh(key, &mesh);
+        Ok(())
     }
 
     fn add_rows(&mut self, key: u64, rows: &[u8]) {

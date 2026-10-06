@@ -24,7 +24,7 @@ use std::ops::Range;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{CameraView, environment, read};
+use crate::{CameraView, check_key, environment, mesh::Mesh, read};
 
 #[cfg(windows)]
 #[path = "dxc.rs"]
@@ -2504,36 +2504,6 @@ impl Player {
     }
 }
 
-/// Area-weighted vertex normals: each triangle's (b − a) × (c − a) added to its corners — every
-/// triangle's first corner, then every second, then every third, so that each vertex sums its
-/// faces in one fixed order.
-fn smooth_normals(p: &[[f64; 3]], triangles: &[u32]) -> Vec<[f64; 3]> {
-    let faces: Vec<[f64; 3]> = triangles
-        .chunks_exact(3)
-        .map(|t| {
-            let (a, b, c) = (p[t[0] as usize], p[t[1] as usize], p[t[2] as usize]);
-            let (u, w) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
-            [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
-        })
-        .collect();
-    let mut out = vec![[0.0f64; 3]; p.len()];
-    for k in 0..3 {
-        for (t, f) in triangles.chunks_exact(3).zip(&faces) {
-            let o = &mut out[t[k] as usize];
-            o[0] += f[0];
-            o[1] += f[1];
-            o[2] += f[2];
-        }
-    }
-    out
-}
-
-
-/// `bytes` as whole items of `T`.
-pub(crate) fn check_key(key: u64) -> Result<(), String> {
-    if key == 0 { Err("key 0 is reserved".into()) } else { Ok(()) }
-}
-
 /// What every host asks of a player: shapes, brushes and images uploaded once under a key, then
 /// frames drawn from views and records (see `python` and `web`).
 impl Player {
@@ -2587,30 +2557,10 @@ impl Player {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) -> Result<(), String> {
         check_key(key)?;
-        let p = read::<[f64; 3]>(points, "points")?;
-        let uv = read::<[f64; 2]>(uvs, "uvs")?;
-        let t = read::<u32>(triangles, "triangles")?;
-        if uv.len() != p.len() || !t.len().is_multiple_of(3) || t.iter().any(|&i| i as usize >= p.len()) {
-            return Err("a mesh needs a (u, v) per point, and whole triangles of its points".into());
-        }
-        let n = if normals.is_empty() { smooth_normals(&p, &t) } else { read::<[f64; 3]>(normals, "normals")? };
-        if n.len() != p.len() {
-            return Err("a mesh needs a normal per point".into());
-        }
-        let block = if block == 0 { outline } else { block };
-        if outline > 2 && (block < outline || !p.len().is_multiple_of(block as usize)) {
-            return Err("an outlined mesh is whole faces of vertices, each beginning with its loop".into());
-        }
-        // a reveal shows a surface face by face (`Raster`): each face's triangles are its own, in its turn
-        let faces = (p.len() / block.max(1) as usize).max(1);
-        let own = |(k, face): (usize, &[u32])| face.iter().all(|&i| i as usize / block as usize == k);
-        if outline > 2 && (!t.len().is_multiple_of(3 * faces) || (!t.is_empty() && !t.chunks(t.len() / faces).enumerate().all(own))) {
-            return Err("an outlined mesh's triangles are its faces' own, face after face, as many each".into());
-        }
-        // what the shaders read: (x, y, z, v) and (normal, u)
-        let v: Vec<[f32; 4]> = p.iter().zip(&uv).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
-        let e: Vec<[f32; 4]> = n.iter().zip(&uv).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
-        self.store.add_mesh(key, &v, &e, &t, outline, block);
+        let mesh = Mesh::new(points, uvs, normals, triangles, outline, block)?;
+        let v: Vec<[f32; 4]> = mesh.points.iter().zip(&*mesh.uvs).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
+        let e: Vec<[f32; 4]> = mesh.normals.iter().zip(&*mesh.uvs).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
+        self.store.add_mesh(key, &v, &e, &mesh.triangles, mesh.outline, mesh.block);
         Ok(())
     }
 
