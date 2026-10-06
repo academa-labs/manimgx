@@ -23,6 +23,7 @@ as they stand when their turns come.
   to it, last ran or was added; a recorder runs after everything else, if it is still there.
 """
 
+import math
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -39,10 +40,12 @@ from tests.scenes import (
     Node,
     Recorder,
     Story,
+    assert_same_frames,
     assert_same_instants,
     assert_same_outcome,
     outcome,
     record,
+    scene,
     stories,
 )
 
@@ -108,6 +111,102 @@ def test_a_group_of_no_animations_is_an_error() -> None:
 
     with pytest.raises(ValueError, match="without animations"):
         record(story)
+
+
+@pytest.mark.config(frame_rate=30)
+@pytest.mark.parametrize(
+    ("duration", "count"),
+    [
+        (math.nextafter(5 / 6, 0), 26),
+        (5 / 6, 26),
+        (math.nextafter(5 / 6, math.inf), 27),
+    ],
+)
+def test_frame_boundaries_distinguish_adjacent_durations(
+    duration: float, count: int
+) -> None:
+    made = scene(lambda s: s.wait(duration))
+    film = made.render()
+    assert film.frame_count == count
+    assert float(made.clock) == duration
+
+
+@pytest.mark.parametrize("duration", [1e-8, math.ulp(0.0)])
+def test_a_positive_wait_never_becomes_zero(duration: float) -> None:
+    made = scene(lambda s: s.wait(duration))
+    film = made.render()
+    assert float(made.clock) == duration
+    assert made.clock > 0
+    assert film.frame_count == 2
+
+
+@pytest.mark.config(frame_rate=10)
+def test_an_absolute_target_subtraction_does_not_add_a_frame() -> None:
+    def story(s: m.Scene) -> None:
+        s.wait(14.6)
+        s.wait(20.8 - s.time)
+        s.wait(3)
+        s.wait(26.4 - s.time)
+        s.wait(1.2)
+        s.wait(30.5 - s.time)
+
+    made = scene(story)
+    film = made.render()
+    assert float(made.clock) == 30.5
+    assert film.frame_count == 306
+
+
+@pytest.mark.parametrize("fast", [False, True])
+@pytest.mark.parametrize("introduced", [False, True])
+def test_observed_event_boundaries_compose_without_rewinding(
+    fast: bool, introduced: bool
+) -> None:
+    def story(s: Recorder, nested: bool) -> None:
+        dot = m.Dot()
+        first, tiny = m.Wait(0.1), m.Wait(1e-18)
+        move = m.Transform(
+            dot, dot.copy().shift(m.RIGHT), run_time=0.1, introducer=introduced
+        )
+        if not introduced:
+            s.add(dot)
+        if nested:
+            s.play(m.Succession(first, tiny, move))
+        else:
+            s.play(first)
+            s.play(tiny)
+            s.play(move)
+
+    nested = record(lambda s: story(s, True), fps=10, fast=fast)
+    separate = record(lambda s: story(s, False), fps=10, fast=fast)
+    assert nested.clock == separate.clock > Fraction(1, 5)
+    assert float(nested.clock) == 0.2
+    assert nested.frame == separate.frame == 3
+    assert_same_frames(nested.frames, separate.frames)
+
+
+def test_a_sub_ulp_event_never_rewinds_a_simulated_updater() -> None:
+    steps: list[float] = []
+
+    def story(s: m.Scene) -> None:
+        s.add_updater(steps.append)
+        s.wait(0.1)
+        s.wait(1e-18)
+        s.wait(0.1)
+
+    made = scene(story)
+    made.render()
+    assert min(steps) >= 0
+    assert made.clock > Fraction(1, 5)
+    assert float(made.clock) == 0.2
+
+
+@pytest.mark.config(frame_rate=30000 / 1001)
+def test_the_scene_and_film_keep_the_same_fractional_frame_rate() -> None:
+    made = scene(lambda s: s.wait(1001 / 30000))
+    film = made.render()
+    assert film.fps == made._fps() == Fraction(30000, 1001)
+    assert made.clock == Fraction(1001, 30000)
+    assert film.frame_count == 2
 
 
 @pytest.mark.parametrize("fps", [7, 10, 24])

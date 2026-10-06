@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal, overload
 
+from typing_extensions import TypedDict
+
 from manimgx.config import config
 from manimgx.constants import DEGREES, DOWN, LEFT, OUT, RIGHT, UP
 from manimgx.drawing.paint import ManimColor, ParsableManimColor
@@ -22,7 +24,7 @@ import os
 import pathlib
 from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import TYPE_CHECKING, NamedTuple, Self, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, NamedTuple, Self, Unpack, cast
 from warnings import deprecated
 
 import numpy as np
@@ -608,7 +610,7 @@ class Scene:
 
     @staticmethod
     def _fps() -> Fraction:
-        return Fraction(config.frame_rate).limit_denominator(1000)
+        return clock.rational(config.frame_rate)
 
     def render(
         self,
@@ -627,8 +629,8 @@ class Scene:
         `frames`, if given; each play or wait, as it ends, is handed to `plays`, if given.
         A frame is drawn only for the video, or when `frames` asks for its pixels: with
         neither, the frames are counted, not drawn, which checks a scene quickly. Frames
-        `k = 0, 1, …` show the world at `k / fps` seconds, before the scene's end; the
-        closing frame then shows it at its own instant: the scene's end if a frame falls
+        `k = 0, 1, …` sample `k / fps` seconds, after events at the same float instant;
+        the closing frame then shows it at its own instant: the scene's end if a frame falls
         there, or else the first frame time after it. So the scene's last animation is
         seen landing.
 
@@ -668,8 +670,8 @@ class Scene:
             self.construct()
             self.tear_down()
             closing = Fraction(self.frame) / self._fps()
-            if (
-                closing > clock.now
+            if float(closing) > float(
+                clock.now
             ):  # the scene ended between frames: the world at frame N
                 self._records = self._recording()
                 self._frame(closing, self._simulation_rate())
@@ -715,15 +717,17 @@ class Scene:
         act: Act | None = None,
         stop: Callable[[], bool] | None = None,
         frozen: bool = False,
+        boundaries: dict[float, Fraction] | None = None,
     ) -> None:
-        """Run the clock to `end`: each frame in [clock, end) shows the world at its instant (`act` is
+        """Run to `end`: frames in the observed [clock, end) show the world at their instants (`act` is
         the play's step, before the updaters); then the world is brought to `end`. `stop` ends the run
         at the frame it holds after. A frozen run, or one where nothing can change, is one held frame;
         while anything is simulated, the world also steps at the simulation clock's ticks.
         """
         fps, stopped = self._fps(), False
+        limit = clock.frame_at(end, fps)
         if frozen or (act is None and stop is None and not self._anything_runs()):
-            self._emit(int(-(-end * fps // 1)) - self.frame)
+            self._emit(limit - self.frame)
             if frozen:
                 for mob in self.mobjects:
                     mob._stamp(end)
@@ -732,7 +736,8 @@ class Scene:
         else:
             rate = self._simulation_rate()
             self._records = self._recording()
-            while (t := Fraction(self.frame) / fps) < end:
+            while self.frame < limit:
+                t = self._sample(Fraction(self.frame) / fps, boundaries)
                 self._frame(t, rate, act)
                 self._emit()
                 if stop is not None and stop():
@@ -746,6 +751,13 @@ class Scene:
         ):  # a wait's end at a frame: an event, where what is simulated steps
             self._instant(end, act, framing=False)
         self.clock = end
+
+    def _sample(
+        self, t: Fraction, boundaries: dict[float, Fraction] | None = None
+    ) -> Fraction:
+        # A frame observes all events at the same binary64 instant, in exact order.
+        # It must not rewind an event just beyond its mathematical grid time.
+        return max(t, self.clock, boundaries.get(float(t), t) if boundaries else t)
 
     def _simulation_rate(self) -> int | None:
         """The simulation clock's rate, if anything in the scene is simulated (a time-based
@@ -1230,7 +1242,7 @@ class Scene:
         wait = anims[0] if len(anims) == 1 and isinstance(anims[0], Wait) else None
         self.num_plays += 1
         if wait is not None:
-            end = start + _exact(wait.run_time)
+            end = start + wait._duration
             self._run(end, stop=wait.stop_condition, frozen=bool(wait.is_static_wait))
         else:
             anim = (
@@ -1240,7 +1252,7 @@ class Scene:
                     *anims, group=Group(), suspend_mobject_updating=False
                 )
             )
-            end = start + _exact(anim.run_time)
+            end = start + anim._duration
             self.compositor, self._animation = Compositor(), anim
             try:
                 self._play(anim, start, end)
@@ -1295,10 +1307,20 @@ class Scene:
             return None
 
         fps = self._fps()
-        frames = range(
-            self.frame, int(-(-end * fps // 1))
-        )  # their times fall in [start, end)
-        alpha = [float((Fraction(k) / fps - start) / (end - start)) for k in frames]
+        parts = windows(anim)
+        boundaries: dict[float, Fraction] = {}
+        for part in parts:
+            for at in (part.opens, part.closes):
+                if at is not None:
+                    time = start + at * (end - start)
+                    boundaries[float(time)] = max(
+                        boundaries.get(float(time), time), time
+                    )
+        frames = range(self.frame, clock.frame_at(end, fps))
+        alpha = [
+            float((self._sample(Fraction(k) / fps, boundaries) - start) / (end - start))
+            for k in frames
+        ]
         pure = self._pure_tweens(anim, alpha)
         if pure is None:
             # its parts begin and finish at their windows, whatever the frame rate: at
@@ -1306,12 +1328,12 @@ class Scene:
             self._playing = _acted_on(anim)
             self._events = {
                 start + x * (end - start): concern
-                for x, concern in self._exact(windows(anim)).items()
+                for x, concern in self._exact(parts).items()
             }
             try:
                 if self._events and Fraction(self.frame) / fps != start:
                     self._instant(start, act, framing=False)
-                self._run(end, act)
+                self._run(end, act, boundaries=boundaries)
             finally:
                 self._events, self._playing = {}, []
         else:
@@ -1692,7 +1714,7 @@ class Scene:
             sound = sound.gain(gain)
         # decoded now: a file it cannot read fails here, not at the end of the render
         _ = sound.samples
-        clip = Clip(sound, clock.now + _exact(time_offset))
+        clip = Clip(sound, clock.now + clock.rational(time_offset))
         self.film.clips.append(clip)
         return clip
 
@@ -2241,11 +2263,6 @@ def _written() -> tuple[str, int] | None:
     return None if frame is None else (frame.f_code.co_filename, frame.f_lineno)
 
 
-def _exact(seconds: float) -> Fraction:
-    """A duration given in float seconds, as the rational number it stands for."""
-    return Fraction(seconds).limit_denominator(10**6)
-
-
 def _restructure(
     mobjects: Sequence[Mobject], to_remove: Iterable[Mobject], extract: bool = True
 ) -> list[Mobject]:
@@ -2285,8 +2302,8 @@ Y_COLOR = RED_C
 Z_COLOR = BLUE_D
 
 
-class LabelPlacement(TypedDict, total=False):
-    """Where a vector's label sits (for the methods that pass it on)."""
+class _LabelPlacement(TypedDict, total=False):
+    """LabelPlacement's keys, open, for the keywords that add to them."""
 
     at_tip: bool
     """Whether the label goes beyond the vector's tip, rather than beside its middle
@@ -2299,7 +2316,11 @@ class LabelPlacement(TypedDict, total=False):
     False)."""
 
 
-class VectorLabelOptions(LabelPlacement, total=False):
+class LabelPlacement(_LabelPlacement, total=False, closed=True):
+    """Where a vector's label sits (for the methods that pass it on)."""
+
+
+class VectorLabelOptions(_LabelPlacement, total=False, closed=True):
     """Where a vector's label sits, its color and its size (for the methods that pass
     them on)."""
 
@@ -2309,7 +2330,7 @@ class VectorLabelOptions(LabelPlacement, total=False):
     """How much the label is scaled (default 0.8)."""
 
 
-class UnitSquareOptions(TypedDict, total=False):
+class UnitSquareOptions(TypedDict, total=False, closed=True):
     """The unit square's look (for the methods that pass it on)."""
 
     color: Colors
