@@ -105,6 +105,13 @@ jobs:
       - name: Build the wheel
         run: uv build --wheel --python 3.13 --out-dir dist
 
+      # The native tests exercise the renderer too, before the wheel is accepted.
+      - name: Install a GPU driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
+
       - name: Test the Rust core
         run: just test-rust
 

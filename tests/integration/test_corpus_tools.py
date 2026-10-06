@@ -12,6 +12,7 @@
 """
 
 import json
+import subprocess
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -39,6 +40,28 @@ CHANGES = {
     "duration": replace(STORED, duration=Fraction(3, 10)),
     "timeline": replace(STORED, timeline=((Fraction(1, 10), 2),)),
 }
+
+
+@pytest.mark.parametrize("autocrlf", ["true", "false"])
+def test_checkout_preserves_source_and_binary_bytes(
+    tmp_path: Path, autocrlf: str
+) -> None:
+    """Source provenance must survive Windows checkout; image bytes must not change."""
+    attributes = case.ROOT / ".gitattributes"
+    (tmp_path / ".gitattributes").write_bytes(attributes.read_bytes())
+    files = {
+        "scene.py": b"import manimgx\n# a scene's reviewed source\n",
+        "image.bin": b"\x00\xff\r\n\x01\n\x02",
+    }
+    for name, content in files.items():
+        (tmp_path / name).write_bytes(content)
+    git = ["git", "-c", f"core.autocrlf={autocrlf}", "-C", str(tmp_path)]
+    subprocess.run([*git, "init", "--quiet"], check=True, capture_output=True)
+    subprocess.run([*git, "add", "."], check=True, capture_output=True)
+    for name in files:
+        (tmp_path / name).unlink()
+    subprocess.run([*git, "checkout-index", "--all"], check=True, capture_output=True)
+    assert {name: (tmp_path / name).read_bytes() for name in files} == files
 
 
 @pytest.fixture
