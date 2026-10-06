@@ -117,6 +117,7 @@ def test_captured_exports_preserve_pixels_and_video_across_pending_draws(
         for i, z in enumerate(np.linspace(-0.2, 0.2, 12))
     ]
     captured_video, plain_video = tmp_path / "captured.mp4", tmp_path / "plain.mp4"
+    expected_frames: list[np.ndarray] = []
     capture.begin_export(str(captured_video), 30)
     plain.begin_export(str(plain_video), 30)
     for index, wanted in enumerate([False, False, False, True, True, False, True]):
@@ -128,6 +129,11 @@ def test_captured_exports_preserve_pixels_and_video_across_pending_draws(
         prepared = [feeder.frame(camera, objects) for feeder in feeders]
         expected = direct.render(*prepared[2])
         assert any(expected[0::4])  # geometry is visible, including the mesh layers
+        expected_frames.append(
+            np.frombuffer(expected, np.uint8)
+            .reshape(height, width, 4)[:, :, :3]
+            .astype(int)
+        )
         view, records, cameras = prepared[0]
         actual = capture.push(view, records, cameras=cameras, capture=wanted)
         assert actual == (expected if wanted else None)
@@ -136,6 +142,10 @@ def test_captured_exports_preserve_pixels_and_video_across_pending_draws(
     capture.end_export()
     plain.end_export()
     assert captured_video.read_bytes() == plain_video.read_bytes()
+    shown = [frame.astype(int) for frame in decode(captured_video, (width, height))]
+    assert len(shown) == len(expected_frames)
+    for picture, frame in zip(shown, expected_frames, strict=True):
+        assert np.abs(picture - frame).mean() < 2.0
 
 
 @pytest.mark.config(frame_rate=10)
