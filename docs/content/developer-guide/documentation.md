@@ -178,11 +178,15 @@ renders the examples before the site is built:
    into `docs/content/films/`: a still of its last frame with anything on it, and a video
    too if anything moves.
 3. A film is named after its scene and a digest of its code, render settings and shared
-   inputs: Python and Rust sources, shaders, locked dependencies, fonts, voice recordings,
-   rendering helpers and the rendering environment. A prose or stylesheet edit reuses
-   every film; editing a standalone example renders that example again. Shared inputs are
-   hashed conservatively, including Python docstrings, so changing one invalidates all
-   films. The keys depend on file contents, not Git history or modification times.
+   inputs: Python and Rust sources, shaders, locked runtime dependencies, fonts, voice
+   recordings, rendering helpers and the rendering environment. `docs/render.py` owns
+   drawing; discovery, caching and HTML in `docs/examples.py` are not drawing inputs.
+   `uv export --frozen --offline --no-default-groups` selects the runtime dependencies,
+   including their transitive dependencies and artifact hashes, so updating test or site
+   tools does not invalidate films. A prose or stylesheet edit reuses every film; editing
+   a standalone example renders that example again. Shared rendering inputs are hashed
+   conservatively, including Python docstrings: changing the engine or a shader really
+   does require new films. The keys depend on contents, not Git history or timestamps.
 4. Each render finishes in a temporary directory. Its output files are published with a
    completion record in `docs/.cache/films/`, written last, that names the files and their
    checksums. A missing or damaged file is rendered again. Static scenes deliberately
@@ -194,14 +198,22 @@ and command-line reference and builds the HTML from those films. `just build-doc
 both. Rendering reads `examples/` directly, so it does not need generated Gallery pages.
 `just render-docs --jobs 2` limits concurrent render processes; source paths may follow it.
 
-CI restores the films and completion records with GitHub Actions cache, validates them,
-renders what is missing, and saves the completed set before building the pages. Main
-writes the shared cache; pull requests can read it without deployment credentials. The
-cache key includes the shared renderer fingerprint and the inventory of requested scenes;
-a compatible older snapshot supplies unchanged films when one example changes. A cache
-miss rebuilds normally: caches are an optimization and may be evicted.
+CI uses [GitHub Actions cache](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
+to transport snapshots of the films and completion records. Each film decides its own
+validity; an archive hit never skips validation. Lookup prefers the latest snapshot for
+the requested scene inventory, then one with the same renderer, so changing one example
+can reuse the others. Logs report the cached and missing counts and renderer fingerprint.
 
-CI records its Rust compiler and installed Vulkan driver versions in
+GitHub caches are immutable. Each changed snapshot gets a run-and-attempt suffix, so a
+retry can extend a partial set or save repairs. The separate save step uses
+[`always()`](https://github.com/actions/cache/blob/main/save/README.md#always-save-cache):
+if another example fails, completed films are still saved before building the pages.
+Cancellation also gets that opportunity if the runner reaches the save step. An unchanged
+set is not uploaded again, and staging directories are never archived. Main writes the
+shared cache; pull requests can read it without deployment credentials. A cache miss
+rebuilds normally: caches are an optimization and may be evicted.
+
+CI records its Rust compiler and macOS version and build in
 `MANIMGX_DOCS_RENDER_PROFILE`; Python version, OS and architecture are always part of the
 fingerprint. Local builds also include their machine and OS version, keeping their GPU
 output separate. Examples must be self-contained and deterministic (seed random

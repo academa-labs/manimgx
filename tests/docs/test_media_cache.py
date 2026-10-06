@@ -29,12 +29,35 @@ def source_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
         "README": tmp_path / "README.md",
         "SOURCE": tmp_path / "src" / "manimgx",
         "FILMS": docs / "content" / "films",
-        "VOICE": docs / "voice",
         "RECORDS": docs / ".cache" / "films",
     }.items():
         monkeypatch.setattr(examples, name, path)
     write(tmp_path / "README.md", "# Welcome\n")
     write(tmp_path / "examples" / "alpha.py", SCENE)
+    write(
+        tmp_path / "pyproject.toml",
+        '[project]\nname = "sample"\nversion = "0.1.0"\nrequires-python = ">=3.13"\n'
+        'dependencies = ["painter"]\n'
+        '[dependency-groups]\ndev = ["linter"]\ndocs = ["site"]\n'
+        '[tool.uv]\ndefault-groups = ["dev", "docs"]\n',
+    )
+    write(
+        tmp_path / "uv.lock",
+        'version = 1\nrevision = 3\nrequires-python = ">=3.13"\n'
+        '[[package]]\nname = "sample"\nversion = "0.1.0"\nsource = { virtual = "." }\n'
+        'dependencies = [{ name = "painter" }]\n'
+        '[package.dev-dependencies]\ndev = [{ name = "linter" }]\ndocs = [{ name = "site" }]\n'
+        '[[package]]\nname = "painter"\nversion = "1.0"\n'
+        'source = { registry = "https://pypi.org/simple" }\n'
+        'dependencies = [{ name = "pigment" }]\n'
+        '[[package]]\nname = "pigment"\nversion = "2.0"\n'
+        'source = { registry = "https://pypi.org/simple" }\n'
+        f'sdist = {{ url = "https://example.org/pigment.tar.gz", hash = "sha256:{"0" * 64}" }}\n'
+        '[[package]]\nname = "linter"\nversion = "3.0"\n'
+        'source = { registry = "https://pypi.org/simple" }\n'
+        '[[package]]\nname = "site"\nversion = "4.0"\n'
+        'source = { registry = "https://pypi.org/simple" }\n',
+    )
     examples.render_context.cache_clear()
     yield tmp_path
     examples.render_context.cache_clear()
@@ -54,10 +77,8 @@ def source_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
         "fonts/manimgx-fonts/src/manimgx_fonts/font.ttf",
         "docs/assets/input.svg",
         "docs/voice/line.mp3",
-        "docs/examples.py",
+        "docs/render.py",
         "docs/svg.py",
-        "pyproject.toml",
-        "uv.lock",
     ],
 )
 def test_shared_input_changes_invalidate_films(source_tree: Path, name: str) -> None:
@@ -72,6 +93,62 @@ def test_shared_input_changes_invalidate_films(source_tree: Path, name: str) -> 
     path.unlink()
     examples.render_context.cache_clear()
     assert examples.render_context() == original
+
+
+def test_tooling_and_orchestration_do_not_invalidate_media(source_tree: Path) -> None:
+    before = examples.cache_key()
+    project = source_tree / "pyproject.toml"
+    project.write_text(
+        project.read_text(encoding="utf-8") + "\n[tool.ruff]\nline-length = 99\n",
+        encoding="utf-8",
+    )
+    lock = source_tree / "uv.lock"
+    updated = (
+        lock.read_text(encoding="utf-8")
+        .replace('version = "3.0"', 'version = "3.1"')
+        .replace('version = "4.0"', 'version = "4.1"')
+    )
+    lock.write_text(updated, encoding="utf-8")
+    write(source_tree / "docs" / "examples.py", "# New scheduling or HTML logic.\n")
+    examples.render_context.cache_clear()
+    assert examples.cache_key() == before
+    assert lock.read_text(encoding="utf-8") == updated
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ('version = "1.0"', 'version = "1.1"'),
+        ('version = "2.0"', 'version = "2.1"'),
+        ("0" * 64, "1" * 64),
+        ('dependencies = [{ name = "pigment" }]', "dependencies = []"),
+    ],
+)
+def test_locked_runtime_changes_invalidate_media(
+    source_tree: Path, old: str, new: str
+) -> None:
+    before = examples.cache_key()
+    lock = source_tree / "uv.lock"
+    lock.write_text(
+        lock.read_text(encoding="utf-8").replace(old, new), encoding="utf-8"
+    )
+    examples.render_context.cache_clear()
+    assert examples.cache_key() != before
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        '[build-system]\nrequires = ["maturin"]\nbuild-backend = "maturin"\n',
+        '[tool.maturin]\nfeatures = ["render"]\n',
+    ],
+)
+def test_build_settings_are_render_inputs(source_tree: Path, settings: str) -> None:
+    before = examples.render_context()
+    project = source_tree / "pyproject.toml"
+    project.write_text(project.read_text(encoding="utf-8") + settings, encoding="utf-8")
+    examples.render_context.cache_clear()
+    assert examples.render_context() != before
 
 
 def test_prose_styles_and_generated_files_do_not_change_the_key(
@@ -251,6 +328,28 @@ def test_invalid_completion_record_is_a_miss(
     assert not examples._rendered(example, False)
 
 
+def test_snapshot_tracks_names_and_damage_but_not_timestamps_or_staging(
+    source_tree: Path, draw: list[str]
+) -> None:
+    before = examples.cache_state()
+    example = examples.Example(SCENE)
+    examples.render(example)
+    complete = examples.cache_state()
+    assert complete != before
+    video = examples.FILMS / f"{example.stem}.mp4"
+    os.utime(video, (1, 1))
+    write(examples.RECORDS.parent / "render-interrupted" / "unfinished.mp4", "partial")
+    assert examples.cache_state() == complete
+    renamed = video.rename(video.with_stem("same-pixels-new-name"))
+    assert examples.cache_state() != complete
+    renamed.rename(video)
+    assert examples.cache_state() == complete
+    video.write_bytes(b"damaged")
+    assert examples.cache_state() != complete
+    examples.render(example)
+    assert examples.cache_state() == complete
+
+
 def test_build_reuses_unchanged_scenes_and_prunes_removed_ones(
     source_tree: Path, draw: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -282,3 +381,47 @@ def test_build_reuses_unchanged_scenes_and_prunes_removed_ones(
         ".webp",
         ".mp4",
     }
+
+
+def test_restored_partial_build_resumes_and_repairs_only_missing_or_damaged_films(
+    source_tree: Path, draw: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        examples, "ProcessPoolExecutor", lambda **_: ThreadPoolExecutor(max_workers=1)
+    )
+    write(source_tree / "examples" / "beta.py", SCENE.replace("Alpha", "Beta"))
+    make = examples._draw
+
+    def fail_beta(example: examples.Example, folder: Path, readme: bool) -> None:
+        if example.scene == "Beta":
+            (folder / f"{example.stem}.mp4").write_bytes(b"unfinished")
+            raise RuntimeError("interrupted")
+        make(example, folder, readme)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(examples, "_draw", fail_beta)
+        with pytest.raises(SystemExit):
+            examples.main([])
+    alpha, beta = examples.scenes().values()
+    assert examples._rendered(alpha, False)
+    assert not examples._rendered(beta, False)
+
+    # An archive transported to a fresh runner contains completed work, even though
+    # the overall build failed. Progress is not part of any film's identity.
+    archive = shutil.make_archive(str(source_tree / "snapshot"), "tar", examples.DOCS)
+    shutil.rmtree(examples.DOCS)
+    shutil.unpack_archive(archive, examples.DOCS)
+    draw.clear()
+    examples.main([])
+    assert draw == ["Beta"]
+    assert examples._rendered(alpha, False)
+    assert examples._rendered(beta, False)
+
+    (examples.FILMS / f"{alpha.stem}.mp4").write_bytes(b"damaged")
+    draw.clear()
+    examples.main([])
+    assert draw == ["Alpha"]
+    assert examples._rendered(alpha, False)
+    draw.clear()
+    examples.main([])
+    assert draw == []

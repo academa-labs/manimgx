@@ -66,30 +66,46 @@ jobs:
         run: uv run --frozen pytest -q tests/docs/test_reference.py
 
       - name: Restore rendered examples
-        id: restore-films
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             docs/content/films/
             docs/.cache/films/
-          key: ${{ steps.films.outputs.key }}
+          key: ${{ steps.films.outputs.key }}-
           restore-keys: ${{ steps.films.outputs.prefix }}
 
-      # Always check each film, even after an exact archive match. The renderer verifies
-      # its inputs and all completed outputs, and repairs missing or damaged files.
+      - name: Fingerprint restored films
+        id: restored
+        run: |
+          state="$(uv run --frozen --no-default-groups --group docs python -m docs.examples --cache-state)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      # The archive is only transport; each film's inputs and checksums decide reuse.
       - name: Render the examples
         run: just render-docs
 
-      # Cache only complete renders, before a later page-building error can lose the work.
-      # Main supplies the shared cache; pull requests only read it.
+      - name: Fingerprint completed films
+        id: completed
+        if: always() && github.ref == 'refs/heads/main' && steps.restored.outcome == 'success'
+        run: |
+          state="$(uv run --frozen --no-default-groups --group docs python -m docs.examples --cache-state)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      # Keep completed films even if another fails or the run is cancelled. Snapshots are
+      # immutable: a fresh key lets retries extend partial sets and retain repairs. Avoid
+      # uploading an unchanged set. Main supplies the shared cache; PRs only read it.
       - name: Save rendered examples
-        if: github.ref == 'refs/heads/main' && steps.restore-films.outputs.cache-hit != 'true'
+        if: >-
+          always() && github.ref == 'refs/heads/main'
+          && steps.completed.outcome == 'success'
+          && hashFiles('docs/.cache/films/*.json') != ''
+          && steps.completed.outputs.state != steps.restored.outputs.state
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             docs/content/films/
             docs/.cache/films/
-          key: ${{ steps.films.outputs.key }}
+          key: ${{ steps.films.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build the pages
         run: just build-docs-pages

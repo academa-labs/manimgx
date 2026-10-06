@@ -17,6 +17,36 @@ ROOT = Path(__file__).parents[1]
 CLEANUP = ROOT / ".github/deploy/cleanup.py"
 
 
+def test_docs_snapshots_can_resume_failures_and_save_repairs() -> None:
+    steps = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-docs.yaml").read_text(encoding="utf-8")
+    )["jobs"]["build"]["steps"]
+    restore, save = [
+        step for step in steps if step.get("uses", "").startswith("actions/cache/")
+    ]
+    # An immutable exact hit must never prevent saving a repaired or extended set.
+    # Prefix lookup selects the latest attempt for the same inventory first.
+    assert restore["with"]["path"] == save["with"]["path"]
+    prefix = "${{ steps.films.outputs.key }}-"
+    assert restore["with"]["key"] == prefix
+    assert save["with"]["key"].startswith(prefix)
+    assert "github.run_id" in save["with"]["key"]
+    assert "github.run_attempt" in save["with"]["key"]
+    condition = save["if"]
+    assert "always()" in condition  # failure and cancellation must reach the save step
+    assert "github.ref == 'refs/heads/main'" in condition
+    assert "cache-hit" not in condition
+    assert "steps.completed.outcome == 'success'" in condition
+    assert "hashFiles('docs/.cache/films/*.json') != ''" in condition
+    before = next(step for step in steps if step.get("id") == "restored")
+    after = next(step for step in steps if step.get("id") == "completed")
+    assert before["run"] == after["run"]
+    assert "--cache-state" in before["run"]
+    assert "always()" in after["if"]
+    assert "steps.restored.outcome == 'success'" in after["if"]
+    assert "steps.completed.outputs.state != steps.restored.outputs.state" in condition
+
+
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
 def test_cleanup_does_not_hide_api_failures(
     monkeypatch: pytest.MonkeyPatch, status: int

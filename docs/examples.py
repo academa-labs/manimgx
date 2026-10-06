@@ -24,10 +24,11 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import textwrap
+import tomllib
 import traceback
-import types
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import cache, cached_property
@@ -35,11 +36,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, cast
 
+from docs.render import FORMAT
+from docs.render import draw as _draw
+from docs.render import load as load
+
 if TYPE_CHECKING:
     from markdown import Markdown
     from pymdownx.superfences import SuperFencesBlockPreprocessor
-
-    from manimgx import Scene
 
 DOCS = Path(__file__).parent
 ROOT = DOCS.parent
@@ -47,7 +50,6 @@ PAGES = DOCS / "content"
 README = DOCS.parent / "README.md"
 SOURCE = DOCS.parent / "src" / "manimgx"
 FILMS = PAGES / "films"
-VOICE = DOCS / "voice"
 RECORDS = DOCS / ".cache" / "films"
 URL = "/films"
 OUTPUTS = (".webp", ".mp4", ".svg", "-light.svg")
@@ -70,17 +72,10 @@ INPUTS = (
     "fonts/*/src/**/*",
     "docs/assets/**/*",
     "docs/voice/**/*",
-    "docs/examples.py",
+    "docs/render.py",
     "docs/svg.py",
     "pyproject.toml",
-    "uv.lock",
 )
-# how a film is made: at the films' own rate (60 frames a second, the default), encoded for the
-# web, where slow and CRF 28 make a tenth of the default's file (ultrafast, 18), alike to the eye,
-# in the same time. A film's name digests this with its code, so a change here makes them again.
-SIZE, FPS = (1280, 720), 60
-PRESET, CRF = "slow", 28
-FORMAT = f"{SIZE[0]}x{SIZE[1]} at {FPS} fps, {PRESET}, CRF {CRF}"
 
 FENCE = re.compile(
     r"^(?P<indent>[ \t]*)```(?:python|py)\b[^\n]*\n(?P<code>.*?)^(?P=indent)```",
@@ -106,11 +101,39 @@ def render_context() -> str:
         profile,
     )
     digest = hashlib.sha256(json.dumps(environment).encode())
+    # Let uv select the locked runtime closure, including transitive dependencies and
+    # artifact hashes. Test and site tools do not make pixels; workspace sources follow.
+    digest.update(
+        subprocess.check_output(
+            [
+                "uv",
+                "export",
+                "--frozen",
+                "--offline",
+                "--no-default-groups",
+                "--no-emit-workspace",
+                "--no-header",
+                "--no-annotate",
+            ],
+            cwd=ROOT,
+        )
+    )
     paths = sorted({path for pattern in INPUTS for path in ROOT.glob(pattern)})
     for path in paths:
         if path.is_file() and "__pycache__" not in path.parts:
             digest.update(path.relative_to(ROOT).as_posix().encode() + b"\0")
-            digest.update(bytes.fromhex(_digest(path)))
+            if path.name == "pyproject.toml":
+                project = tomllib.loads(path.read_text(encoding="utf-8"))
+                # Packaging and native build settings matter; linter, test and site
+                # configuration does not. Runtime versions come from uv above.
+                data = [
+                    project.get("project"),
+                    project.get("build-system"),
+                    project.get("tool", {}).get("maturin"),
+                ]
+                digest.update(json.dumps(data, sort_keys=True).encode())
+            else:
+                digest.update(bytes.fromhex(_digest(path)))
     return digest.hexdigest()
 
 
@@ -192,22 +215,6 @@ def examples() -> list[Example]:
     return [example for example in found if example.scene is not None]
 
 
-def load(example: Example) -> "type[Scene]":
-    """An example's scene, its code run as a module whose file is in docs/: a narrated
-    example keeps what it says in docs/voice/ (committed, so the build speaks only a line
-    that is new)."""
-    import manimgx as m
-
-    module = types.ModuleType("__example__")
-    module.__file__ = str(VOICE.parent / "examples.py")
-    sys.modules[module.__name__] = module
-    exec(compile(example.code, example.where, "exec"), module.__dict__)
-    scene = module.__dict__[str(example.scene)]
-    if not (isinstance(scene, type) and issubclass(scene, m.Scene)):
-        raise TypeError(f"{example.scene} is not a scene")
-    return scene
-
-
 def render(example: Example, readme: bool = False) -> None:
     """Publish an example only after all its outputs have finished successfully.
 
@@ -236,43 +243,6 @@ def render(example: Example, readme: bool = False) -> None:
         record.replace(RECORDS / record.name)
 
 
-def _draw(example: Example, folder: Path, readme: bool) -> None:
-    """Render an example's scene into its film — in a process of its own, since an example
-    may change the configuration — and, for the README's, into its SVGs too: one for a dark
-    page, one for a light page (`<stem>-light.svg`)."""
-    from docs import svg
-    from PIL import Image
-
-    import manimgx as m
-    from manimgx.rendering.film import Frame
-
-    m.config.pixel_width, m.config.pixel_height = SIZE
-    m.config.frame_rate = FPS
-    scene = load(example)
-    drawn, poster = 0, b""
-
-    def keep(frame: Frame) -> None:
-        """Count the frames (each is sent once, however long it holds), and keep the last one
-        with anything on it: a scene that ends empty is shown as it was before."""
-        nonlocal drawn, poster
-        drawn += 1
-        pixels = frame.pixels()
-        if not poster or pixels.count(pixels[:4]) * 4 != len(pixels):
-            poster = pixels
-
-    video = folder / f"{example.stem}.mp4"
-    size = m.config.pixel_width, m.config.pixel_height
-    scene().render(video, frames=keep, preset=PRESET, crf=CRF)
-    still = Image.frombytes("RGBA", size, poster).convert("RGB")
-    still.save(folder / f"{example.stem}.webp", quality=90, method=6)
-    if drawn == 1:  # nothing moves: the still is the film
-        video.unlink()
-    if readme:
-        recording = svg.record(scene)
-        svg.write(recording, folder / f"{example.stem}.svg")
-        svg.write(recording, folder / f"{example.stem}-light.svg", light=True)
-
-
 def _render(example: Example, readme: bool) -> None:
     """A worker's failures cross the process boundary as text, including native panics."""
     try:
@@ -299,12 +269,23 @@ def scenes() -> dict[str, Example]:
 
 
 def cache_key() -> dict[str, str]:
-    """An immutable snapshot key, and the prefix of snapshots with compatible renderers."""
+    """Snapshot prefixes for this inventory, then for any compatible renderer."""
     readme = _readme()
     inventory = sorted((name, e.stem, name in readme) for name, e in scenes().items())
     digest = hashlib.sha256(json.dumps(inventory).encode()).hexdigest()
     prefix = f"docs-films-v1-{render_context()}-"
     return {"key": prefix + digest, "prefix": prefix}
+
+
+def cache_state() -> str:
+    """Fingerprint the transported files, including names and damage, without staging."""
+    files = [
+        (path.relative_to(ROOT).as_posix(), _digest(path))
+        for folder in (FILMS, RECORDS)
+        for path in sorted(folder.glob("*"))
+        if path.is_file()
+    ]
+    return hashlib.sha256(json.dumps(files).encode()).hexdigest()
 
 
 def main(only: list[str], jobs: int | None = None) -> None:
@@ -333,6 +314,11 @@ def main(only: list[str], jobs: int | None = None) -> None:
             if film.name.split(".")[0] not in stems:
                 film.unlink()
     todo = [e for e in scenes_to_render.values() if not _rendered(e, e.scene in readme)]
+    print(
+        f"{len(scenes_to_render)} scenes: {len(scenes_to_render) - len(todo)} cached, "
+        f"{len(todo)} to render (renderer {render_context()[:12]})",
+        flush=True,
+    )
     if todo:  # a long render shows nothing until it ends: say what is being made
         names = ", ".join(str(e.scene) for e in todo[:6])
         print(f"rendering {len(todo)}: {names}{', ...' * (len(todo) > 6)}", flush=True)
@@ -464,15 +450,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--jobs", type=int, help="number of simultaneous render processes"
     )
-    parser.add_argument(
+    metadata = parser.add_mutually_exclusive_group()
+    metadata.add_argument(
         "--cache-key",
         action="store_true",
         help="print the cache key and restore prefix as JSON",
+    )
+    metadata.add_argument(
+        "--cache-state",
+        action="store_true",
+        help="fingerprint the current cached files",
     )
     args = parser.parse_args()
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")
     if args.cache_key:
         print(json.dumps(cache_key()))
+    elif args.cache_state:
+        print(cache_state())
     else:
         main(args.paths, args.jobs)
