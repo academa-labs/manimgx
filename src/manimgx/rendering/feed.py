@@ -1,4 +1,4 @@
-"""Feed the player: shapes once, then one 320-byte record per object and frame.
+"""Feed the player: shapes once, then one 336-byte record per object and frame.
 
 A shape is uploaded as its object defines it, and the player derives what drawing needs. A path
 goes as control points in its own space, with its subpaths as curve ranges, so a reveal is a
@@ -170,9 +170,10 @@ def centroid_area(points: np.ndarray) -> list[float]:
 # A surface is its samples of func(u, v) on a grid; drawn, it is the tensor-product cubic
 # spline through them (periodic along a direction whose ends meet, not-a-knot otherwise): C²,
 # exact for cubics, O(h⁴) from a smooth func — a coarse grid draws the surface, not flat
-# quads. Each face (a grid cell) is refined into m × m cells of its spline patch, m chosen per
-# shape so that no chord leaves the spline by more than SURFACE_TOLERANCE; normals are the
-# spline's (smooth shading). A face keeps its own vertices, so a checkerboard keeps its sharp
+# quads. Each face (a grid cell) is refined into m × m cells of its spline patch. The shape's
+# midpoint deviation estimates m, capped by SURFACE_STEPS; this is not a bound on triangle
+# error (a saddle can have zero midpoint deviation). Normals are the spline's. A face keeps
+# its own vertices, so a checkerboard keeps its sharp
 # cells, and its edge loop (4m + 1 vertices) is its outline.
 
 # scene units: a quarter pixel at 1080p, the frame 8 units high
@@ -254,8 +255,11 @@ def _patches(cells: np.ndarray, x: np.ndarray) -> tuple[np.ndarray, ...]:
 
 
 def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
-    """m: cells per face and direction for no chord to leave the spline by more than
-    SURFACE_TOLERANCE where `linear` places it (a chord's deviation falls as 1/m²)."""
+    """Estimate cells per face and direction from midpoint deviation after `linear`.
+
+    SURFACE_TOLERANCE is the target of this estimate, not a guaranteed error bound;
+    refinement is capped at SURFACE_STEPS and midpoint sampling can miss curvature.
+    """
     mid = _patches(_cells(g[..., :3]), np.array([0.5]))[0][:, :, 0, 0]
     flat = (g[:-1, :-1, :3] + g[1:, :-1, :3] + g[:-1, 1:, :3] + g[1:, 1:, :3]) / 4
     deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
@@ -921,7 +925,7 @@ class Feeder:
         cameras: list[CameraView],
         fixed: "set[Mobject]",
     ) -> bytes | None:
-        """One object's record (320 bytes), or None if it draws nothing. It is a function of the
+        """One object's record (336 bytes), or None if it draws nothing. It is a function of the
         object's geometry and paint (values), a mesh's topology (indices or lattice dimensions, with uvs:
         values too), its camera flags and lighting, so it is kept on the object and remade only
         when one of them changes (or what it draws was evicted); a camera's picture is remade

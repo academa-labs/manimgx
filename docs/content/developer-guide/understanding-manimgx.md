@@ -294,7 +294,7 @@ scene's author sees it.
 ## Step 5: The film and its feed
 
 The renderer consumes drawing values rather than the Python object graph. A frame
-is described to the engine as a *view* (the camera's matrices and the background) and one 320-byte *record* per object: its two shape keys and
+is described to the engine as a *view* (the camera's matrices and the background) and one 336-byte *record* per object: its two shape keys and
 two 3×4 matrices (the blend's terms), its reveal window, its colors, its gradient or
 per-vertex color rows (by key), its widths and flags. Shapes, color rows and textures are
 uploaded once, keyed by their content and interpretation (an xxh3 digest). Equal shapes
@@ -382,7 +382,7 @@ When you run `manimgx render scene.py`:
    immutable shapes and whose style is one immutable paint.
 3. **Sample**: frame _k_ shows the world at _k_/fps; a pure play's frames are computed at
    once.
-4. **Feed**: each frame becomes a view and a 320-byte record per object; shapes cross to
+4. **Feed**: each frame becomes a view and a 336-byte record per object; shapes cross to
    the engine once.
 5. **Draw and encode**: the engine draws each frame on the GPU and encodes what changed
    into an H.264 MP4.

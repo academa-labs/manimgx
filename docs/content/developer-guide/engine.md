@@ -82,7 +82,7 @@ code against it.
 - **One module for every Python from 3.13 on.** The crate builds against Python's stable
   ABI (PyO3's `abi3-py313`).
 - **Bytes, not objects.** What crosses is packed arrays: control points as float64,
-  records of 320 bytes, a view of float32s. Python packs them with numpy
+  records of 336 bytes, a view of float32s. Python packs them with numpy
   ([`rendering/feed.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/rendering/feed.py));
   the engine reads them as they are. A shape crosses as its object defines it, and the
   engine derives what drawing needs: it flattens a path's curves, and sums a mesh's faces
