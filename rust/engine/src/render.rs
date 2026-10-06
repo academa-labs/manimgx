@@ -383,6 +383,15 @@ impl Store {
         self.arrays().iter().enumerate().all(|(k, bytes)| bytes.len() as u64 <= store_limit(limits, k))
     }
 
+    fn rooms(&self, limits: &wgpu::Limits) -> Result<[u64; 7], String> {
+        let arrays = self.arrays();
+        let mut rooms = [0; 7];
+        for (k, name) in ["vertices", "vertex links", "indices", "paint rows", "vertex normals and UVs", "curve points", "subpath ranges"].iter().enumerate() {
+            rooms[k] = buffer_room(arrays[k].len() as u64, 1, 1024, store_limit(limits, k), name)?;
+        }
+        Ok(rooms)
+    }
+
     /// The bytes a shape holds in the arrays: a path's curves (with their room), a point cloud's or
     /// mesh's vertices and index codes.
     #[cfg(any(feature = "python", feature = "player"))]
@@ -405,46 +414,52 @@ impl Store {
 
     /// Pack the living once most of the arrays is dead, or a binding needs the space now.
     fn pack_if_worthwhile(&mut self, pressed: bool) {
-        if !pressed && (self.dead < 16 << 20 || self.dead * 2 < self.bytes()) {
+        if self.dead == 0 || (!pressed && (self.dead < 16 << 20 || self.dead * 2 < self.bytes())) {
             return;
         }
-        let old = std::mem::take(self);
-        self.generation = old.generation + 1; // (a path loses its room: it moves when it grows)
-        let mut shapes: Vec<(&u64, &Shape)> = old.shapes.iter().collect();
+        *self = self.packed(|_| true);
+    }
+
+    /// A stable packing of selected resources; keys remain logical, offsets belong to this store.
+    fn packed(&self, keep: impl Fn(u64) -> bool) -> Self {
+        let old = self;
+        let mut packed = Self { generation: old.generation + 1, ..Default::default() };
+        let mut shapes: Vec<(&u64, &Shape)> = old.shapes.iter().filter(|(key, _)| keep(**key)).collect();
         shapes.sort_by_key(|(_, s)| (s.curves.first, s.base)); // keep their order: packing is a stable move
         for (&key, s) in shapes {
             let mut shape = Shape { base: 0, count: 0, raster: Raster::default(), ..*s };
             if s.kind == Kind::Path {
                 let c = s.curves;
                 let (a, b) = (4 * c.first as usize, 4 * (c.first + c.count) as usize);
-                let first = self.push_curves(&old.points[a..b], c.count as usize);
-                let first_subpath = self.ranges.len() as u32;
-                self.ranges.extend_from_slice(&old.ranges[c.first_subpath as usize..(c.first_subpath + c.subpaths) as usize]);
+                let first = packed.push_curves(&old.points[a..b], c.count as usize);
+                let first_subpath = packed.ranges.len() as u32;
+                packed.ranges.extend_from_slice(&old.ranges[c.first_subpath as usize..(c.first_subpath + c.subpaths) as usize]);
                 shape.curves = Curves { first, room: c.count, first_subpath, ..c };
             } else {
                 let (a, b) = (s.base as usize, (s.base + s.count) as usize);
-                let base = self.push_vertices(&old.vertices[a..b], Some(&old.extras[a..b]));
+                let base = packed.push_vertices(&old.vertices[a..b], Some(&old.extras[a..b]));
                 let moved = |v: u32| v - s.base + base;
                 let r = &s.raster;
                 let linked = s.kind == Kind::Mesh && !r.stroke.is_empty();
-                self.links.extend(old.links[a..b].iter().map(|l| if linked { [moved(l[0]), moved(l[1])] } else { [0, 0] }));
-                let fill_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[r.fill.start as usize..r.fill.end as usize].iter().map(|&i| moved(i)));
-                let stroke_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[r.stroke.start as usize..r.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
-                let end = self.indices.len() as u32;
+                packed.links.extend(old.links[a..b].iter().map(|l| if linked { [moved(l[0]), moved(l[1])] } else { [0, 0] }));
+                let fill_start = packed.indices.len() as u32;
+                packed.indices.extend(old.indices[r.fill.start as usize..r.fill.end as usize].iter().map(|&i| moved(i)));
+                let stroke_start = packed.indices.len() as u32;
+                packed.indices.extend(old.indices[r.stroke.start as usize..r.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
+                let end = packed.indices.len() as u32;
                 let raster = Raster { count: r.count, fill: fill_start..stroke_start, stroke: stroke_start..end };
                 shape = Shape { base, count: s.count, raster, ..shape };
             }
-            self.shapes.insert(key, shape);
+            packed.shapes.insert(key, shape);
         }
-        let mut brushes: Vec<(&u64, &Brush)> = old.brushes.iter().collect();
+        let mut brushes: Vec<(&u64, &Brush)> = old.brushes.iter().filter(|(key, _)| keep(**key)).collect();
         brushes.sort_by_key(|(_, b)| b.offset);
         for (&key, b) in brushes {
-            let offset = self.rows.len() as u32;
-            self.rows.extend_from_slice(&old.rows[b.offset as usize..(b.offset + b.count) as usize]);
-            self.brushes.insert(key, Brush { offset, count: b.count, see_through: b.see_through });
+            let offset = packed.rows.len() as u32;
+            packed.rows.extend_from_slice(&old.rows[b.offset as usize..(b.offset + b.count) as usize]);
+            packed.brushes.insert(key, Brush { offset, count: b.count, see_through: b.see_through });
         }
+        packed
     }
 
     /// A path: its control points (four per curve) and subpaths (its own curve ranges: first, end,
@@ -1753,11 +1768,7 @@ impl Player {
             self.image_groups.insert(key, gpu.image_group(w, h, &rgba));
         }
         self.image_groups.entry(0).or_insert_with(|| gpu.image_group(1, 1, &[255, 255, 255, 255]));
-        let arrays = self.store.arrays();
-        let mut rooms = [0; 7];
-        for (k, name) in ["vertices", "vertex links", "indices", "paint rows", "vertex normals and UVs", "curve points", "subpath ranges"].iter().enumerate() {
-            rooms[k] = buffer_room(arrays[k].len() as u64, 1, 1024, store_limit(&limits, k), name)?;
-        }
+        let rooms = self.store.rooms(&limits)?;
         let capacity = buffer_room(count as u64, size_of::<Instance>() as u64, 1024, store_limit(&limits, 0), "instances")? as usize;
         let room = buffer_room(sprites as u64, size_of::<[u32; 2]>() as u64, 1024, store_limit(&limits, 0), "sprites")? as usize;
         let slots = buffer_room(views as u64, VIEW_STRIDE as u64, 4, limits.max_buffer_size, "views")? as usize;
@@ -1991,7 +2002,29 @@ impl Player {
     /// composited in more than one group (its objects overflowed the atlases), and whether a 3D
     /// view composited see-through layers through the lists (whose count tells if they held).
     pub(crate) fn encode(&mut self, gpu: &mut Gpu, frames: &[Frame]) -> Result<(wgpu::CommandEncoder, bool, bool), String> {
-        self.store.pack_if_worthwhile(!self.store.fits(&gpu.device.limits())); // before anything reads where a shape is
+        self.with_working_set(&gpu.device.limits(), frames, |player| player.encode_frame(gpu, frames))
+    }
+
+    /// CPU residency includes nearby frames. Only the complete current frame must fit on the GPU.
+    /// A temporary packing never evicts logical keys, consumes their pending writes, or leaks its
+    /// offsets into the resident store; even a failed encoding restores that store unchanged.
+    fn with_working_set<T>(&mut self, limits: &wgpu::Limits, frames: &[Frame], draw: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<T, String> {
+        self.store.pack_if_worthwhile(!self.store.fits(limits));
+        if self.store.fits(limits) {
+            return draw(self);
+        }
+        let used: Keyed<()> = frames.iter().flat_map(|f| crate::take::slots(bytemuck::cast_slice(&f.records))).flatten().map(|key| (key, ())).collect();
+        let working = self.store.packed(|key| used.contains_key(&key));
+        working.rooms(limits)?;
+        let resident = std::mem::replace(&mut self.store, working);
+        let result = draw(self);
+        let generation = self.store.generation + 1;
+        self.store = resident;
+        self.store.generation = generation; // the next GPU upload cannot reuse temporary offsets
+        result
+    }
+
+    fn encode_frame(&mut self, gpu: &mut Gpu, frames: &[Frame]) -> Result<(wgpu::CommandEncoder, bool, bool), String> {
         let samples = self.samples.clamp(1, gpu.max_samples);
         let mut instances: Vec<Instance> = Vec::new();
         let mut sprites: Vec<[u32; 2]> = Vec::new();
@@ -2759,5 +2792,126 @@ mod buffer_contract {
             let brush = &store.brushes[&key];
             assert_eq!(&store.rows[brush.offset as usize..(brush.offset + brush.count) as usize], &[[key as f32, 0.0, 0.0, 1.0]; 40]);
         }
+    }
+
+    fn retained_frames() -> Player {
+        let mut player = Player::new(1, 1, 1);
+        for key in 1..=3 {
+            player.store.add_points(key, &[[key as f32, 0.0, 0.0, 0.0]; 80]);
+            player.store.add_rows(key + 10, &[[key as f32, 0.0, 0.0, 1.0]; 80]);
+        }
+        player.store.dirty.push((0, 16..32));
+        player
+    }
+
+    fn frame(camera: u64, shape: u64) -> Frame {
+        Frame { key: camera, width: 1, height: 1, view: Vec::new(), records: vec![Record { key1: shape, fill_rows: shape + 10, ..Zeroable::zeroed() }] }
+    }
+
+    #[test]
+    fn a_draw_uses_every_camera_but_does_not_evict_other_frames_even_on_error() {
+        let mut player = retained_frames();
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..Default::default() };
+        let frames = [frame(9, 3), frame(0, 1)];
+        for fail in [false, true, false] {
+            let generation = player.store.generation;
+            let result = player.with_working_set(&limits, &frames, |p| {
+                assert!(p.store.fits(&limits));
+                assert_eq!(p.store.shapes.len(), 2);
+                assert_eq!(p.store.brushes.len(), 2);
+                assert!(!p.store.shapes.contains_key(&2));
+                let moved = &p.store.shapes[&3];
+                assert_eq!(moved.base, 80);
+                assert_eq!(p.store.indices[moved.raster.stroke.start as usize] >> 3, 80);
+                assert_eq!(p.store.vertices[moved.base as usize][0], 3.0);
+                let rows = &p.store.brushes[&13];
+                assert_eq!(p.store.rows[rows.offset as usize][0], 3.0);
+                assert!(p.store.dirty.is_empty());
+                // As preparation does: temporary writes are consumed independently.
+                p.store.dirty.clear();
+                if fail { Err("rejected frame".into()) } else { Ok(()) }
+            });
+            assert_eq!(result.is_err(), fail);
+            assert_eq!(player.store.shapes.len(), 3);
+            assert_eq!(player.store.brushes.len(), 3);
+            assert_eq!(player.store.shapes[&3].base, 160);
+            assert_eq!(player.store.dirty, [(0, 16..32)]);
+            assert!(player.store.generation > generation);
+        }
+    }
+
+    #[test]
+    fn a_frame_that_itself_exceeds_capacity_is_rejected_without_losing_residency() {
+        let mut player = retained_frames();
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..Default::default() };
+        let frames = [frame(8, 1), frame(9, 2), frame(0, 3)];
+        let result = player.with_working_set(&limits, &frames, |_| -> Result<(), String> { panic!("oversized frame reached the GPU") });
+        assert!(result.unwrap_err().contains("resident vertices requires 3840 bytes"));
+        assert_eq!(player.store.shapes.len(), 3);
+        assert_eq!(player.store.dirty, [(0, 16..32)]);
+    }
+
+    /// Alternating working sets must upload their own offsets, including after ordinary
+    /// residency fits again. Compare actual pixels with the same draws without projection.
+    #[test]
+    fn projected_residency_preserves_pixels_across_draws() {
+        fn player() -> Player {
+            let mut p = Player::new(64, 64, 4);
+            for key in 1..=3 {
+                p.store.add_points(key, &[[key as f32 * 0.4 - 0.8, 0.0, 0.5, 0.0]; 80]);
+                let mut color = [0.0, 0.0, 0.0, 1.0];
+                color[key as usize - 1] = 1.0;
+                p.store.add_rows(key + 10, &[color; 80]);
+            }
+            p
+        }
+        fn image(p: &mut Player, gpu: &mut Gpu, limits: &wgpu::Limits, key: u64) -> Vec<u8> {
+            let mut f = frame(0, key);
+            (f.width, f.height) = (64, 64);
+            f.view = vec![0.0; VIEW_LENGTH];
+            for at in [0, 16] {
+                for i in 0..4 {
+                    f.view[at + i * 5] = 1.0;
+                }
+            }
+            f.view[32..36].copy_from_slice(&[64.0, 64.0, 32.0, 1.0]);
+            f.view[39] = 1.0;
+            f.view[42] = 1.0;
+            f.view[47] = 1.0;
+            let r = &mut f.records[0];
+            r.m1 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+            r.fill = [1.0; 4];
+            r.params[1] = 80.0;
+            r.gradient_a[3] = 0.25;
+            let frames = [f];
+            let (mut encoder, _, listed) = p.with_working_set(limits, &frames, |p| p.encode_frame(gpu, &frames)).unwrap();
+            assert!(!listed);
+            let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: 64 * 64 * 4, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo { texture: p.targets.as_ref().unwrap().frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                wgpu::TexelCopyBufferInfo { buffer: &buffer, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(256), rows_per_image: Some(64) } },
+                wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            );
+            gpu.queue.submit(Some(encoder.finish()));
+            buffer.slice(..).map_async(wgpu::MapMode::Read, |r| r.unwrap());
+            gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            buffer.slice(..).get_mapped_range().unwrap().to_vec()
+        }
+        with_gpu(|gpu| {
+            let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..gpu.device.limits() };
+            let (mut projected, mut reference) = (player(), player());
+            let mut images = Vec::new();
+            for key in [1, 3, 2, 1] {
+                let expected = image(&mut reference, gpu, &gpu.device.limits(), key);
+                assert!(expected.chunks_exact(4).any(|pixel| pixel[..3] != [0, 0, 0]));
+                assert_eq!(image(&mut projected, gpu, &limits, key), expected);
+                images.push(expected);
+            }
+            assert_ne!(images[0], images[1]);
+            for p in [&mut projected, &mut reference] {
+                p.store.evict(&[2, 3, 12, 13]);
+            }
+            assert_eq!(image(&mut projected, gpu, &limits, 1), image(&mut reference, gpu, &gpu.device.limits(), 1));
+        }).unwrap();
     }
 }
