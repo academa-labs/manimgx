@@ -62,11 +62,16 @@ def render(
     preset: Annotated[
         X264Preset,
         typer.Option(
-            help="x264 encoding preset; faster presets render faster while making larger files."
+            help="Encoding speed: faster presets encode sooner but produce larger files."
         ),
     ] = DEFAULT_ENCODER_PRESET,
     crf: Annotated[
-        float, typer.Option(min=0, max=51, help="x264 CRF (0 to 51); lower is better.")
+        float,
+        typer.Option(
+            min=0,
+            max=51,
+            help="Video quality: lower values give higher quality and larger files.",
+        ),
     ] = DEFAULT_ENCODER_CRF,
 ) -> None:
     """Render a scene to an MP4 video, with its sound.
