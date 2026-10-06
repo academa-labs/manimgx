@@ -65,21 +65,34 @@ def render(
 
 
 def mp4_frames(path: Path) -> int:
-    """How many frames an MP4 shows at the corpus rate: its samples' durations (a held frame is
-    one sample that lasts), every sample decoded."""
+    """The decoded presentation's end at the corpus rate, including its final held picture.
+
+    Packet durations advance the decode clock, which differs from presentation order with
+    B-frames. Every picture lasts until the next presentation timestamp; the final picture
+    lasts for its own sample duration.
+    """
     with av.open(str(path)) as container:
         stream = container.streams.video[0]
-        durations, decoded = [], 0
+        samples, decoded, previous, end = 0, 0, -1, 0
         for packet in container.demux(stream):
-            if packet.size:  # the last packet, empty, drains the decoder
-                durations.append(packet.duration or 0)
-            decoded += len(packet.decode())
+            samples += bool(packet.size)  # the empty final packet drains the decoder
+            for frame in packet.decode():
+                if (
+                    frame.pts is None
+                    or frame.pts <= previous
+                    or (decoded == 0 and frame.pts != 0)
+                ):
+                    raise ValueError(f"{path}: invalid presentation timestamps")
+                decoded += 1
+                previous, end = frame.pts, frame.pts + frame.duration
         time_base = stream.time_base
-    if decoded != len(durations):
-        msg = f"{path}: {decoded} of its {len(durations)} samples decode"
+    if decoded != samples:
+        msg = f"{path}: {decoded} of its {samples} samples decode"
         raise ValueError(msg)
+    if previous < 0 or end <= previous:
+        raise ValueError(f"{path}: missing final picture duration")
     assert time_base is not None
-    shown = time_base * sum(durations) * FPS
+    shown = time_base * end * FPS
     if shown.denominator != 1:
         msg = f"{path} lasts {shown} frames"
         raise ValueError(msg)

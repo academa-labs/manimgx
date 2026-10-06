@@ -9,6 +9,7 @@ import av
 import numpy as np
 import pytest
 from tests.integration.corpus.frames import decode
+from tests.integration.corpus.run_manimgx import mp4_frames
 
 import manimgx as m
 from manimgx._engine import Player
@@ -133,3 +134,141 @@ def test_captured_exports_preserve_pixels_and_video_across_pending_draws(
     capture.end_export()
     plain.end_export()
     assert captured_video.read_bytes() == plain_video.read_bytes()
+
+
+@pytest.mark.config(frame_rate=10)
+@pytest.mark.parametrize(
+    "story", ["empty", "static", "hold", "off_grid", "sections", "cut"]
+)
+@pytest.mark.parametrize("preset", ["ultrafast", "slow"])
+def test_video_duration_covers_the_complete_film(
+    tmp_path: Path, story: str, preset: X264Preset
+) -> None:
+    """Every callback hold, including the closing frame, survives MP4 sample timing."""
+
+    class Story(m.Scene):
+        def construct(self) -> None:
+            if story == "empty":
+                return
+            dot = m.Dot()
+            self.add(dot)
+            if story == "static":
+                return
+            if story == "hold":
+                self.wait(1)
+            else:
+                self.play(dot.animate.shift(m.RIGHT), run_time=0.137)
+                if story == "sections":
+                    self.next_section("held")
+                self.wait(0.53)
+
+    sent: list[tuple[int, int]] = []
+
+    def observe(frame: Frame) -> None:
+        sent.append((frame.index, frame.repeat))
+        if story == "cut" and len(sent) == 2:
+            raise Cut
+
+    path = tmp_path / "timing.mp4"
+    film = Story().render(path, frames=observe, preset=preset)
+    covered = 0
+    for index, repeat in sent:
+        assert index == covered
+        assert repeat > 0
+        covered += repeat
+    assert mp4_frames(path) == film.frame_count == covered
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.time_base is not None
+        shown = [
+            (frame.pts * stream.time_base * 10, frame.duration * stream.time_base * 10)
+            for frame in container.decode(stream)
+            if frame.pts is not None
+        ]
+    assert shown == sent
+    if story in {"empty", "static"}:
+        assert covered == 1
+    if story in {"hold", "sections"}:
+        assert any(repeat > 1 for _, repeat in sent)
+
+
+@pytest.mark.parametrize("sound", [False, True])
+@pytest.mark.parametrize(
+    ("bframes", "pyramid"), [(0, "none"), (3, "none"), (3, "normal")]
+)
+@pytest.mark.parametrize(
+    "durations",
+    [
+        [1] * 9 + [60],
+        [40] + [1] * 9,
+        [1, 8, 1, 1, 32, 1, 1, 2, 1, 16],
+    ],
+    ids=["last-hold", "first-hold", "mixed-holds"],
+)
+def test_reordered_video_preserves_each_pictures_duration(
+    tmp_path: Path, bframes: int, pyramid: str, durations: list[int], sound: bool
+) -> None:
+    player = Player(*SIZE)
+    feeder, camera = Feeder(*SIZE, player), m.Camera()
+    path = tmp_path / "reordered.mp4"
+    player.begin_export(
+        str(path),
+        10,
+        "slow",
+        options=[
+            ("bframes", str(bframes)),
+            ("b-adapt", "0"),
+            ("b-pyramid", pyramid),
+            ("scenecut", "0"),
+        ],
+    )
+    expected, at = [], 0
+    for index, duration in enumerate(durations):
+        view, records, cameras = feeder.frame(
+            camera, [m.Dot().shift((index / 10) * m.RIGHT)]
+        )
+        player.push(view, records, repeat=duration, cameras=cameras, key=index == 5)
+        expected.append((at, duration))
+        at += duration
+    player.end_export(np.zeros(at * 4800, np.float32).tobytes() if sound else None)
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        assert stream.time_base is not None
+        assert stream.duration is not None
+        assert stream.duration * stream.time_base * 10 == at
+        actual = [
+            (frame.pts * stream.time_base * 10, frame.duration * stream.time_base * 10)
+            for frame in container.decode(stream)
+            if frame.pts is not None
+        ]
+    assert actual == expected
+    # These controls really exercise reordering, including B-pyramid reference pictures.
+    with av.open(str(path)) as container:
+        order = [
+            packet.pts
+            for packet in container.demux(video=0)
+            if packet.size and packet.pts is not None
+        ]
+    assert len(order) == len(durations)
+    assert (order != sorted(order)) == bool(bframes)
+    if sound:
+        with av.open(str(path)) as container:
+            audio = container.streams.audio[0]
+            assert audio.duration == at * 4800
+            audio_packets = [packet for packet in container.demux(audio) if packet.size]
+        with av.open(str(path)) as container:
+            video_packets = [
+                packet for packet in container.demux(video=0) if packet.size
+            ]
+        # Every decoding predecessor arrives before the audio chunk containing the
+        # earliest picture still needing it, even if it owns a long display hold.
+        for i, packet in enumerate(video_packets):
+            deadline = min(order[i:]) // 10
+            audible = next(
+                p
+                for p in audio_packets
+                if p.pts is not None and p.pts >= deadline * 48000
+            )
+            assert packet.pos is not None
+            assert audible.pos is not None
+            assert packet.pos < audible.pos

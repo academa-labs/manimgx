@@ -183,8 +183,11 @@ back and analyzed.
 3. x264, on a thread of its own, is told which macroblocks are unchanged and skips its
    analysis there (`encode.rs`).
 4. `mp4.rs` writes each picture as a sample of an MP4; a held frame is one sample that
-   lasts longer. The header is written first, so a player can start before the file has
-   arrived.
+   lasts longer. Each sample keeps its duration when B-frames change the decoding order.
+   The decode clock accumulates those durations; signed composition offsets preserve the
+   authored display times. This is the MP4 timing contract: sample-table timing determines
+   presentation, including the final hold, independently of the encoder's decode timestamps.
+   The header is written first, so a player can start before the file has arrived.
 
 [`Film.export`][manimgx.Film.export] reports how it went: the seconds taken, the part of
 them in x264, the share of macroblocks converted, and the file's size.

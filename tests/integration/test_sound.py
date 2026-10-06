@@ -19,6 +19,7 @@ import manimgx as m
 from manimgx._engine import decode_audio, resample_audio
 from manimgx.audio.sound import RATE
 from manimgx.config import config
+from manimgx.rendering.film import X264Preset
 
 
 def impulse() -> m.Sound:
@@ -62,11 +63,12 @@ pytestmark = pytest.mark.config(pixel_width=320, pixel_height=180)
 
 
 @pytest.mark.parametrize("fps", [10, 24, 60])
+@pytest.mark.parametrize("preset", ["ultrafast", "slow"])
 def test_each_sound_is_at_its_sample_and_lasts_the_film(
-    tmp_path: Path, fps: int
+    tmp_path: Path, fps: int, preset: X264Preset
 ) -> None:
     config.frame_rate = fps
-    film = Beats().render(tmp_path / "beats.mp4")
+    film = Beats().render(tmp_path / "beats.mp4", preset=preset)
     assert streams(tmp_path / "beats.mp4") == ["h264", "aac"]
     x = decoded(tmp_path / "beats.mp4")
     assert len(x) == film.frame_count * RATE // fps

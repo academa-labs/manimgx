@@ -78,7 +78,7 @@ int manimgx_x264_open(encoder **out, int width, int height, int fps, const char 
  * x264 holds the picture back. Returns < 0 on failure. */
 int manimgx_x264_encode(encoder *e, const uint8_t *nv12, int64_t pts, const uint8_t *constant,
                         int force_key, const uint8_t **sample, int *size, int64_t *sample_pts,
-                        int64_t *sample_dts, int *key) {
+                        int *key) {
     x264_picture_t in, out, *picture = NULL;
     if (nv12) {
         x264_picture_init(&in);
@@ -111,7 +111,6 @@ int manimgx_x264_encode(encoder *e, const uint8_t *nv12, int64_t pts, const uint
         /* the NAL units of a picture are contiguous: together, one sample */
         *sample = nals[0].p_payload;
         *sample_pts = out.i_pts;
-        *sample_dts = out.i_dts;
         *key = out.b_keyframe;
     }
     return 0;

@@ -4,8 +4,8 @@
 //! A video sample is a picture as x264 writes it (NAL units, each prefixed by its 4-byte size) and a
 //! held picture is one sample that lasts longer — times are in frames (timescale = fps). With
 //! B-frames (the slower presets), a picture can be decoded before the one it follows: the samples
-//! are in decode order, each shown at its own time, and an edit list starts the track at the
-//! first picture shown. An audio
+//! are in decode order, each retaining its duration; signed composition offsets give its
+//! presentation time. An audio
 //! sample is an AAC access unit of 1024 samples; the encoder's priming before the sound's first
 //! sample is skipped by an edit list, so the sound starts with the film, to the sample. Video
 //! samples stream to a temporary file; `finish` writes the header (`moov`), then the samples,
@@ -32,7 +32,7 @@ pub struct Mp4 {
 struct Sample {
     size: u32,
     pts: i64,
-    dts: i64,
+    duration: u32,
     key: bool,
 }
 
@@ -63,13 +63,13 @@ impl Mp4 {
         Ok(Self { path: path.to_string(), part, data: Some(data), width, height, fps, sps, pps, samples: Vec::new(), bytes: 0 })
     }
 
-    pub fn sample(&mut self, data: &[u8], pts: i64, dts: i64, key: bool) -> io::Result<()> {
+    pub fn sample(&mut self, data: &[u8], pts: i64, key: bool) -> io::Result<()> {
         if data.is_empty() {
             return Ok(());
         }
         self.data.as_mut().ok_or_else(|| io::Error::other("the video is finished"))?.write_all(data)?;
         self.bytes += data.len() as u64;
-        self.samples.push(Sample { size: data.len() as u32, pts, dts, key });
+        self.samples.push(Sample { size: data.len() as u32, pts, duration: 0, key });
         Ok(())
     }
 
@@ -78,6 +78,16 @@ impl Mp4 {
     pub fn finish(mut self, end: i64, audio: Option<&Audio>) -> io::Result<u64> {
         if let Some(mut data) = self.data.take() {
             data.flush()?;
+        }
+        // Recover each picture's authored duration in presentation order, retaining the
+        // encoder's sample order. In particular, the final displayed picture owns the hold,
+        // even when B-frames follow it in decode order.
+        let mut order: Vec<_> = (0..self.samples.len()).collect();
+        order.sort_unstable_by_key(|&i| self.samples[i].pts);
+        let mut until = end;
+        for i in order.into_iter().rev() {
+            self.samples[i].duration = (until - self.samples[i].pts) as u32;
+            until = self.samples[i].pts;
         }
         let written = self.write(end, audio);
         if written.is_err() {
@@ -91,11 +101,17 @@ impl Mp4 {
         let Some(audio) = audio else {
             return vec![(false, 0..self.samples.len())];
         };
-        let first = self.samples.first().map_or(0, |s| s.dts);
+        // A picture must arrive before its own presentation and every later picture in
+        // decode order: any of them may need it as a reference. Signed composition offsets
+        // make the sample-duration clock unsuitable as a progressive-download deadline.
+        let mut deadlines: Vec<_> = self.samples.iter().map(|s| s.pts).collect();
+        for i in (1..deadlines.len()).rev() {
+            deadlines[i - 1] = deadlines[i - 1].min(deadlines[i]);
+        }
         let (mut chunks, mut v, mut a, mut second) = (Vec::new(), 0, 0, 1i64);
         while v < self.samples.len() || a < audio.units.len() {
             let v0 = v;
-            while v < self.samples.len() && self.samples[v].dts - first < second * self.fps as i64 {
+            while v < self.samples.len() && deadlines[v] < second * self.fps as i64 {
                 v += 1;
             }
             if v > v0 {
@@ -120,9 +136,9 @@ impl Mp4 {
         let header = if wide { 16 } else { 8 };
         let layout = self.layout(audio);
         let ftyp = ftyp();
-        let probe = self.moov(end, audio, &layout, 0, wide);
+        let probe = self.moov(end, audio, &layout, 0, wide)?;
         let start = (ftyp.len() + probe.len() + header) as u64;
-        let moov = self.moov(end, audio, &layout, start, wide);
+        let moov = self.moov(end, audio, &layout, start, wide)?;
         let mut out = BufWriter::with_capacity(1 << 20, File::create(&self.path)?);
         out.write_all(&ftyp)?;
         out.write_all(&moov)?;
@@ -168,21 +184,20 @@ impl Mp4 {
     }
 
     /// The header, with the samples starting at byte `offset` of the file.
-    fn moov(&self, end: i64, audio: Option<&Audio>, layout: &Layout, offset: u64, wide: bool) -> Vec<u8> {
-        // The media's clock starts at the first decode. With B-frames, x264 decodes ahead of
-        // what it shows (its first dts is negative), so a picture shows at its pts minus that
-        // first dts: an offset of pts − dts (never negative) from its decode, and an edit list
-        // that starts the track at the first picture shown.
-        let first = self.samples.first().map_or(0, |s| s.dts);
-        let start = self.samples.iter().map(|s| s.pts).min().map_or(0, |pts| pts - first);
-        let decode: Vec<i64> = self.samples.iter().map(|s| s.dts - first).collect();
+    fn moov(&self, end: i64, audio: Option<&Audio>, layout: &Layout, offset: u64, wide: bool) -> io::Result<Vec<u8>> {
+        // ISO/IEC 14496-12: decoding timestamps order samples; composition timestamps say
+        // when they appear. Accumulate their own durations in decode order and preserve every
+        // authored presentation time with signed ctts offsets. This also gives the last
+        // displayed picture its proper duration, without a decode-preroll edit or extra frames.
         let duration = end.max(1) as u32;
-        let media = (end - first).max(1) as u32;
-        let mut deltas: Vec<u32> = decode.windows(2).map(|w| (w[1] - w[0]) as u32).collect();
-        if let Some(&last) = decode.last() {
-            deltas.push((end - first - last).max(1) as u32);
-        }
-        let offsets: Vec<u32> = self.samples.iter().map(|s| (s.pts - s.dts).max(0) as u32).collect();
+        let deltas: Vec<_> = self.samples.iter().map(|s| s.duration).collect();
+        let mut decode = 0;
+        let offsets: Vec<_> = self.samples.iter().map(|s| {
+            let offset = i32::try_from(s.pts - decode)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "MP4 composition offset exceeds 32-bit range"))?;
+            decode += s.duration as i64;
+            Ok(offset as u32)
+        }).collect::<io::Result<_>>()?;
         let [(video_at, video_counts), (audio_at, audio_counts)] = self.chunks(audio, layout, offset);
         // the sound's length in the movie's timescale (frames)
         let heard = audio.map_or(0, |a| (a.length * self.fps as u64).div_ceil(a.rate as u64) as u32);
@@ -216,23 +231,12 @@ impl Mp4 {
                     w.u32(self.width << 16);
                     w.u32(self.height << 16);
                 });
-                if start > 0 {
-                    w.boxed(b"edts", |w| {
-                        w.full(b"elst", 0, 0, |w| {
-                            w.u32(1);
-                            w.u32(duration); // in the movie's timescale (frames, as the track's)
-                            w.u32(start as u32); // where the first picture shows, in the track's
-                            w.u16(1);
-                            w.u16(0);
-                        });
-                    });
-                }
                 w.boxed(b"mdia", |w| {
                     w.full(b"mdhd", 0, 0, |w| {
                         w.u32(0);
                         w.u32(0);
                         w.u32(self.fps);
-                        w.u32(media);
+                        w.u32(duration);
                         w.u16(0x55c4); // "und"
                         w.u16(0);
                     });
@@ -252,7 +256,7 @@ impl Mp4 {
                             });
                             w.full(b"stts", 0, 0, |w| w.runs(&deltas));
                             if offsets.iter().any(|&o| o != 0) {
-                                w.full(b"ctts", 0, 0, |w| w.runs(&offsets));
+                                w.full(b"ctts", 1, 0, |w| w.runs(&offsets));
                             }
                             if self.samples.iter().any(|s| !s.key) {
                                 let keys: Vec<u32> = (1..).zip(&self.samples).filter(|(_, s)| s.key).map(|(k, _)| k).collect();
@@ -276,7 +280,7 @@ impl Mp4 {
                 self.sound(w, audio, heard, &audio_counts, &audio_at, wide);
             }
         });
-        w.0
+        Ok(w.0)
     }
 
     /// The sound's track: AAC-LC, its priming cut by an edit list, a unit of pre-roll.
@@ -444,9 +448,9 @@ impl Drop for Mp4 {
 fn ftyp() -> Vec<u8> {
     let mut w = Boxes::default();
     w.boxed(b"ftyp", |w| {
-        w.bytes(b"isom");
+        w.bytes(b"iso4"); // signed composition offsets (ctts version 1)
         w.u32(0x200);
-        for brand in [b"isom", b"iso2", b"avc1", b"mp41"] {
+        for brand in [b"iso4", b"isom", b"iso2", b"avc1", b"mp41"] {
             w.bytes(brand);
         }
     });
@@ -542,5 +546,38 @@ impl Boxes {
             w.u32((version as u32) << 24 | flags);
             body(w);
         });
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn movie(pictures: &[(i64, u32)]) -> Mp4 {
+        Mp4 {
+            path: String::new(), part: String::new(), data: None,
+            width: 2, height: 2, fps: 1, sps: vec![0; 4], pps: vec![0], bytes: 0,
+            samples: pictures.iter().map(|&(pts, duration)| Sample { size: 0, pts, duration, key: true }).collect(),
+        }
+    }
+
+    #[test]
+    fn progressive_chunks_deliver_references_before_their_earliest_picture() {
+        // The P-picture shown at 10s is needed to decode the B-picture shown at 1s.
+        // Its 20s hold must not put that B-picture behind 21s of audio.
+        let movie = movie(&[(0, 1), (10, 20), (1, 9)]);
+        let audio = Audio { rate: 1024, channels: 1, config: vec![], priming: 0, length: 30 * 1024, units: vec![vec![]; 30] };
+        let chunks = movie.layout(Some(&audio));
+        assert_eq!(&chunks[..4], &[(false, 0..1), (true, 0..1), (false, 1..3), (true, 1..2)]);
+        assert!(chunks[4..].iter().all(|(sound, _)| *sound));
+    }
+
+    #[test]
+    fn composition_offsets_cannot_wrap() {
+        let movie = movie(&[(0, 1), (i32::MAX as i64 + 2, 1), (1, i32::MAX as u32 + 1)]);
+        let error = movie.moov(i32::MAX as i64 + 3, None, &vec![(false, 0..3)], 0, false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("composition offset"));
     }
 }
