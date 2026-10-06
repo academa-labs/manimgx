@@ -22,7 +22,7 @@ from manimgx.rendering.film import Cut
 
 # the module: `manimgx.cli.preview` is also the command's name in its package
 command = importlib.import_module("manimgx.cli.preview")
-START, NOTE, END = 0, 9, 12
+START, NOTE, END = 14, 9, 12
 
 SCENE = """
 import manimgx as m

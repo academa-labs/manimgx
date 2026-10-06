@@ -8,10 +8,16 @@ take replaces the old at the same moment, once it gets there: an edit never lose
 error is shown over the last good take.
 """
 
+import importlib
 import sys
 import time
 import traceback
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from importlib.abc import MetaPathFinder
+from importlib.machinery import ModuleSpec, PathFinder, SourceFileLoader
 from pathlib import Path
+from types import ModuleType
 from typing import Annotated
 
 import typer
@@ -24,6 +30,7 @@ from manimgx.cli.scenes import (
     Resolution,
     SceneName,
     Size,
+    Source,
     fail,
     load,
     pick,
@@ -116,8 +123,6 @@ def run(
     makes it out of date. Returns the files to watch: the scene's, and the modules it imported
     from beside it."""
     root = file.resolve().parent
-    for key in [key for key, path in _own(root) if key != "__main__"]:
-        del sys.modules[key]  # the file's own modules are imported afresh: they change
     started = time.perf_counter()
 
     def take(data: bytes) -> None:
@@ -125,45 +130,103 @@ def run(
             raise Cut  # out of date: run again
         window(data)
 
+    with imports(file, news.watch) as source:
+        try:
+            module = load(file)
+            found = [s.__name__ for s in scenes(module)]
+            # unnamed, the file's first scene: its viewer goes to the others in the window (N, P)
+            kind = pick(
+                file, module, found[0] if name is None and len(found) > 1 else name
+            )
+            window.scenes(found, kind.__name__)
+            look = Format.own(resolution, fps)
+            config.pixel_width, config.pixel_height = look.width, look.height
+            config.frame_rate = look.fps
+            film = kind().render(take=take)
+            cut = "cut: " if news.any or not window.open else ""
+            typer.echo(
+                f"{kind.__name__}: {cut}{film.frame_count} frames in"
+                f" {time.perf_counter() - started:.2f} s",
+                err=True,
+            )
+        except Exception as error:
+            text = str(error) if isinstance(error, Mistake) else report_error(error)
+            typer.echo(text, err=True)
+            own = [
+                f
+                for f in traceback.extract_tb(error.__traceback__)
+                if Path(f.filename).resolve().is_relative_to(root)
+            ]
+            window.failed(
+                error, text, own[-1].lineno if own else getattr(error, "lineno", None)
+            )
+    return list(source.files)
+
+
+class Sources(MetaPathFinder):
+    """The scene-directory imports owned by one authoring generation."""
+
+    def __init__(
+        self, file: Path, host: set[str], watch: Callable[[list[Path]], None] | None
+    ) -> None:
+        self.root = file.resolve().parent
+        self.host = host
+        self.watch = watch
+        self.modules = {file.stem}
+        self.files = {file.resolve()}
+
+    def find_spec(
+        self,
+        fullname: str,
+        path: Sequence[str] | None = None,
+        target: ModuleType | None = None,
+    ) -> ModuleSpec | None:
+        top = fullname.partition(".")[0]
+        if top in self.host and top not in self.modules:
+            return None
+        spec = PathFinder.find_spec(fullname, path, target)
+        if spec is None:
+            return None
+        if "." not in fullname:
+            local = PathFinder.find_spec(fullname, [str(self.root)])
+            if local is None or local.origin != spec.origin:
+                return None
+            if spec.origin is None and not set(
+                local.submodule_search_locations or ()
+            ) & set(spec.submodule_search_locations or ()):
+                return None
+        elif fullname.rpartition(".")[0] not in self.modules:
+            return None
+        self.modules.add(fullname)
+        if isinstance(spec.loader, SourceFileLoader):
+            file = Path(spec.loader.path).absolute()
+            # Ownership follows the import entry, including symlinks and namespace portions.
+            self.files.add(file)
+            if self.watch is not None:
+                self.watch([file])
+            spec.loader = Source(fullname, str(file))
+        return spec
+
+
+@contextmanager
+def imports(
+    file: Path, watch: Callable[[list[Path]], None] | None = None
+) -> Iterator[Sources]:
+    """Load the scene's modules for one run; preserve the process that hosts it."""
+    before, path = dict(sys.modules), sys.path.copy()
+    source = Sources(file, {name.partition(".")[0] for name in before}, watch)
+    sys.meta_path.insert(sys.meta_path.index(PathFinder), source)
+    importlib.invalidate_caches()
     try:
-        module = load(file)
-        found = [s.__name__ for s in scenes(module)]
-        # unnamed, the file's first scene: its viewer goes to the others in the window (N, P)
-        kind = pick(file, module, found[0] if name is None and len(found) > 1 else name)
-        window.scenes(found, kind.__name__)
-        look = Format.own(resolution, fps)
-        config.pixel_width, config.pixel_height = look.width, look.height
-        config.frame_rate = look.fps
-        film = kind().render(take=take)
-        cut = "cut: " if news.any or not window.open else ""
-        typer.echo(
-            f"{kind.__name__}: {cut}{film.frame_count} frames in"
-            f" {time.perf_counter() - started:.2f} s",
-            err=True,
-        )
-    except Exception as error:
-        text = str(error) if isinstance(error, Mistake) else report_error(error)
-        typer.echo(text, err=True)
-        own = [
-            f
-            for f in traceback.extract_tb(error.__traceback__)
-            if Path(f.filename).resolve().is_relative_to(root)
-        ]
-        window.failed(
-            error, text, own[-1].lineno if own else getattr(error, "lineno", None)
-        )
-    return [file, *(path for _, path in _own(root) if path != file.resolve())]
-
-
-def _own(root: Path) -> list[tuple[str, Path]]:
-    """The modules imported from under `root` (the scene's directory), and their files."""
-    return [
-        (key, path)
-        for key, module in list(sys.modules.items())
-        if (where := getattr(module, "__file__", None))
-        and (path := Path(where).resolve()).is_relative_to(root)
-        and path.suffix == ".py"
-    ]
+        yield source
+    finally:
+        sys.meta_path.remove(source)
+        sys.path[:] = path
+        for name in source.modules:
+            if name in before:
+                sys.modules[name] = before[name]
+            else:
+                sys.modules.pop(name, None)
 
 
 def stamps(paths: list[Path]) -> list[float]:
