@@ -11,7 +11,7 @@ code behaves. This page shows where it is different.
   `from manimgx import *`. Manim CE's modules are not there: write
   `from manimgx import polylabel`, not `from manimgx.utils.polylabel import polylabel`.
 - Render with `manimgx render scene.py MyScene`. Manim CE's quality flags (`-ql`, `-qh`,
-  …) become `-r` (`--resolution`) and `--fps`. `manimgx check` reports a scene's layout problems without a video. See
+  …) become `-r` (`--resolution`) and `--fps`. `manimgx inspect` writes a storyboard and checks 2D layouts without a video. See
   [Rendering and sharing](rendering.md).
 - You don't install LaTeX. `Tex` and `MathTex` convert their LaTeX to
   [Typst](https://typst.app), which the engine sets. LaTeX packages and `\def` don't
@@ -59,8 +59,13 @@ names of these are everywhere in Manim code, so both stay. These docs use `VGrou
 ## Types
 
 Every keyword argument has a type, and so do `.animate` chains. So a type checker such as
-[ty](https://docs.astral.sh/ty/) finds a name that manimgx doesn't have, or an argument
-of the wrong type, before you render. The [Quickstart](quickstart.md#2-set-up-your-editor) sets it up in your editor.
+[ty](https://docs.astral.sh/ty/) finds these mistakes before you render: a name that
+manimgx doesn't have, a keyword that a mobject or an animation doesn't take
+(`m.Circle(colour=m.BLUE)`), or an argument of the wrong type. When the scene runs, most
+mobjects and animations ignore a keyword they don't take, so only ty tells you about a
+misspelled one. Through `.animate`, ty knows manimgx's methods only. To animate a method of
+your own class, give `.animate` a function: `box.animate(lambda b: b.grow(2))`. The
+[Quickstart](quickstart.md#2-set-up-your-editor) sets up ty in your editor.
 
 ## Sound, slides and voiceover
 
