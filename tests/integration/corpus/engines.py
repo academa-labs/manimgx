@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
 from tests.integration.corpus.case import (
@@ -34,6 +35,7 @@ class Result:
     mp4_frames: int | None = None
     differences: tuple[Difference, ...] = ()
     adapter: dict[str, str] | None = None
+    duration: Fraction | None = None
 
 
 def environment(package: Path | None = None) -> dict[str, str]:
@@ -56,6 +58,7 @@ def run(
     mp4: bool = False,
     package: Path | None = None,
     reference: Path | None = None,
+    reference_video: Path | None = None,
     source: Path | None = None,
     differences: Path | None = None,
     log: Path | None = None,
@@ -74,6 +77,7 @@ def run(
             command.append("--fast-video")
         for flag, path in (
             ("--reference", reference),
+            ("--reference-video", reference_video),
             ("--source", source),
             ("--differences", differences),
         ):
@@ -110,6 +114,7 @@ def run(
         mp4_frames=data.get("mp4_frames"),
         differences=tuple(Difference(**item) for item in data.get("differences", [])),
         adapter=data.get("adapter"),
+        duration=Fraction(data["duration_exact"]) if "duration_exact" in data else None,
     )
 
 

@@ -108,15 +108,17 @@ def main() -> None:
     parser.add_argument("--sequence", action="store_true")
     parser.add_argument("--package", type=Path)
     parser.add_argument("--reference", type=Path)
+    parser.add_argument("--reference-video", type=Path)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--differences", type=Path)
     parser.add_argument("--fast-video", action="store_true")
     args = parser.parse_args()
-    if args.package is not None and not Path(manimgx.__file__).resolve().is_relative_to(
-        args.package.resolve()
+    if args.package is not None and any(
+        not Path(module.__file__).resolve().is_relative_to(args.package.resolve())
+        for module in (manimgx, _engine)
     ):
         raise RuntimeError(
-            "the corpus runner did not import the requested reference package"
+            "the corpus runner did not import the requested reference package and engine"
         )
 
     if args.sequence:
@@ -154,7 +156,12 @@ def main() -> None:
             if not isinstance(expected, Frames):
                 raise ValueError("the reference must be a successfully rendered film")
             movie = stack.enter_context(
-                contextlib.closing(Movie(args.reference.with_suffix(".mkv"), expected))
+                contextlib.closing(
+                    Movie(
+                        args.reference_video or args.reference.with_suffix(".mkv"),
+                        expected,
+                    )
+                )
             )
             comparison = Comparison(movie, changed)
         source, frames, film_frames = render(

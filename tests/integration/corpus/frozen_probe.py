@@ -10,20 +10,19 @@ pixel against a transient lossless reference and still passes the product's MP4 
 
 import argparse
 import concurrent.futures
-import dataclasses
 import json
 import sys
 import time
+from dataclasses import asdict
 from pathlib import Path
 
-from tests.integration.corpus import engines
+from tests.integration.corpus import baseline
 from tests.integration.corpus.case import (
     ROOT,
     Case,
     Failure,
     Json,
     discover,
-    frames_to_json,
 )
 from tests.integration.corpus.frozen import dependencies, prepare
 from tests.integration.corpus.probe import _metadata
@@ -32,32 +31,8 @@ from tests.integration.corpus.probe import _metadata
 def compare(
     case: Case, package: Path, output: Path, *, negative: bool = False
 ) -> dict[str, Json]:
-    """Run one baseline and one candidate through the same isolated execution boundary."""
+    """Exercise the production comparison, optionally with a deliberate source mutation."""
     output.mkdir(parents=True, exist_ok=True)
-    facts = case.facts()
-    if not case.current(facts):
-        return {
-            "status": "error",
-            "error": "the scene source differs from its canonical facts",
-        }
-    started = time.monotonic()
-    baseline = engines.run(
-        case,
-        "manimgx",
-        package=package,
-        video=output / "reference.mkv",
-        log=output / "reference.log",
-        compact_video=False,
-    )
-    if isinstance(baseline.frames, Failure):
-        return {"status": "error", "error": baseline.frames.error}
-    if facts is None or baseline.source != facts.source:
-        return {
-            "status": "error",
-            "error": "the source changed while the reference rendered",
-        }
-    reference = output / "reference.json"
-    reference.write_text(json.dumps(frames_to_json(baseline.frames)), encoding="utf-8")
     source = None
     if negative:
         original = case.scene.read_bytes()
@@ -70,53 +45,20 @@ def compare(
             raise ValueError("the negative source control did not edit its fixture")
         source = output / "source.py"
         source.write_bytes(changed)
-    actual = engines.run(
-        case,
-        "manimgx",
-        mp4=True,
-        reference=reference,
-        source=source,
-        differences=output,
-        log=output / "actual.log",
-    )
-    if isinstance(actual.frames, Failure):
-        return {"status": "error", "error": actual.frames.error}
-    if not negative and actual.source != baseline.source:
-        return {
-            "status": "error",
-            "error": "the source changed between the two renders",
-        }
-    if baseline.adapter != actual.adapter:
-        return {
-            "status": "error",
-            "error": "the baseline and candidate used different adapters",
-        }
-    same_duration = baseline.frames.duration == actual.frames.duration
-    same_timeline = baseline.frames.timeline == actual.frames.timeline
-    same_frames = (
-        baseline.frames.count
-        == actual.frames.count
-        == actual.film_frames
-        == actual.mp4_frames
-    )
+    started = time.monotonic()
+    result = baseline.compare(case, package, output, source=source)
+    if isinstance(result.frames, Failure):
+        return {"case": case.name, "status": "error", "error": result.frames.error}
     return {
         "case": case.name,
-        "status": "exact"
-        if not actual.differences and same_duration and same_timeline and same_frames
-        else "different",
-        "source": actual.source,
-        "reference_source": baseline.source,
-        "negative_source_control": negative,
-        "adapter": dict[str, Json](actual.adapter or {}),
-        "frames": actual.frames.count,
-        "reference_frames": baseline.frames.count,
-        "duration": str(actual.frames.duration),
-        "reference_duration": str(baseline.frames.duration),
-        "same_duration": same_duration,
-        "same_frame_count": same_frames,
-        "same_timeline": same_timeline,
-        "changed_frames": sum(d.repeat for d in actual.differences),
-        "mismatches": [dataclasses.asdict(d) for d in actual.differences],
+        "status": "different" if result.differences else "exact",
+        "source": result.source,
+        "source_override": negative,
+        "adapter": dict[str, Json](result.adapter or {}),
+        "frames": result.frames.count,
+        "duration": str(result.duration),
+        "changed_frames": sum(d.repeat for d in result.differences),
+        "mismatches": [asdict(d) for d in result.differences],
         "seconds": time.monotonic() - started,
     }
 
