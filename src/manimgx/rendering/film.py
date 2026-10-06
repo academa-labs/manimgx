@@ -11,7 +11,7 @@ import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from fractions import Fraction
-from typing import TYPE_CHECKING, Literal, get_args
+from typing import TYPE_CHECKING, Final, Literal, cast, get_args
 from warnings import deprecated
 
 from manimgx import _engine
@@ -43,6 +43,13 @@ X264Preset = Literal[
     "placebo",
 ]
 """The x264 presets, from fastest to slowest."""
+
+DEFAULT_ENCODER_PRESET: Final[X264Preset] = cast(
+    X264Preset, _engine.DEFAULT_ENCODER_PRESET
+)
+"""The native encoder's default preset, shared by Python and the command line."""
+DEFAULT_ENCODER_CRF: Final[float] = _engine.DEFAULT_ENCODER_CRF
+"""The native encoder's default constant rate factor."""
 
 
 class Frame:
@@ -242,8 +249,8 @@ class Film:
         frames: FrameSink | None = None,
         plays: PlayHook | None = None,
         take: Take | None = None,
-        preset: X264Preset = "ultrafast",
-        crf: float = 18.0,
+        preset: X264Preset = DEFAULT_ENCODER_PRESET,
+        crf: float = DEFAULT_ENCODER_CRF,
     ) -> None:
         if preset not in get_args(X264Preset):
             raise ValueError(f"unknown x264 preset {preset!r}")

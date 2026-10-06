@@ -49,6 +49,8 @@ from manimgx.mobject import (
     simulated,
 )
 from manimgx.rendering.film import (
+    DEFAULT_ENCODER_CRF,
+    DEFAULT_ENCODER_PRESET,
     Caption,
     Cut,
     Film,
@@ -616,8 +618,8 @@ class Scene:
         self,
         video: str | os.PathLike[str] | None = None,
         *,
-        preset: X264Preset = "ultrafast",
-        crf: float = 18.0,
+        preset: X264Preset = DEFAULT_ENCODER_PRESET,
+        crf: float = DEFAULT_ENCODER_CRF,
         frames: FrameSink | None = None,
         plays: PlayHook | None = None,
         take: Take | None = None,

@@ -237,8 +237,7 @@ audio and words are committed with it.
 [`tests/docs/test_examples.py`](https://github.com/academa-labs/manimgx/blob/main/tests/docs/test_examples.py)
 fails until they are.
 
-A film is encoded for the web (x264's `slow` preset at CRF 28): a tenth of the size of a
-render's default (`ultrafast`, 18), alike to the eye, made in the same time.
+A film is encoded for the web with x264's `slow` preset at CRF 28. Normal renders use `medium` at CRF 23.
 
 ## The Gallery
 

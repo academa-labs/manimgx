@@ -12,6 +12,10 @@ use pyo3::types::PyBytes;
 use crate::render::{COUNT_BYTES, Player, count, with_gpu};
 use crate::{CameraView, take};
 
+// One source for the native binding and every Python export entry point.
+const DEFAULT_ENCODER_PRESET: &str = "medium";
+const DEFAULT_ENCODER_CRF: f32 = 23.0;
+
 #[cfg(feature = "typeset")]
 pyo3::create_exception!(_engine, TypstError, pyo3::exceptions::PyException);
 
@@ -140,9 +144,9 @@ impl Player {
 
     #[cfg(feature = "export")]
     /// Start an MP4 at `path`; frames follow with `push`, and `end_export` writes the file. x264
-    /// runs at `preset` and `crf` (by default ultrafast, 18), with `options` — its own settings
+    /// runs at `preset` and `crf` (the module's defaults), with `options` — its own settings
     /// over those (as `-x264-params`, e.g. `[("keyint", "600")]`).
-    #[pyo3(signature = (path, fps = 60, preset = "ultrafast".to_string(), crf = 18.0, options = Vec::new()))]
+    #[pyo3(signature = (path, fps = 60, preset = DEFAULT_ENCODER_PRESET.to_string(), crf = DEFAULT_ENCODER_CRF, options = Vec::new()))]
     fn begin_export(&mut self, py: Python<'_>, path: String, fps: u32, preset: String, crf: f32, options: Vec<(String, String)>) -> PyResult<()> {
         if self.export.is_some() {
             return Err(PyRuntimeError::new_err("an export is already open"));
@@ -526,6 +530,8 @@ fn window(py: Python<'_>, title: String, time: f64, fonts: Vec<String>) -> PyRes
 
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("DEFAULT_ENCODER_PRESET", DEFAULT_ENCODER_PRESET)?;
+    m.add("DEFAULT_ENCODER_CRF", DEFAULT_ENCODER_CRF)?;
     m.add("TAKE_VERSION", take::VERSION)?;
     #[cfg(feature = "render")]
     {

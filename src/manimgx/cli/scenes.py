@@ -21,7 +21,14 @@ from rich.console import Console
 import manimgx
 from manimgx.animation.timeline import Animation
 from manimgx.config import Config, config
-from manimgx.rendering.film import Film, FrameSink, Play, X264Preset
+from manimgx.rendering.film import (
+    DEFAULT_ENCODER_CRF,
+    DEFAULT_ENCODER_PRESET,
+    Film,
+    FrameSink,
+    Play,
+    X264Preset,
+)
 from manimgx.scene import Scene
 
 
@@ -297,8 +304,8 @@ def take(
     video: str | os.PathLike[str] | None = None,
     frames: FrameSink | None = None,
     plays: Watch | None = None,
-    preset: X264Preset = "ultrafast",
-    crf: float = 18.0,
+    preset: X264Preset = DEFAULT_ENCODER_PRESET,
+    crf: float = DEFAULT_ENCODER_CRF,
 ) -> tuple[Scene, Film]:
     """Run the scene at `look`, making its film (and video, frames and plays, as asked). On a
     terminal, a status line on stderr follows the plays as they end."""

@@ -10,6 +10,9 @@ its layout read off Typst's frames (see `manimgx.drawing.typesetting`).
 from collections.abc import Sequence
 from pathlib import Path
 
+DEFAULT_ENCODER_PRESET: str
+DEFAULT_ENCODER_CRF: float
+
 TAKE_VERSION: int
 """The take format written by Recorder and supported by Replay and the native/browser player."""
 
@@ -76,8 +79,8 @@ class Player:
         self,
         path: str,
         fps: int = 60,
-        preset: str = "ultrafast",
-        crf: float = 18.0,
+        preset: str = ...,
+        crf: float = ...,
         options: Sequence[tuple[str, str]] = ...,
     ) -> None:
         """Start an MP4 at `path` (x264 at `preset` and `crf`, `options` its own settings)."""

@@ -30,7 +30,15 @@ from manimgx.cli.scenes import (
 )
 from manimgx.cli.storyboard import Sheets, Watch, line
 from manimgx.config import config
-from manimgx.rendering.film import Cut, Film, Frame, Play, X264Preset
+from manimgx.rendering.film import (
+    DEFAULT_ENCODER_CRF,
+    DEFAULT_ENCODER_PRESET,
+    Cut,
+    Film,
+    Frame,
+    Play,
+    X264Preset,
+)
 from manimgx.scene import Scene
 
 if TYPE_CHECKING:
@@ -56,10 +64,10 @@ def render(
         typer.Option(
             help="x264 encoding preset; faster presets render faster while making larger files."
         ),
-    ] = "ultrafast",
+    ] = DEFAULT_ENCODER_PRESET,
     crf: Annotated[
         float, typer.Option(min=0, max=51, help="x264 CRF (0 to 51); lower is better.")
-    ] = 18.0,
+    ] = DEFAULT_ENCODER_CRF,
 ) -> None:
     """Render a scene to an MP4 video, with its sound.
 
