@@ -119,7 +119,21 @@ jobs:
           candidate = json.loads(Path("startup-production/startup.json").read_text(encoding="utf-8"))
           assert baseline["adapter"] == candidate["adapter"]
           assert baseline["records"] == candidate["records"]
-          print("All five product films agree exactly on the same adapter.")
+          def frames(mode):
+              root = Path(f"startup-{mode}-clifford")
+              pixels = []
+              for line in (root / "replay.log").read_text(encoding="utf-8").splitlines():
+                  if not line.startswith("{"):
+                      continue
+                  record = json.loads(line)
+                  if record.get("sweep") == 0:
+                      assert record["frame"] == len(pixels) and record["repeat"] > 0
+                      pixels.extend([record["sha256"]] * record["repeat"])
+              authoring = json.loads((root / "authoring.log").read_text(encoding="utf-8").splitlines()[-1])
+              assert len(pixels) == authoring["frames"] > 0
+              return pixels
+          assert frames("baseline") == frames("production")
+          print("All five product films and every Clifford frame agree exactly on the same adapter.")
           PYTHON
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
