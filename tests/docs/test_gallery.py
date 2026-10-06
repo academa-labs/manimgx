@@ -49,7 +49,7 @@ def test_gallery_scene_names_do_not_clash_with_other_examples() -> None:
     scenes = {
         example.scene: example.where
         for example in examples.examples()
-        if not example.where.startswith("docs/content/gallery/")
+        if not example.where.startswith(("docs/content/gallery/", "examples/"))
     }
     _, groups = gallery.readme()
     for _, films in groups:
