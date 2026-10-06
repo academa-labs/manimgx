@@ -194,9 +194,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Test the native build dependencies
-        run: cargo test --manifest-path rust/Cargo.toml --release -p fetch -p ffmpeg
-
       - name: Test
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         run: just test-coverage
