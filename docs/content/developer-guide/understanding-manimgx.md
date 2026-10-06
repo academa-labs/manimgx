@@ -194,12 +194,13 @@ geometry, paint, animation, and rendering then work like the square's.
    them with selectable formula pieces. Changing a character's color can split a
    ligature at its carets without changing the typeset layout.
 
-Layouts are cached on disk in the system's temporary `manimgx-layouts` directory,
-keyed by source and environment. Decoded glyph records are reused in a bounded cache,
-while layouts and live glyphs hold what they need themselves. Clearing that cache does
-not invalidate existing text. The fonts come from the caller's paths, the installed
-manimgx font packages, and Typst's embedded fonts; a system font is considered only for
-a family the document explicitly names. See [The engine](engine.md#typesetting) for
+Layouts and font scans use the current user's cache directory, or the page runtime's
+private filesystem in the browser. Layouts are keyed by source and environment. Decoded
+glyph records are reused in a bounded cache, while layouts and live glyphs hold what they need themselves. Clearing that cache does
+not invalidate existing text. `MANIMGX_CACHE_DIR` relocates both disk caches to an explicit
+directory, useful in containers and isolated tests. The fonts come from the caller's paths,
+the installed manimgx font packages, and Typst's embedded fonts; a system font is considered
+only for a family the document explicitly names. See [The engine](engine.md#typesetting) for
 the native compiler and font environment.
 
 Two consumers have their own layout responsibilities.
@@ -256,9 +257,17 @@ behaves differently at 30 and at 60 frames per second. What a scene shows would 
 its frame rate.
 
 Scene time is exact, a `Fraction` of seconds, and frames sample it.
+Floating durations, lag ratios and frame rates mean the simplest rational that rounds
+back to the supplied float: `5 / 6` stays exactly five sixths, while distinct floats stay
+distinct and a positive duration never rounds down to zero. Compositions keep their
+computed durations as fractions; observation and animation evaluation use floats.
 
-- A play or wait of duration _d_ that begins at time _T_ owns the frames whose times fall
-  in [_T_, _T_ + _d_). Frame _k_ shows the world at exactly _k_/fps.
+- A play or wait of duration _d_ that begins at time _T_ owns the frames whose observed
+  times fall in [_T_, _T_ + _d_). Frame _k_ samples _k_/fps. An event and a sample that
+  round to the same binary64 instant are observed together: the frame sees every event
+  there, in exact order, without rewinding the last event. This applies to nested
+  animations as well as successive plays: rounding differences that leave an observed
+  instant unchanged do not add a frame. Still exports select from this same sample grid.
 - Then the world is brought to _T_ + _d_ itself, where `construct` goes on.
 - When `construct` returns, a closing frame shows the scene as it ends.
 
@@ -266,8 +275,9 @@ At each instant, the playing animation is evaluated at its point in its window o
 then the updaters run, then the recorders (such as a [`TracedPath`][manimgx.TracedPath]).
 A per-frame updater restores a relation. A time-based updater that is a *flow* is exact at
 any instant; any other time-based updater is *simulated*, stepped on a clock of its own
-(`config.simulation_rate` ticks a second, 60 by default), so the world is the same at every
-frame rate.
+(`config.simulation_rate` ticks a second, 60 by default), independently of the output frame
+rate. A per-frame callback that accumulates a change on each invocation still depends on
+how many frames are requested; express such motion in time or as a restored relation.
 
 The frames of a play are computed in one of two ways:
 
@@ -286,7 +296,7 @@ scene's author sees it.
 ## Step 5: The film and its feed
 
 The renderer consumes drawing values rather than the Python object graph. A frame
-is described to the engine as a *view* (the camera's matrices and the background) and one 320-byte *record* per object: its two shape keys and
+is described to the engine as a *view* (the camera's matrices and the background) and one 336-byte *record* per object: its two shape keys and
 two 3×4 matrices (the blend's terms), its reveal window, its colors, its gradient or
 per-vertex color rows (by key), its widths and flags. Shapes, color rows and textures are
 uploaded once, keyed by their content and interpretation (an xxh3 digest). Equal shapes
@@ -298,7 +308,7 @@ The [`Film`][manimgx.Film] sends each frame:
 - to the video, encoded as it comes;
 - to a function, if one is given, as a [`Frame`][manimgx.rendering.film.Frame] that draws its pixels
   only when asked;
-- or without per-frame output: `manimgx check` evaluates the timeline and draws only
+- or without per-frame output: `manimgx inspect` evaluates the timeline and draws only
   selected storyboard snapshots.
 
 A frame equal to the one before is not sent again: it lengthens it, into a hold. Each play,
@@ -316,28 +326,31 @@ in `audio/fal.py`, while any function returning a Speech can be a voice.
 ## Step 6: The engine
 
 The engine is a Rust crate compiled into the package as `manimgx._engine`. It draws the
-records on the GPU with [wgpu](https://wgpu.rs), 2D paths exactly (each pixel covered by
-the area inside it, computed from the control points), and 3D scenes, point clouds and
-meshes with a raster pipeline. For a video, it converts only the parts of a frame that
-changed, hands them to x264 on a thread of its own, and writes the MP4. It also typesets.
+records on the GPU with [wgpu](https://wgpu.rs): paths use analytic segment coverage after
+curve flattening, while point clouds and meshes use a raster pipeline. The view's
+composite combines their coverage, paint, and depth. For a video, it converts only the
+parts of a frame that changed, hands them to x264 on a thread of its own, and writes the
+MP4. It also typesets.
 
 [The engine](engine.md) describes it.
 
 ## The command line
 
-`manimgx render`, `still` and `check` are a [Typer](https://typer.tiangolo.com) app in
-[`cli/`](https://github.com/academa-labs/manimgx/tree/main/src/manimgx/cli). Each loads the
-scene file, picks the scene, sets the configuration, and renders it with the film's hooks:
-a *take*. `render` and `check` report the timeline, a storyboard, and the layout problems a
-viewer would see when each play ends (what the frame cuts off, texts that overlap, lines
-through a text, fills drawn over one, text too small to read), measured on geometry, not
-pixels; `still` draws the frames at given times on one sheet. An error in the scene is
-shown through the lines of the author's own code. `manimgx preview` records the scene as a
+The `manimgx` command line is a [Typer](https://typer.tiangolo.com) app in
+[`cli/`](https://github.com/academa-labs/manimgx/tree/main/src/manimgx/cli).
+Each command loads the scene file, picks the scene, sets the configuration, and renders it
+with the film's hooks: a *take*. `render` and `inspect` write annotated storyboards and
+report 2D layout problems (what the frame cuts off, texts that overlap, lines through a
+text, fills drawn over one, text too small to read), measured on geometry. `inspect` also
+lists the timeline. It samples play endings
+by default, or selected frames with `-t`; pictures and checks use the same scene state.
+An error in the scene is shown through the lines of the author's own code.
+`manimgx preview` records the scene as a
 take and sends it to a [`Window`][manimgx.Window], a process of its own that plays it, and
 runs the scene again each time its file is saved (see [The engine](engine.md#the-player)).
 
 The command-line modules follow those operations: `cli/scenes.py` loads and selects
-scenes and records takes; `cli/export.py` writes videos, stills and presentation
+scenes and records takes; `cli/export.py` writes videos, inspections and presentation
 pages; `cli/preview.py` manages re-recording for the window. `cli/diagnostics.py`
 reads visible scene geometry and reports layout problems. `cli/storyboard.py`
 collects frame sheets and timeline reports. These are clients of scene execution
@@ -371,7 +384,7 @@ When you run `manimgx render scene.py`:
    immutable shapes and whose style is one immutable paint.
 3. **Sample**: frame _k_ shows the world at _k_/fps; a pure play's frames are computed at
    once.
-4. **Feed**: each frame becomes a view and a 320-byte record per object; shapes cross to
+4. **Feed**: each frame becomes a view and a 336-byte record per object; shapes cross to
    the engine once.
 5. **Draw and encode**: the engine draws each frame on the GPU and encodes what changed
    into an H.264 MP4.

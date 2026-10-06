@@ -97,8 +97,8 @@ title is its first heading (or the `title` of its front matter):
   makes the navbar's tabs, and gives the User Guide's reading order: Welcome, the
   Quickstart, the chapters, then the Reference.
 - `developer-guide/.nav.yml` orders this guide.
-- The reference's navigation is the folder tree that `scripts/docs/reference.py` writes
-  (below): each level's own page comes first, as its Overview.
+- The reference's handwritten `.nav.yml` files order its folder tree: each level's own
+  page comes first, as its Overview. `scripts/docs/reference.py` writes only the command-line page.
 
 A section's own page (`index.md`) is a page like the others, listed first in its sidebar:
 Welcome, this guide's Setup, a reference level's Overview. `navigation.indexes`, which would
@@ -111,8 +111,12 @@ the User Guide's first page, is the README: `pymdownx.snippets` includes it
 (`--8<-- "README.md"`), so the two can't drift. The README reaches the site's images and
 pages by absolute URLs, for GitHub and PyPI; on the site they become its own paths
 ([`docs/links.py`](https://github.com/academa-labs/manimgx/blob/main/docs/links.py)), so
-`just serve-docs` shows the images it built. The README's picture of its scene ends in
-`#readme`: GitHub and PyPI show it, and the site, which shows the film itself above the
+`just serve-docs` shows the images it built. The showcase logos and GIFs use this repository's
+raw GitHub URLs, which the same extension makes local showcase paths: the README and Welcome
+page show the same files. GitHub selects the banner's light or dark source using its reader's
+chosen theme. On the docs site, `javascripts/manimgx.js` follows the Zensical theme toggle,
+including choices that differ from the system preference. The README's picture of its scene
+ends in `#readme`: GitHub and PyPI show it, and the site, which shows the film itself above the
 code, hides it (`stylesheets/manimgx.css`).
 
 ## The README
@@ -120,32 +124,38 @@ code, hides it (`stylesheets/manimgx.css`).
 The README is the front page on GitHub and on PyPI, which render it themselves, so it is
 written in plain GitHub Markdown, with absolute links (PyPI resolves no relative link). Its
 images are the site's. GitHub and PyPI play no video, so what moves in them is an animated
-image: SVGs that play themselves where the picture is made of paths, sharp at any size and
-a fraction of a video's weight, and an AVIF where it is not. An SVG draws a surface's shape
-exactly (a circle in space is seen as an ellipse, a sphere's outline is one), but not its
-light, and a browser repaints an animated SVG at the screen's rate: six shaded films as SVGs
-cost Firefox two to three cores to play, the AVIF tiles at 25 frames a second 0.6 of one.
+image: SVGs that play themselves where the picture is made of paths, and GIFs for the wall
+of example films. The same banner and GIFs appear on the docs' Welcome page, included from
+the README.
 
 - **The banner** (`showcase/logo-dark.svg` and `logo-light.svg`): the logo, which plays
   its opening once. The word ManimGX, typeset by manimgx's Typst (𝕄 as `$bb(M)$`, "anim" in
   New Computer Modern Bold, "GX" in Playwrite NO), is written in; then Manim's circle,
   square and triangle are drawn and each becomes a solid, a sphere, a cube and a pyramid,
-  every frame a projection of their scene.
+  their projected face paths interpolated continuously by the browser. The SVG contains no
+  scripts or raster frames. Its entrance plays once and then holds; a reader that requests
+  reduced motion sees the finished logo immediately.
   [`scripts/showcase/logo.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/logo.py)
   draws it, the header's still logo (`images/logo-*.svg`) and the favicon;
-  `python -m scripts.showcase.logo` draws them again.
-- **The wall** (`showcase/<film>.avif` and `<film>@2x.avif`): five seconds of six example
-  films, three a row, each its own image, linked to its film.
+  `uv run --frozen python -m scripts.showcase.logo` draws them again.
+- **The wall** (`showcase/<film>.gif`): five seconds of nine example
+  films in a three-by-three grid, each its own image linked to its film. HeavyTop,
+  the Hopf fibration and the catenoid–helicoid transformation fill the last row.
   [`scripts/showcase/wall.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/wall.py)
-  runs each film's scene and keeps its moment: on no background, so the page's own shows
-  through, light or dark; without what the film fixes in the frame (its titles and
-  readouts); as an animated AVIF with alpha at 25 frames a second, which GitHub and PyPI
-  show; at a tile's size and twice it, which a `<picture>` picks by the screen's density
-  (GitHub keeps it; PyPI shows the larger). A browser decodes an animated image on the CPU,
-  frame after frame: at 60 frames a second the wall fell behind (Chromium showed some 50, for
-  a core's work); at 25 every tile shows every frame. GitHub's image proxy served an image of
-  4.97 MB and refused one of 6.35 MB; the largest tile is 1.3 MB. The films take a minute to
-  run, so the tiles are committed; `python -m scripts.showcase.wall` makes them again.
+  renders each film directly at 50 frames a second, without what it fixes in the frame
+  (its titles and readouts). Each clip is cropped and resized to 320 × 180, composited onto
+  a dark background, and encoded by [Gifski](https://gif.ski/) with quality, motion quality
+  and lossy quality all set to 100. The 250 source frames are spaced 20 ms apart. Samples
+  that become visually equivalent during encoding can combine into longer holds while
+  preserving the five-second timeline and continuous looping.
+  Each file must stay below 12,000,000 bytes, and the complete wall below 24,000,000 bytes;
+  the generator validates the whole staged set before replacing any published file.
+  The README points directly to
+  `raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/`.
+  The docs resolve that exact prefix to their local `/showcase/` assets. There is one image
+  per film and one shared wall, in both places and on both color schemes. The GIFs are
+  committed; `uv run --frozen python -m scripts.showcase.wall` makes them again with
+  Gifski installed and `gifski` on PATH.
 - **The chart** (`images/benchmark-light.svg` and `benchmark-dark.svg`): the benchmark, as
   a race; `scripts/benchmark/chart.py` draws it from `scripts/benchmark/results.json`.
 - **The scene's film** (`films/readme-<scene>.svg`): `docs/examples.py` records the README's
@@ -160,16 +170,55 @@ cost Firefox two to three cores to play, the AVIF tiles at 25 frames a second 0.
 renders the examples before the site is built:
 
 1. It gathers the Python blocks (fenced as `python` or `py`) of the pages, of the README
-   and of the docstrings in `src/manimgx/`, and keeps those that define a
+   and of the docstrings in `src/manimgx/`, together with the source films in `examples/`,
+   and keeps those that define a
    scene: a class whose base's name ends in `Scene` (the block's last, if it defines several).
 2. It renders each scene at 1280 × 720 and 60 frames per second, the films' own rate, in a
    process of its own (an example may change the configuration: a 9:16 one renders tall),
    into `docs/content/films/`: a still of its last frame with anything on it, and a video
    too if anything moves.
-3. A film is named after its scene and a digest of its code and of how films are made
-   (`FORMAT`), so an example renders once per version of its code, and all of them again
-   when the format changes. Only missing films are rendered, and films no example makes
-   any more are deleted.
+3. A film is named after its scene and a digest of its code, render settings and shared
+   inputs: Python and Rust sources, shaders, locked runtime dependencies, fonts, voice
+   recordings, rendering helpers and the rendering environment. `docs/render.py` owns
+   drawing; discovery, caching and HTML in `docs/examples.py` are not drawing inputs.
+   `uv export --frozen --offline --no-default-groups` selects the runtime dependencies,
+   including their transitive dependencies and artifact hashes, so updating test or site
+   tools does not invalidate films. A prose or stylesheet edit reuses every film; editing
+   a standalone example renders that example again. Shared rendering inputs are hashed
+   conservatively, including Python docstrings: changing the engine or a shader really
+   does require new films. The keys depend on contents, not Git history or timestamps.
+4. Each render finishes in a temporary directory. Its output files are published with a
+   completion record in `docs/.cache/films/`, written last, that names the files and their
+   checksums. A missing or damaged file is rendered again. Static scenes deliberately
+   produce only a poster; animations also produce a video. Outputs of removed examples
+   are deleted.
+
+`just render-docs` renders the examples, and `just build-docs-pages` generates the Gallery
+and command-line reference and builds the HTML from those films. `just build-docs` does
+both. Rendering reads `examples/` directly, so it does not need generated Gallery pages.
+`just render-docs --jobs 2` limits concurrent render processes; source paths may follow it.
+
+CI uses [GitHub Actions cache](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
+to transport snapshots of the films and completion records. Each film decides its own
+validity; an archive hit never skips validation. Lookup prefers the latest snapshot for
+the requested scene inventory, then one with the same renderer, so changing one example
+can reuse the others. Logs report the cached and missing counts and renderer fingerprint.
+
+GitHub caches are immutable. Each changed snapshot gets a run-and-attempt suffix, so a
+retry can extend a partial set or save repairs. The separate save step uses
+[`always()`](https://github.com/actions/cache/blob/main/save/README.md#always-save-cache):
+if another example fails, completed films are still saved before building the pages.
+Cancellation also gets that opportunity if the runner reaches the save step. An unchanged
+set is not uploaded again, and staging directories are never archived. Main writes the
+shared cache; pull requests can read it without deployment credentials. A cache miss
+rebuilds normally: caches are an optimization and may be evicted.
+
+CI records its Rust compiler and macOS version and build in
+`MANIMGX_DOCS_RENDER_PROFILE`; Python version, OS and architecture are always part of the
+fingerprint. Local builds also include their machine and OS version, keeping their GPU
+output separate. Examples must be self-contained and deterministic (seed random
+generators); shared files they read belong in `docs/assets/` or `docs/voice/`, which are
+fingerprinted. Add any new shared rendering input to `INPUTS` in `docs/examples.py`.
 
 While the site builds, `fence`, the formatter that `zensical.toml` gives Python blocks,
 puts each block's film above its code. `show="code"` shows the code alone, and
@@ -194,7 +243,7 @@ render's default (`ultrafast`, 18), alike to the eye, made in the same time.
 ## The Gallery
 
 [`scripts/docs/gallery.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/docs/gallery.py)
-writes the Gallery from `examples/` alone, before the examples are rendered: a page of cards,
+writes the Gallery from `examples/` after the films are rendered: a page of cards,
 one for each film, and a page for each film. What it says is in
 [`examples/README.md`](https://github.com/academa-labs/manimgx/blob/main/examples/README.md),
 which lists every example once:
@@ -305,9 +354,11 @@ hover shows them. So the summary line of a docstring is also what its previews s
   the next heading. `stylesheets/manimgx.css` limits the preview of an API object to its
   name, signature, bases and summary, and the preview of a module to its members' names and
   summaries. No icon marks a link that previews, because every link to the site does.
-- **After a change to a Markdown extension in `docs/`:** delete `docs/.cache`. Zensical's
-  cache does not see a change in an extension's code, so a build reuses the pages it made
-  before.
+- **After a change to a Markdown extension in `docs/`:** clear Zensical's files in
+  `docs/.cache`, preserving its `films/` subdirectory. Zensical's page cache does not see a
+  change in an extension's code. The film records belong to `docs.examples` and authenticate
+  reusable media; deleting the whole directory, including with Zensical's `--clean`, removes
+  those records and makes the next render rebuild the films.
 
 ## The command line's reference
 
@@ -346,7 +397,7 @@ writes three things:
   A page's one action, Copy as Markdown (`content.action.copy`), copies it.
 - **`llms.txt`,** at the site's root, <https://manimgx.academa.ai/llms.txt>, which the
   README tells an agent to follow. First, a primer for an agent asked to make a video with
-  manimgx: how to install it, a scene, `check` then `render`, and a cheat sheet of the API.
+  manimgx: how to install it, a scene, `inspect` then `render`, and a cheat sheet of the API.
   Then a list of every page's Markdown, by section.
 - **`llms-full.txt`:** every page's Markdown, in one file.
 
@@ -383,7 +434,7 @@ into its version's section, which becomes the release's notes (see
 just serve-docs
 ```
 
-Writes the Gallery, renders the missing films, writes the reference, then serves the site at
+Renders the missing films, writes the Gallery and command-line reference, then serves the site at
 <http://localhost:8000> and rebuilds it as its pages change. An example that fails to render
 is reported and served without its film. A block added while it serves
 has no film until the examples are rendered again, and a name added to or removed from the
@@ -394,7 +445,7 @@ pages are written before it serves.
 just build-docs
 ```
 
-Writes the Gallery, renders the examples, writes the reference, and builds the site into
+Renders the examples, writes the Gallery and command-line reference, and builds the site into
 `docs/site/` with `--strict`: a warning, such as a link to a page or a name that does not
 exist, fails the build. This is what CI deploys.
 
@@ -418,6 +469,12 @@ configures it:
 - `docs/content/_headers` is copied to the site's root, where Cloudflare reads it (it is
   never served): security headers for every page, long caching for the theme's bundles
   (their names change with their content), and `noindex` on `workers.dev` hosts.
+
+Academa's `internal/manimgx-hosting` Terraform unit provisions the Worker identity,
+custom domain and deployment credential. It also provisions the coverage report's
+Worker and domain. Wrangler publishes assets and previews; it leaves domain ownership
+to Terraform. The account ID is a GitHub repository variable, and each site's deployment
+token is installed in its production and preview environments by Terraform.
 
 The workflow [`deploy-docs.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/deploy-docs.yaml)
 builds the site on every push and pull request, deploys it from `main`, and previews each

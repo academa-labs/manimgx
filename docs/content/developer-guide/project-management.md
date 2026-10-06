@@ -34,7 +34,7 @@ The repository is the package, manimgx, and holds more than its code:
 ├── LICENSE-LAVAPIPE         ← the notices of the lavapipe the Linux wheels bundle
 ├── LICENSES/                ← the text of each license a file of the repository is under
 ├── REUSE.toml               ← whose each file is, and under which license, where it doesn't say
-└── .github/                 ← the workflows, deployment configs, Dependabot, the
+└── .github/                 ← the workflows, deployment configs, the
                                contributing guide, issue forms and pull request template
 ```
 
@@ -87,8 +87,8 @@ gets the image. [Releases](#releases) says how a release is made.
 
 Developer A installs the dependencies today and the tests pass. Developer B installs them
 a month later, gets a newer Typst or numpy, and the tests fail. For manimgx the risk is
-sharper than usual: the integration corpus compares frames by the hash of their pixels, so
-any change in how a glyph is laid out or a color is rounded shows.
+sharper than usual: the integration corpus compares the current and frozen packages' frames
+pixel for pixel, so any change in how a glyph is laid out or a color is rounded shows.
 
 So everyone needs the same Python, the same version of every package and crate, and the
 same tools with the same settings, in one command:
@@ -144,6 +144,7 @@ types the same long commands with different options. With it:
 
 ```sh
 just test        # pytest, in parallel, in the locked environment
+just test-rust   # the Rust core and native libraries, without embedding Python
 just check       # every check of .pre-commit-config.yaml
 just serve-docs  # render the docs' examples, write the reference, serve the site
 ```
@@ -250,7 +251,7 @@ the GPL-3.0-or-later. Its section 6 (and the LGPL's, which refers to it) asks
 that whoever gets the wheels can get their complete source, from where the wheels are or from
 a place the wheels point to, for as long as the wheels are offered: all of it, the crates too,
 not links to where others publish them, which can go. Each GitHub release carries it,
-`manimgx-X.Y.Z-source.tar.xz`, which builds the wheels offline (see
+`manimgx-X.Y.Z-source.tar.xz`, with the sources and build recipes (see
 [Others' sources](engine.md#others-sources)); the wheels' notice, the README (PyPI's page) and
 the release's notes point to it, and the README and the notes say what FFmpeg asks every page
 that offers it to say. A release is never deleted while PyPI offers its wheels.
@@ -263,8 +264,8 @@ What writes and builds, a folder for each thing it makes:
   cibuildwheel run.
   - [`create_executable.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/create_executable.py)
     (`just create-executable`) makes this machine's executable from its wheel in `dist/`:
-    a standalone Python (3.14, through uv) with the wheel, the font packages and the
-    dependencies `uv.lock` pins installed, packed into one file by
+    an exact, SHA-256-verified Python Build Standalone archive with the wheel, the font
+    packages and the dependencies `uv.lock` pins installed, packed into one file by
     [PyApp](https://ofek.dev/pyapp). The file's
     first run unpacks the Python it holds; every run then runs `manimgx` there, with no
     network and no Python on the machine, and `manimgx self` manages it (`self pip install`
@@ -272,17 +273,24 @@ What writes and builds, a folder for each thing it makes:
     `dist/manimgx-<os>-<arch>.tar.gz` (a `.zip` on Windows), after running what it made once.
   - [`smoke_test.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/smoke_test.py)
     renders a scene with an installed manimgx: the check a wheel or an executable passes
-    before it is kept.
+    before it is kept. It decodes generated PCM and the reference Opus fixture, exports
+    their soundtrack and reopens the MP4's AAC sound. Pyodide records the same scene and
+    checks the take's version, frame count, sound and successful end, and its embedded player.
   - [`build_lavapipe.sh`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/build_lavapipe.sh)
     builds Mesa's lavapipe for a Linux wheel, in the manylinux image (cibuildwheel's
-    `before-all`): Mesa and glslang from their sources, checked against pinned hashes, with
-    the image's LLVM linked in, exporting only what Vulkan's loader calls. It writes
-    `src/manimgx/lavapipe/libvulkan_lvp.so`, which the wheel then takes in.
+    `before-all`): Mesa, glslang and LLVM from their sources, checked against pinned hashes.
+    LLVM carries the register-class correction in `scripts/release/llvm/`. The driver
+    exports only what Vulkan's loader calls. The script writes
+    `src/manimgx/lavapipe/libvulkan_lvp.so`, which the wheel then takes in. Its checked
+    archives go through the engine's source store. After repair, `linux_sources.py` uses
+    auditwheel's SBOM and RPM metadata to retain the exact distribution source packages
+    for bundled libraries. These are sources and provenance; the system build
+    tools are not a frozen, hermetic environment.
   - [`licenses.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/licenses.py)
     (`just licenses`) writes the wheels' third-party notice (see
     [The package](#the-package)).
 - [`docs/`](https://github.com/academa-labs/manimgx/tree/main/scripts/docs): the docs' generated pages, which `just build-docs` writes
-  before the site is built: the Gallery and the API reference (see
+  before the site is built: the Gallery and the command-line reference (see
   [Documentation](documentation.md)).
 - [`showcase/`](https://github.com/academa-labs/manimgx/tree/main/scripts/showcase): the README's pictures, made by hand and committed:
   the logo (the banner, the header's, the favicon) and the wall of example films.
@@ -327,7 +335,7 @@ The repository's root is the package, defined in
   `license` names every license of what the distributions hold, as one SPDX expression:
   manimgx's own MIT, those of the crates compiled into the engine (x264's GPL-2.0-or-later
   among them), of Typst's fonts and data, and of the lavapipe a Linux wheel bundles.
-  `license-files` puts `LICENSE` and the two notices beside it into the wheel's metadata.
+  `license-files` puts `LICENSE` and the three notices beside it into the wheel's metadata.
   Its README is the repository's, `README.md`.
 - `[project.scripts]`: makes `manimgx` a command, running `manimgx.cli:main`.
 - `[build-system]` and `[tool.maturin]`: [maturin](https://www.maturin.rs) builds the
@@ -355,6 +363,9 @@ Beside it, at the root, the notices `license-files` names besides `LICENSE`:
   sources it is built from, and those of what it holds, of the libraries it links to and of
   LLVM. It is written by hand, from Mesa's sources: a test fails when
   `scripts/release/build_lavapipe.sh` builds another Mesa than the one it describes.
+- [`LICENSE-DXC`](https://github.com/academa-labs/manimgx/blob/main/LICENSE-DXC):
+  the notices of the pinned DirectX Shader Compiler the Windows wheel carries, including
+  its source dependencies. The source archive retains the matching source closure.
 
 In `src/manimgx/`, besides the Python:
 
@@ -413,6 +424,7 @@ crate's exact version, committed (`just upgrade` moves it too). Cargo runs here,
   Typst, mitex, winit, rustybuzz) and the Clippy lints it answers to.
 - `x264/`, `nasm/`: x264 and NASM, built from their sources.
 - `ffmpeg/`: FFmpeg's audio decoders and libopus, built from their sources, behind one call.
+- `dxc/`: the verified DirectX Shader Compiler binary and matching source closure for Windows.
 - `mitex-spec-gen/`: mitex's Typst package, which the engine serves to Typst (with its own
   `lib.typ`, which imports only the scope the converted LaTeX calls), and the command spec made
   from it.
@@ -446,7 +458,10 @@ draws on the CPU, and a GPU given to the container (`--device /dev/dri` for AMD 
 docker run --rm -v "$PWD:/work" ghcr.io/academa-labs/manimgx render scene.py
 ```
 
-`just build-docker-image <version>` builds it; a release publishes it.
+`just build-docker-image <version>` builds that `published` target for local use. A release
+builds the separate `release` target from its already-tested wheel and font artifacts, with
+runtime dependencies authenticated against `uv.lock`. It smoke-tests and retains OCI
+archives before any registry publication; publishing copies those same image digests.
 
 ## Releases
 

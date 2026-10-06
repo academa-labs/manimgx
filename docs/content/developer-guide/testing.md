@@ -254,25 +254,53 @@ checks every case three ways:
    checker (suppression comments, `Any`, `cast`, …), and no value that manimgx leaves
    `Any` or `Unknown`
    ([`typecheck.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integration/corpus/typecheck.py)).
-3. `test_regression`: the scene renders, and the MP4 the product exports shows every frame
-   of its film. Today's manimgx matches its stored frames, hash for hash, as well as the
-   duration and timeline. This check covers every case, including those that differ from
-   Manim or await review.
+3. `test_regression`: a frozen manimgx package and today's package render the scene in
+   separate fresh processes on the same host and adapter. Every RGB pixel, exact duration,
+   timeline and frame count must agree, and the exported MP4 must contain every frame.
+   This check covers every case, including those that differ from Manim or await review.
 
-When `test_regression` fails, it reports changes to the duration, timeline or frames. If the local reference video is present, it measures the difference and writes the worst pair, the reference's frame beside today's, into `tests/integration/_diffs/<case>/`. A fresh clone can still check every stored frame hash without those videos.
+The committed `tests/integration/baselines.json` binds each case's inputs, canonical movie
+and review to an immutable package generation. A generation names the complete Python and
+native wheels for the CI platforms, their SHA-256 identities, the locked runtime
+dependencies, font payload and the shared execution contract (launching, seeding,
+authoring and reading frames). Changing that contract requires canonical validation, so
+a runner change cannot silently change both sides together. The wheels are downloaded and verified once per local
+cache; a test worker extracts each generation once. The baseline never follows `main`.
+
+Promotion first proves that the frozen package reproduces the actual canonical movie
+pixel for pixel. Subsequent tests compare the two packages on their shared host, so
+Metal, Vulkan and Direct3D may rasterize differently without weakening regression detection
+within any one backend. SHA-256 protects artifact identity; RGB bytes decide image equality.
+No image tolerance is used for regression acceptance.
+
+Failures keep the baseline movie, both process logs and the first differing frame pairs
+in `tests/integration/_diffs/<case>/`, and report the full stream's mismatch counts and
+largest channel difference. They use the original comparison; no diagnostic rerender is
+needed. Successful comparisons remove their transient films. A fresh clone needs the
+verified package downloads, not the canonical movies, to run these tests.
 
 ### Working with the corpus
 
 `test_corpus.py` only checks; `just corpus` renders and reviews. A reference changes only
 when a change means it to, and after someone has looked at the new frames.
 
-On a fresh clone, run `just corpus render CASE` before opening a case in the review panel or running `just corpus diff CASE`; those views need the locally generated videos. The regression test uses the committed frame hashes without them.
+The review panel and `just corpus diff CASE` need the canonical movies identified by the
+committed sidecars. Restore those movies to inspect an existing review; rendering with a
+new engine is a proposal to change the reference, not a way to restore it. The initial
+[fixture release](https://github.com/academa-labs/manimgx/releases/tag/corpus-reference-377a0df)
+preserves both engines' canonical movies, their checksums and review records. Verify a
+restored movie against its committed sidecar before using it.
 
 - **A new case** is a folder in `cases/` holding its `scene.py`. Render it with `just corpus render CASE`, which renders it in both engines and compares them; look at it (`just review`); and record your verdict with `just corpus review CASE working` (or `not_matching`, or `not_working`; `--note` says why). Commit the scene, facts, review and video hash sidecars; Git ignores the videos.
 - **A change that is meant to change how cases look** renders their references again with
   `just corpus render CASE…`. A case's review is pinned to the renders it was given for,
   so it no longer speaks for the new ones: look at the new frames before you commit them,
   and renew the verdict (in the review panel, or with `just corpus review`).
+- **A baseline promotion** freezes the wheels of an explicit commit with
+  `just corpus baseline freeze`, then verifies selected cases against their canonical
+  movies with `just corpus baseline stage`. Review the staged catalog and its evidence
+  before replacing `tests/integration/baselines.json`. Missing mappings, stale reviews,
+  changed dependencies and changed inputs fail closed; they never update a baseline.
 - `just corpus status` says where every case stands, and `just corpus --help` lists the
   rest.
 

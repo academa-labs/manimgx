@@ -34,7 +34,7 @@ workflows run the justfile's recipes, so a task does the same in CI as on your m
 
 ## manimgx's workflows
 
-manimgx has seven workflows, in
+The seven regular build, release and collaboration workflows are in
 [`.github/workflows/`](https://github.com/academa-labs/manimgx/tree/main/.github/workflows).
 
 ### 1. [`test.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/test.yaml): the checks and the tests
@@ -46,18 +46,24 @@ manimgx has seven workflows, in
 - By hand, from GitHub's interface.
 - When the Release workflow calls it.
 
-**What it does**, in five jobs:
+**What it does**, in six job definitions:
 
-1. **Run pre-commit checks**, on Ubuntu: runs `just check`.
-2. **Test the browser package**, on Ubuntu: runs `just test-typescript`, building the
-   TypeScript package and checking its player, compiled worker, and public declarations.
-3. **Test**, six times: on Linux, macOS and Windows, with Python 3.13 and with 3.14. Each
-   runs `just test-coverage` (on Linux, with Mesa's lavapipe installed to draw with), and
-   keeps its coverage data.
-4. **Combine the coverage**, even when a test job failed: `just combine-coverage` makes one
+1. **Run pre-commit checks**, on Ubuntu: installs the locked tools without compiling the
+   project, then runs `just check` with automatic environment synchronization disabled.
+2. **Test the browser package**, on Ubuntu: checks the Rust browser feature, runs its
+   browser tests with Chrome, then runs `just test-typescript` against the compiled worker,
+   player and public declarations.
+3. **Build and link**, once on Linux, macOS and Windows: checks source acquisition and
+   linked codecs, builds one stable-ABI wheel, and runs `just test-rust`. Linux installs
+   lavapipe for the renderer tests. Each successful job keeps its wheel.
+4. **Test**, six times: installs that OS's same wheel on Python 3.13 and 3.14, checks the
+   installed product, acquires the verified frozen corpus packages, then runs
+   `just test-coverage`. These jobs do not rebuild the extension. They keep coverage and
+   rendering failure evidence even when the suite fails.
+5. **Combine the coverage**, even when a test job failed: `just combine-coverage` makes one
    report of the jobs' data, and its table goes in the run's summary. The report is kept,
    with the data of a coverage badge (`badge.json`).
-5. **Publish the coverage**, for `main`'s pushes and for pull requests from a branch of the
+6. **Publish the coverage**, for `main`'s pushes and for pull requests from a branch of the
    repository: to the Worker `manimgx-coverage`
    ([`.github/deploy/coverage.jsonc`](https://github.com/academa-labs/manimgx/blob/main/.github/deploy/coverage.jsonc)).
    `main`'s report is served at <https://coverage.manimgx.academa.ai>. Each commit's report
@@ -90,10 +96,13 @@ comparable on one machine at one time.
 
 **What it does**, in four jobs:
 
-1. **Build**, on every run except a pull request's closing: installs Mesa's lavapipe (the
-   examples' videos are drawn with it), runs `just build-docs` (the narrated examples speak
-   from `docs/voice/`, so the build needs no voice's key), and keeps `site/` and
-   `.github/deploy/docs.jsonc` for seven days.
+1. **Build**, on macOS for every run except a pull request's closing: checks the docs'
+   JavaScript interactions and reference declarations, restores verified film-cache entries,
+   runs `just render-docs`, saves completed films, then runs `just build-docs-pages`.
+   Metal draws the examples; narrated examples speak from `docs/voice/`, so no voice key is
+   needed. The built `docs/site/` is kept for seven days. Deployment configuration is checked
+   out separately from the trusted base commit, so the build cannot supply commands for a job
+   with credentials to execute.
 2. **Deploy**, from `main` (a push, or a run by hand): deploys what the build made to
    Cloudflare Workers with `wrangler deploy --config .github/deploy/docs.jsonc`, the
    commit's hash as its message. The `docs` environment shows the site's address,
@@ -101,8 +110,9 @@ comparable on one machine at one time.
 3. **Preview**, for a pull request from a branch of the repository: uploads the build as a
    preview named `pr-<number>`, at its own address, shown on the `docs-preview`
    environment.
-4. **Delete the preview**, when a pull request closes. A pull request that was never
-   previewed has no preview to delete, and that failure is ignored.
+4. **Delete the previews**, when a pull request closes, for both docs and coverage. An
+   absent preview is already clean; authentication failures and other API errors fail
+   the job.
 
 See [Documentation](documentation.md#deployment) for how the site is served.
 
@@ -125,35 +135,58 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    `bN` or `rcN` is a pre-release.
 2. **Test**, on a tag: it runs the Test workflow.
 3. **Build:** the wheels (`create-wheels.yaml`), the source distribution and the wheels'
-   complete source (`just build-source`: the source distribution with every crate and each
-   archive the engine's build fetches, which a wheel is built from, offline for the crates,
-   gathering the archives, so it holds all the wheels are built from; see
+   complete source (`just build-source`: the committed repository, including its build
+   recipes, fonts and browser sources, with every crate and each
+   archive the engine's build fetches, plus the exact distribution sources retained by the
+   Linux wheel jobs; the source archive waits for those platform builds; see
    [Others' sources](engine.md#others-sources)), the font packages (`just build-fonts`), and
-   the executables, from the wheels (`create-executables.yaml`).
+   the executables, from the wheels (`create-executables.yaml`), and the packed npm artifact.
+   Each Linux architecture builds its Docker image from these same wheel and font artifacts,
+   with external dependencies authenticated against `uv.lock`. The images pass the product
+   smoke test without network access. BuildKit retains their provenance and SBOM in OCI archives.
 4. **Draft the GitHub release**, on a tag: it signs each file's provenance (an attestation
    of the workflow, the commit and the run that built it, which
    `gh attestation verify FILE --repo academa-labs/manimgx` checks), and drafts the release
    `manimgx X.Y.Z` with the files (the complete source too, which PyPI doesn't get), its notes
    the changelog's section for the version (`just release-notes`), then where the complete
-   source is, which x264's and FFmpeg's licenses ask for.
-5. **Publish to PyPI:** the wheels and the source distribution, with `uv publish`, each
-   with its [PEP 740](https://peps.python.org/pep-0740/) attestation, and the font packages'
-   files PyPI doesn't have yet (`--check-url` skips the others: the fonts are released when
-   they change). It authenticates by trusted publishing, with the workflow's OIDC token: no
-   PyPI token is stored.
-6. **Publish to npm:** the package for the browser (`just build-npm`), which installs this
+   source is, which x264's and FFmpeg's licenses ask for. The draft then becomes public,
+   making those sources available before registry uploads start.
+5. **Publish to PyPI:** the font packages first, then manimgx's wheels and source
+   distribution, with `uv publish`, each with its
+   [PEP 740](https://peps.python.org/pep-0740/) attestation. `--check-url` skips files PyPI
+   already has: the fonts are released when they change. Each package has its own GitHub
+   environment and trusted publisher: `pypi` for `manimgx`, `pypi-fonts` for
+   `manimgx-fonts`, and `pypi-fonts-cjk` for `manimgx-fonts-cjk`. The font jobs run as a
+   matrix, each downloading only its package's distributions. Before the first release,
+   register three pending publishers on PyPI with owner `academa-labs`, repository
+   `manimgx`, workflow `release.yaml`, and those environment names; create the matching
+   GitHub environments with release tags (`v*`) allowed. Pending publishers need distinct
+   workflow/environment combinations, even when their project names differ. Publishing
+   uses the workflow's OIDC token: no PyPI token is stored.
+6. **Publish to npm:** the already-built tarball for the browser, which installs this
    release of manimgx from PyPI, so it comes after PyPI; by trusted publishing too, with
-   provenance.
-7. **Publish the Docker image:** [docker/github-builder](https://github.com/docker/github-builder)
-   builds `docker/Dockerfile` for the version, for `linux/amd64` and `linux/arm64`,
-   with a signed provenance and SBOM (each package the image holds, with its license), and
-   pushes it to `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
+   provenance. A retry accepts an existing version only when its SHA512 integrity matches
+   the exact tarball. For the first release, before the package exists on npm, create a
+   short-lived granular token with read/write access to all packages and bypass 2FA,
+   and store it as `NPM_TOKEN` in the GitHub `npm` environment (allow only `v*` tags).
+   The token is passed only to the publishing step. Once the package exists, configure
+   its npm trusted publisher with owner `academa-labs`, repository `manimgx`, workflow
+   `release.yaml`, and environment `npm`; enable direct publishing (`npm publish`),
+   since the workflow does not stage releases. Then revoke the token and delete the
+   GitHub secret: subsequent releases use OIDC.
+7. **Publish the Docker image:** copy the tested OCI archives without changing their digests,
+   including the provenance and SBOM, and assemble the `linux/amd64` and `linux/arm64`
+   platform index. Its provenance is signed, and it is published to
+   `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
    `X.Y.Z` only), labeled `MIT AND GPL-3.0-or-later`: manimgx's code, and the engine, which
-   x264 makes GPL-3.0-or-later as a whole. The image installs manimgx from PyPI, so it comes
-   after PyPI.
-8. **Publish the GitHub release:** the draft becomes public last, once PyPI, npm and
-   ghcr.io have their files. GitHub's immutable releases lock a published release's files
-   and tag, which is why the files are attached while the release is a draft.
+   x264 makes GPL-3.0-or-later as a whole. It needs no new package resolution or image build.
+8. **Confirm completion:** all registry uploads have succeeded and the GitHub release is
+   public. Publication across registries is not atomic; a failed destination can be retried
+   using the retained artifacts. Publishing alone does not lock the release's files or tag: that requires
+   GitHub's [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+   to be enabled for the repository. This workflow attaches every file while the release
+   is a draft and does not change that setting. Recorded artifact digests and provenance
+   attestations verify acquired bytes; they do not enable GitHub's immutability policy.
 
 ### 5. [`create-wheels.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/create-wheels.yaml): the wheels
 
@@ -161,8 +194,8 @@ See [Documentation](documentation.md#deployment) for how the site is served.
 and by hand, to try a branch's wheels.
 
 **What it does:** a job per platform (Linux x86_64 and arm64, macOS arm64 and x86_64,
-Windows x86_64) runs `just build-wheel`; the macOS x86_64 wheel is cross-compiled on an
-arm64 runner (`CIBW_ARCHS`), and tested there under Rosetta, and a Linux job builds Mesa's
+Windows x86_64, and Pyodide) runs `just build-wheel`; the macOS x86_64 wheel is cross-compiled
+on an arm64 runner (`CIBW_ARCHS`), and tested there under Rosetta, and a Linux job builds Mesa's
 lavapipe for its wheel first (`scripts/release/build_lavapipe.sh`). cibuildwheel builds the
 platform's wheel and tests it on every
 supported Python, as `[tool.cibuildwheel]` in `pyproject.toml` says (see
@@ -177,9 +210,28 @@ builds the wheels first.
 **What it does:** a job per platform takes the platform's wheel and runs
 `just create-executable`
 ([`scripts/release/create_executable.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/create_executable.py)),
-which renders a scene with the executable before it keeps it: on Linux with Mesa's
-lavapipe, which the job installs (macOS has Metal, Windows WARP). Each executable is kept as
+which renders a scene with the executable before it keeps it. Linux builds the launcher
+inside the wheel's manylinux SDK, so both require glibc 2.28 or newer. A fresh glibc 2.28
+container then runs the executable without Python, a GPU driver, network access, or an
+installation cache: it uses its embedded Python and bundled lavapipe. macOS uses Metal and
+Windows uses WARP. Each executable is kept as
 `executable-<platform>`: `manimgx-<os>-<arch>.tar.gz`, or a `.zip` on Windows.
+
+The interpreter is an exact Python Build Standalone release and target archive, verified
+by SHA-256. The executable archive includes `build-inputs.json`, the original `PYTHON.json`,
+and `LICENSE-PYTHON`; the metadata and notices also remain inside the embedded Python.
+The source artifact retains the launcher's locked sources and `python-inputs.tar.xz`,
+which contains the interpreter's build recipe, metadata, and notices. The corresponding
+open-source runtime inputs are retained once, by digest, in `release-sources/python/`;
+each platform's receipt identifies its inputs and the final source build verifies them.
+Selection follows the pinned PBS and CPython build recipes, including Windows' separate
+libffi, Tcl and Tk inputs. Sources needed only to recover an upstream notice are marked
+separately in the receipt.
+
+Windows' interpreter also carries Microsoft's proprietary `vcruntime140.dll` and
+`vcruntime140_1.dll`, recorded as `vcruntime:140` in `PYTHON.json`. These are binary
+redistributables governed by [Microsoft's distribution terms](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files),
+not open-source components supplied by the source archive.
 
 ### 7. [`ai.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/ai.yaml): Claude on issues and pull requests
 
@@ -213,16 +265,21 @@ pull request is opened or marked ready for review.
   to run `just check` and the tests its change touches before it pushes, and to open a
   change as a draft pull request. On a pull request from a fork, it only reads.
 
-## Secrets never meet the code
+## Deployment credentials
 
-The jobs that run the repository's code get no secrets, and the jobs that get secrets do
-not run it:
+Builds and tests receive no deployment credentials. Publishing jobs use only the trusted
+base commit's deployment files and the static artifacts:
 
 - The checks, the tests and the docs' build run the repository's code (they build the
   engine and render scenes), with a token that can only read the repository. The jobs that
-  get Cloudflare's API token and account ID (the docs' deploy, preview and deletion, and
-  the coverage's publishing) never run the repository's code: they only run a pinned
-  version of wrangler, on what a build made (and `gh`, to set the coverage status).
+  get Cloudflare's API token run a pinned Wrangler on the built files (and `gh`, to set
+  the coverage status). Cleanup uses the trusted base commit's `cleanup.py`. Neither
+  deployment configuration nor executable code is taken from a build artifact.
+- Academa's `internal/manimgx-hosting` Terraform unit owns the Worker identities,
+  custom domains, GitHub environments and credentials. Each site's
+  `CLOUDFLARE_API_TOKEN` can edit only that Worker; the account ID is the repository
+  variable `CLOUDFLARE_ACCOUNT_ID`. Production environments allow `main`; preview
+  environments also allow pull request merge refs.
 - Pull requests from forks and from Dependabot get no secrets: they are built and tested,
   not previewed, and their coverage is not published.
 - The first reply's model can only read, and the job that posts its reply runs no model.
@@ -239,28 +296,34 @@ it needs.
   commit to a pull request cancels its running one, while a run on `main` finishes before
   the next one begins.
 - Every action is pinned to a commit, its version in a comment beside it, and wrangler's
-  version is pinned in `WRANGLER_VERSION`. Dependabot moves the pins (below), and
+  version is pinned in `WRANGLER_VERSION`. Maintainers review updates to these pins, and
   [zizmor](https://docs.zizmor.sh), one of the checks of `just check`, finds security
   problems in the workflows.
-- The Test, docs and AI workflows share one cache of the engine's compiled Rust
-  dependencies; only `main`'s runs save it.
+- The Test, docs and AI workflows reuse compiled Rust dependencies. The browser engine
+  has a separate cache key. Pull request builds do not write the shared caches; docs saves
+  only from `main`, Test also saves from explicit non-PR runs, and AI only restores them.
 
-## [`dependabot.yml`](https://github.com/academa-labs/manimgx/blob/main/.github/dependabot.yml): updates
+## Dependency updates
 
-[Dependabot](https://docs.github.com/en/code-security/dependabot) opens pull requests that
-move dependencies to new releases, one per ecosystem, its updates grouped:
+Maintainers initiate dependency updates and validate them before integrating them into
+`main`. There is no scheduled Dependabot configuration, so version updates do not create
+branches automatically. [Dependabot alerts](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-alerts)
+remain enabled; automatic security-update pull requests are disabled. Alerts and upstream
+release notes guide maintenance, including checks of the actions pinned by commit.
 
-| Ecosystem | What moves | How often |
-| --- | --- | --- |
-| GitHub Actions | The workflows' pinned actions (a pinned action gets no security alerts) | Weekly |
-| uv | `uv.lock`; a requirement in a `pyproject.toml` only when a release falls outside it | Monthly |
-| Cargo | The engine's crates, in `Cargo.lock` | Monthly |
-| pre-commit | The hooks' repositories in `.pre-commit-config.yaml` | Monthly |
-| Docker | The Docker image's base, and its uv | Monthly |
-| bun | The browser package's tools and the review panel's packages, grouped separately | Monthly |
+- `just upgrade` refreshes the Python and Rust lockfiles within the manifests' version
+  requirements and regenerates the third-party notice. Review major-version changes
+  explicitly, including their API, behavior and license; some requirements already allow them.
+- Review the browser and corpus review panel's dependencies in their own `package.json`
+  and `bun.lock`. Run their checks and builds with the new lockfiles.
+- Review action commits, pre-commit hook revisions, Docker base images and the native
+  source pins separately. These are not changed by `just upgrade`; update their recorded
+  versions and source identities together.
 
-A release waits a week before Dependabot proposes it: most compromised releases are caught
-within days. Security updates do not wait.
+Run `just check` and the affected tests after an update. Changes to the native dependency
+closure also need the platform builds, package smoke tests and source/notice checks; changes
+to the render path need the corpus and paired benchmarks. A new version alone is not evidence
+of compatibility.
 
 ## Other files in `.github/`
 
@@ -274,4 +337,4 @@ use of AI). GitHub shows each where it applies.
 - [`.github/workflows/`](https://github.com/academa-labs/manimgx/tree/main/.github/workflows):
   the workflow files.
 - [GitHub Actions' documentation](https://docs.github.com/en/actions).
-- [Dependabot's options](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference).
+- [Dependabot alerts](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-alerts).

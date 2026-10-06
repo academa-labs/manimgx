@@ -52,8 +52,8 @@ The crate's dependencies do the heavy lifting:
 | [`src/window.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/window.rs) | The player in a window on this machine's screen (winit) |
 | [`src/web.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/web.rs) | The player on a page's canvas (WebAssembly) |
 | [`src/export.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/export.rs) | A film's video: frames converted and handed to the encoder |
-| [`src/vector.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.rs), [`src/vector.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.wgsl) | A 2D view, drawn exactly |
-| [`src/blend.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/blend.wgsl) | The raster pipeline: 3D views, point clouds and meshes |
+| [`src/vector.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.rs), [`src/vector.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/vector.wgsl) | Path coverage and the view's composite |
+| [`src/blend.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/blend.wgsl) | The raster pipeline: point clouds and meshes |
 | [`src/paint.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/paint.wgsl) | Paint, as both pipelines evaluate it |
 | [`src/nv12.wgsl`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/nv12.wgsl) | A frame's changed macroblocks, converted for the encoder |
 | [`src/encode.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/encode.rs) | H.264 through x264 |
@@ -82,7 +82,7 @@ code against it.
 - **One module for every Python from 3.13 on.** The crate builds against Python's stable
   ABI (PyO3's `abi3-py313`).
 - **Bytes, not objects.** What crosses is packed arrays: control points as float64,
-  records of 320 bytes, a view of float32s. Python packs them with numpy
+  records of 336 bytes, a view of float32s. Python packs them with numpy
   ([`rendering/feed.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/rendering/feed.py));
   the engine reads them as they are. A shape crosses as its object defines it, and the
   engine derives what drawing needs: it flattens a path's curves, and sums a mesh's faces
@@ -119,19 +119,27 @@ it: neither the system's loader nor the environment is involved, and a machine w
 never loads it. An engine built from source has none of its own; there, the system's Mesa
 draws.
 
-### A 2D view, exactly
+### Path coverage and compositing
 
-No tessellation, no stencil, no multisampling: each pixel's coverage is the area of the
-object inside it, computed from the control points.
+Paths use analytic coverage of flattened segments instead of counting multisample hits.
+The same pipeline draws paths in 2D and through a 3D camera.
 
 1. A compute pass flattens every curve of every path into as many segments as its size on
-   screen needs (Wang's bound, to 1/32 of a pixel), every frame, at the size it is drawn.
+   screen needs (Wang's bound targets 1/32 of a pixel, with at most 256 segments per curve),
+   every frame, at the size it is drawn.
 2. A raster pass adds each segment's exact area into the object's rectangle of a float
-   atlas: a fill by its winding, a stroke as pieces along the curve's exact normals, with
+   atlas: a fill by its winding, a stroke as pieces along the curve's normals, with
    its joints and caps.
 3. A compute pass composites each 16×16 tile of the view over the objects that reach it,
-   in draw order. It keeps each pixel as two regions split by a line, so edges that two
-   shapes share do not show what lies under them.
+   in depth order, with draw order breaking ties. It keeps each pixel as two regions split
+   by a line to retain the overlap of shared edges.
+
+The segment areas are analytic; the complete image is an approximation. Curves are
+flattened, coverage is accumulated in floating point, and each partially covered layer's
+boundary is reconstructed as a half-plane. Two regions cannot retain every intersection
+of several partial layers. The composite also approximates nearly parallel boundaries
+as parallel, and merges its regions between atlas groups. These limits matter when
+several edges or transparent surfaces meet inside one pixel.
 
 A 2D view's point clouds and meshes are drawn by the raster pipeline, into layers that the
 composite lays in their place in the order.
@@ -140,25 +148,25 @@ See `vector.rs` and `vector.wgsl`.
 
 ### The raster pipeline
 
-The raster pipeline draws every object of a 3D view, and a 2D view's point clouds and
-meshes, with real depth. A vertex is placed by the blend itself:
+The raster pipeline draws point clouds and meshes, with per-sample depth. In a 3D view,
+their raster base is combined with the paths' analytic coverage and depth planes.
+A vertex is placed by the blend itself:
 clip = C₁·S₁ + C₂·S₂, where Cₖ = camera · Mₖ is composed on the CPU once per object (the
 second term only while a shape morphs). The kinds differ only in how their vertices become
 triangles:
 
-- A path's fill is a fan counted into the stencil, then covered, unless the shape is
-  convex, fully shown and still; its stroke is a ribbon in screen space.
 - A point is a disk that faces the camera.
 - A mesh is its triangles, optionally textured.
 
-Where 3D surfaces can be seen through, each fragment is appended to a list per pixel, and
-the lists are composited in depth order: a pixel shows every surface on its ray, the nearer
-over the farther, whatever order they were drawn in.
+Transparent mesh fragments are collected in lists and composited in depth order. Point
+sprites are sorted and drawn between the other geometry's depth layers. Raster sample
+coverage and the paths' reconstructed coverage are different representations; their
+combination does not preserve every subpixel overlap.
 
 A camera's picture, as a [`ZoomedScene`][manimgx.ZoomedScene] shows it, is a view drawn
 first into a texture, which the frame then samples by its key.
 
-See `blend.wgsl`, and the `Player` in `lib.rs`.
+See `blend.wgsl`, and the `Player` in `render.rs`.
 
 ### Paint
 
@@ -183,8 +191,11 @@ back and analyzed.
 3. x264, on a thread of its own, is told which macroblocks are unchanged and skips its
    analysis there (`encode.rs`).
 4. `mp4.rs` writes each picture as a sample of an MP4; a held frame is one sample that
-   lasts longer. The header is written first, so a player can start before the file has
-   arrived.
+   lasts longer. Each sample keeps its duration when B-frames change the decoding order.
+   The decode clock accumulates those durations; signed composition offsets preserve the
+   authored display times. This is the MP4 timing contract: sample-table timing determines
+   presentation, including the final hold, independently of the encoder's decode timestamps.
+   The header is written first, so a player can start before the file has arrived.
 
 [`Film.export`][manimgx.Film.export] reports how it went: the seconds taken, the part of
 them in x264, the share of macroblocks converted, and the file's size.
@@ -228,7 +239,8 @@ the converted code finds its scope with no files on disk, and the converter and 
 code it converts for come from the same files. `cargo test -p mitex-spec-gen`, in `rust/`,
 checks that the committed spec is still what the package makes, and that the engine serves
 every file of it; after an upgrade of mitex, `MITEX_SPEC=write cargo test -p mitex-spec-gen`
-writes the new spec. No workflow runs it.
+writes the new spec. The Test workflow checks the spec with the rest of the Rust workspace
+through `just test-rust`; it never regenerates it.
 
 ## The player
 
@@ -316,9 +328,18 @@ the same record slot drew the frame before, which the writer reads off the frame
 film whose shapes change a little every frame is sent as their changes: the example films'
 takes are 14 times smaller for it (50 GB in all before, 3.6 GB after), and a 3D film of 30
 seconds is tens of megabytes, where it was gigabytes. A mesh's points, uvs and normals go as
-float32, the precision the GPU draws them at; everything else goes exactly as Python gave it. The frames the browser draws match the native engine's: of the
-integration corpus's 841 scenes, 534 are identical in every frame, and the others differ by
-rounding, one level in a few pixels.
+float32, the precision the GPU draws them at; everything else goes exactly as Python gave it.
+The browser and native player share the take decoder and renderer. Replay and direct
+rendering are checked for identical pixels on the same adapter and runtime. Different
+GPU backends, drivers, and authoring runtimes can produce different floating-point results;
+sharing the renderer does not guarantee identical pixels across them.
+
+Each take starts with its format version, exposed to Python as `_engine.TAKE_VERSION`.
+It covers the layouts of views, records, uploads and coded arrays. The shared projector
+checks it before reading resources, so a native window, browser and headless replay reject
+unsupported or unversioned recordings with an explicit error. A change to those layouts
+that alters their meaning needs a new format version; package releases and reference
+manifests have their own versions.
 
 ## Others' sources
 
@@ -334,17 +355,27 @@ offline; one shared by your checkouts downloads each archive once; and a build i
 one gathers what it was built from. A build script fetches the same archives on every target,
 whatever it compiles of them, so one build gathers what every build reads.
 
-That is how a release ships the wheels' complete source, which x264's GPL and FFmpeg's LGPL
-ask for: `manimgx-X.Y.Z-source.tar.xz`, on the GitHub release (`just build-source` makes it).
-It is the source distribution with `vendor/`, every crate `rust/Cargo.lock` names
+The release ships `manimgx-X.Y.Z-source.tar.xz` beside the wheels (`just build-source` makes it).
+It is the committed repository, identified by `SOURCE_COMMIT`, with `vendor/`, every crate `rust/Cargo.lock` names
 (`cargo vendor`), `sources/`, the archives, and a `.cargo/config.toml` that reads them,
-offline. The wheel the recipe builds from it gathers the archives into `sources/`, and shows
-that nothing else is needed. Unpacked, it builds a wheel with the tools alone (Rust, a C
-compiler, and maturin, which uv installs), reading nothing else from the network:
+offline. Mesa, glslang and LLVM use the same store through `fetch-file`, pinned by their
+archive hashes. LLVM is built with its native target and a source correction that preserves
+register-class constraints during rematerialization; its patch and build recipe are in
+`scripts/release/`. The Linux wheel jobs also retain the exact source RPMs of libraries
+auditwheel actually bundles, identified by auditwheel's SBOM. Each
+platform's manifest records its wheel hash, binary package versions and source hashes.
+`just build-source` consumes both Linux source artifacts, merged into `release-sources/`,
+and checks those hashes before adding them to the source archive.
+
+The archive supplies the distributed components' source; it does not freeze the operating
+system or compiler toolchain. Rebuilding lavapipe uses its checked archives, source patch
+and build recipe with the required Linux build tools. The engine itself builds without fetching
+native sources or Cargo crates once Rust, a C compiler and the Python build dependencies
+(including maturin) are installed:
 
 ```sh
 tar -xf manimgx-X.Y.Z-source.tar.xz
-cd manimgx-X.Y.Z && uv build --wheel
+cd manimgx-X.Y.Z && uv build --wheel --no-build-isolation --offline
 ```
 
 Each is built by its crate's build script with the `cc` crate, the C compiler alone, the same
@@ -358,6 +389,12 @@ reference decoder, which passes all of RFC 8251's test vectors (FFmpeg's own fai
 `rust/ffmpeg/src/shim.c` decodes a file from memory into float samples, at most two channels
 (wider sound is downmixed to stereo, scaled so it can't clip), starting and ending where the
 file declares.
+
+On Windows, `rust/dxc/` prepares the exact upstream DirectX Shader Compiler archive, verifies
+its SHA-256, and places `dxcompiler.dll` beside the installed extension. The engine loads it
+from that package location. Its separately pinned source tree and source dependencies are
+retained for source distribution, with their notices in `LICENSE-DXC`; the DLL is an official
+binary input, not a compiler rebuilt by every wheel installation.
 
 ## Building
 
@@ -379,12 +416,15 @@ file declares.
 - `rust/engine/Cargo.toml` denies Clippy's correctness lints and warns on its suspicious and
   performance ones. No recipe, check or workflow runs Clippy: run `cargo clippy` in `rust/`.
 
-The engine is tested through Python, by the suite and the integration corpus (see
-[Testing](testing.md)); its Rust unit tests (`cargo test --lib`, in `rust/`) check that a take
-reads back as it was written, that its arrays' codings decode exactly, and how the projector
+The installed-wheel suite and integration corpus test the Python boundary (see
+[Testing](testing.md)). `just test-rust` tests the Rust workspace on Linux, macOS and Windows,
+with the render, export, typeset and player features, without embedding Python. These tests
+check that a take reads back as it was written, that its arrays' codings decode exactly, and how the projector
 takes takes in: a newer one replacing the shown one at the frame shown, a failed one dropped
 or ended, the stream read whole however it is cut. They also check the player: its keys by the
 web's names, its chapters, a take's sound read as it was written, and the face's lines, set as
-Typst sets them. The player in a page is tried by hand, in a browser. `cargo test -p fetch`
-checks `MANIMGX_SOURCES`: an empty folder gathers an archive, whole, and a full one builds
-with the archive gone from its URL.
+Typst sets them. `just check-rust-web` checks the browser feature boundary, and
+`just test-rust-web` runs its browser tests with wasm-bindgen-test-runner and a browser
+driver; CI uses Chrome. These focused laws complement manual playback of full scenes in a
+browser. The fetch crate's tests, also part of `just test-rust`, check `MANIMGX_SOURCES`: an
+empty folder gathers an archive, whole, and a full one builds with the archive gone from its URL.

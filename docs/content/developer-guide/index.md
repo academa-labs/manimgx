@@ -36,9 +36,12 @@ its wheels.
 
 The engine draws with [wgpu](https://wgpu.rs): through Metal on macOS, Direct3D 12 on
 Windows (WARP, on the CPU, where there is no GPU), and Vulkan on Linux. It takes the
-high-performance adapter, which must be able to blend float32 render targets (a 2D view
-adds up its coverage in one). Without such an adapter, rendering raises an error that says
-what is missing.
+high-performance adapter, which must blend float32 render targets (a view adds its coverage
+in one) and support float32 depth with stencil (`depth32float-stencil8`). The reversed-Z
+projection needs floating-point depth to distinguish distant surfaces. An adapter missing
+either capability is rejected; Linux then tries the bundled lavapipe. If no suitable adapter
+is available, rendering reports the missing capability. The browser requires the same two
+WebGPU capabilities.
 
 On Linux without a GPU driver, Mesa's lavapipe draws on the CPU. The Linux wheels bundle it
 (`scripts/release/build_lavapipe.sh` builds it, and the engine loads it itself: see
@@ -51,7 +54,15 @@ sudo apt-get install libvulkan1 mesa-vulkan-drivers
 
 ### Manim Community Edition
 
-The integration corpus compares every case with Manim Community Edition's rendering of it. CE's reference hashes and frame data are in the repository; the videos are generated locally when needed. Rendering them (a new case, or a changed scene) needs CE, which is in its own dependency group: `uv sync --group ce` (`just sync` leaves it out again). Its bindings to Cairo and Pango build from source where they have no wheels (pycairo on macOS and Linux, ManimPango on Linux), so that needs those libraries: `brew install cairo pkg-config` on macOS, `apt-get install libcairo2-dev libpango1.0-dev pkg-config` on Debian or Ubuntu.
+The integration corpus retains reviewed Manim Community Edition renders for comparison. The
+regular tests compare the frozen and current manimgx packages on the same host and do not need
+CE. Restore canonical movies from the [fixture
+release](https://github.com/academa-labs/manimgx/releases/tag/corpus-reference-377a0df) to
+inspect them; rerendering proposes a reference change. Rendering a new or changed scene with
+CE needs its dependency group: `uv sync --group ce` (`just sync` leaves it out again). Its
+bindings to Cairo and Pango build from source where they have no wheels (pycairo on macOS and
+Linux, ManimPango on Linux), so that needs those libraries: `brew install cairo pkg-config` on
+macOS, `apt-get install libcairo2-dev libpango1.0-dev pkg-config` on Debian or Ubuntu.
 
 ## Setting up the development environment
 
@@ -123,6 +134,10 @@ lockfile as it is. Run anything else the same way (`uv run --frozen python …`)
 
 - `just test [args]`: the suite, in parallel; `args` go to pytest, as in
   `just test tests/integration/test_time.py -x`.
+- `just test-rust`: the Rust workspace's core and native-library tests, without embedding Python.
+- `just check-rust-web`: compile-check the browser engine.
+- `just test-rust-web`: the engine's browser tests, using wasm-bindgen-test-runner and a
+  browser driver.
 - `just test-typescript`: build and test the browser package, including its compiled worker
   and public declarations.
 - `just test-coverage [args]`: the same, measuring coverage (see
@@ -137,7 +152,9 @@ lockfile as it is. Run anything else the same way (`uv run --frozen python …`)
 ### Docs
 
 - `just serve-docs`: the docs site at <http://localhost:8000>, rebuilt as its pages change.
-- `just build-docs`: the docs site, into `site/`, as it is deployed.
+- `just build-docs`: the docs site, into `docs/site/`, as it is deployed.
+- `just render-docs [args]`: render missing or changed example films.
+- `just build-docs-pages`: build the pages from completed films.
 
 See [Documentation](documentation.md#local-preview).
 
@@ -155,8 +172,7 @@ See [Project management](project-management.md#releases).
 
 ### By hand
 
-Two tools have no recipe, and no workflow runs them. Run them in `rust/`:
-
-- `cargo test -p mitex-spec-gen`: whether the committed LaTeX command spec is still what
-  mitex's package makes (see [The engine](engine.md#typesetting)).
-- `cargo clippy`: the lints `rust/engine/Cargo.toml` sets for the engine.
+`cargo clippy`, run in `rust/`, checks the lints `rust/engine/Cargo.toml` sets for the
+engine. It has no recipe and no workflow runs it. The LaTeX command-spec tests are part of
+`just test-rust`; run `cargo test --locked -p mitex-spec-gen` in `rust/` to check only those
+(see [The engine](engine.md#typesetting)).
