@@ -29,7 +29,7 @@ def phase(name: str) -> Iterator[None]:
     )
 
 
-def pipeline(output: Path, project: Path) -> None:
+def pipeline(output: Path, project: Path, case: str) -> None:
     faulthandler.register(signal.SIGUSR1, all_threads=True)
     with phase("import"):
         import numpy as np
@@ -38,6 +38,33 @@ def pipeline(output: Path, project: Path) -> None:
         from manimgx import _engine
         from manimgx.rendering.feed import view
 
+    m.config.pixel_width, m.config.pixel_height = 320, 180
+    m.config.frame_rate = 60
+    if case != "smoke":
+        with phase("authoring_without_gpu"):
+            scene = m.Scene()
+            match case:
+                case "square":
+                    scene.add(m.Square(fill_opacity=1, stroke_width=0))
+                case "line":
+                    scene.add(m.Line())
+                case "text":
+                    scene.add(m.Text("manimgx"))
+                case "glyph":
+                    scene.add(m.Text("m"))
+            scene.wait(0.1)
+            chunks: list[bytes] = []
+            film = scene.render(take=chunks.append)
+            take = b"".join(chunks)
+            (output / "smoke.take").write_bytes(take)
+        with phase("device_and_eager_pipelines"):
+            print(_engine.adapter_info(), flush=True)
+        with phase("first_draw"):
+            replay = _engine.Replay(take)
+            replay.render(0)
+        with phase("warm_draw"):
+            replay.render(0)
+        return
     with phase("wav_decode"):
         pcm = io.BytesIO()
         with wave.open(pcm, "wb") as stream:
@@ -50,8 +77,6 @@ def pipeline(output: Path, project: Path) -> None:
         assert np.isfinite(opus.samples).all()
     with phase("typeset"):
         m.Text("manimgx")
-    m.config.pixel_width, m.config.pixel_height = 320, 180
-    m.config.frame_rate = 60
     with phase("authoring_without_gpu"):
         script = runpy.run_path(str(project / "scripts/release/smoke_test.py"))
         namespace: dict[str, object] = {}
@@ -86,11 +111,14 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("project", type=Path)
     parser.add_argument("--child", action="store_true")
+    parser.add_argument(
+        "--case", choices=("smoke", "square", "line", "text", "glyph"), default="smoke"
+    )
     args = parser.parse_args()
     output, project = args.output.resolve(), args.project.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if args.child:
-        pipeline(output, project)
+        pipeline(output, project, args.case)
         return
     command = [
         sys.executable,
@@ -98,6 +126,8 @@ def main() -> None:
         str(output),
         str(project),
         "--child",
+        "--case",
+        args.case,
     ]
     with (output / "phases.log").open("w", encoding="utf-8") as log:
         child = subprocess.Popen(
@@ -124,26 +154,47 @@ def main() -> None:
                     stdout=threads,
                     check=False,
                 )
-            with (output / "native-stack.txt").open("w", encoding="utf-8") as stack:
-                try:
-                    subprocess.run(
-                        [
-                            "gdb",
-                            "--batch",
-                            "-p",
-                            str(child.pid),
-                            "-ex",
-                            "set pagination off",
-                            "-ex",
-                            "thread apply all bt 30",
-                        ],
-                        stdout=stack,
-                        stderr=subprocess.STDOUT,
-                        timeout=30,
-                        check=False,
-                    )
-                except subprocess.TimeoutExpired:
-                    stack.write("gdb exceeded its diagnostic budget\n")
+            # Reattach after the program runs between samples: a fixed PC, loop or
+            # changing long computation must be distinguished from compiler work.
+            debug = output / "sample.gdb"
+            debug.write_text(
+                "set pagination off\nthread apply all bt 30\n"
+                "python\n"
+                "import gdb, os\n"
+                "maps = []\n"
+                "for line in open('/proc/%s/maps' % gdb.selected_inferior().pid):\n"
+                "    parts = line.split()\n"
+                "    if 'x' in parts[1] and len(parts) == 5:\n"
+                "        maps.append(tuple(int(v, 16) for v in parts[0].split('-')))\n"
+                "for thread in gdb.selected_inferior().threads():\n"
+                "    thread.switch()\n"
+                "    pc = int(gdb.parse_and_eval('$pc'))\n"
+                "    for start, end in maps:\n"
+                "        if start <= pc < end:\n"
+                "            print('ACTIVE JIT THREAD', thread.num, hex(pc), hex(start), hex(end))\n"
+                "            gdb.execute('info symbol $pc')\n"
+                "            gdb.execute('info all-registers')\n"
+                "            gdb.execute('x/100i $pc-128')\n"
+                "            gdb.execute('disassemble /r %s,%s' % (start, end))\n"
+                "end\ndetach\n",
+                encoding="utf-8",
+            )
+            for sample in range(2):
+                if sample:
+                    time.sleep(3)
+                with (output / f"native-stack-{sample}.txt").open(
+                    "w", encoding="utf-8"
+                ) as stack:
+                    try:
+                        subprocess.run(
+                            ["gdb", "--batch", "-p", str(child.pid), "-x", str(debug)],
+                            stdout=stack,
+                            stderr=subprocess.STDOUT,
+                            timeout=30,
+                            check=False,
+                        )
+                    except subprocess.TimeoutExpired:
+                        stack.write("gdb exceeded its diagnostic budget\n")
             code = 124
         finally:
             if child.poll() is None:
