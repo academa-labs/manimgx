@@ -39,7 +39,7 @@ def test_the_welcome_page_uses_the_readme_s_same_showcase_images() -> None:
     readme = README.read_text(encoding="utf-8")
     raw = f"https://{links.RAW_HOST}{links.RAW_SHOWCASE}"
     images = re.findall(rf'src="{re.escape(raw)}([^"/]+\.gif)"', readme)
-    assert len(images) == 7
+    assert len(images) == 9
     html = markdown.markdown(
         WELCOME.read_text(encoding="utf-8"),
         extensions=["pymdownx.snippets", links.makeExtension()],

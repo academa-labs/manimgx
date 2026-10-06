@@ -1,4 +1,4 @@
-"""The README and docs share seven GIF previews, each linked to its film.
+"""The README and docs share nine GIF previews, each linked to its film.
 
 `uv run --frozen python -m scripts.showcase.wall` runs each film in `CLIPS` and keeps
 five seconds at 50 fps, cropped around what moves and without fixed titles or readouts.
@@ -7,7 +7,7 @@ compositing, keeping translucent edges intact. Both pages use the same opaque im
 
 Gifski encodes all 250 source frames at full quality, combining visually equivalent
 samples into longer holds on the same 20 ms timeline. Every file must stay strictly below 12 MB and all
-seven together below 18 MB. The complete set is staged; its dimensions, duration, timing,
+nine together below 24 MB. The complete set is staged; its dimensions, duration, timing,
 opacity, looping and budgets are validated before any published file is replaced. Install
 Gifski and put `gifski` on PATH to regenerate the committed images.
 `scripts/showcase/logo.py` draws their SVG logo.
@@ -36,7 +36,7 @@ TILE = 320, 180  # one image size, shared by the README and the docs
 FPS, SECONDS = 50, 5
 BACKGROUND = 13, 17, 23  # #0d1117
 MAX_BYTES = 12_000_000  # each image, strictly less
-MAX_TOTAL_BYTES = 18_000_000  # the complete wall, strictly less
+MAX_TOTAL_BYTES = 24_000_000  # the complete wall, strictly less
 
 
 @dataclass(frozen=True)
@@ -67,6 +67,8 @@ CLIPS = [  # the wall's, three a row
     Clip("complex_maps", 2.4, 0, 0, 1920),
     Clip("lorenz_attractor", 7.5, 320, 150, 1280),
     Clip("heavy_top", 24, 0, 0, 1920),
+    Clip("hopf_fibration", 17, 410, 210, 1120),
+    Clip("catenoid_helicoid", 9, 320, 180, 1280),
 ]
 
 

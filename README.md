@@ -32,6 +32,8 @@
   <a href="https://github.com/academa-labs/manimgx/blob/main/examples/lorenz_attractor.py"><img alt="The Lorenz attractor: nearby trajectories separate as they trace a butterfly in three dimensions" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/lorenz_attractor.gif" width="32%"></a>
   <br>
   <a href="https://github.com/academa-labs/manimgx/blob/main/examples/heavy_top.py"><img alt="Three spinning tops precess and nod as their axes trace curves on glass spheres" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/heavy_top.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/hopf_fibration.py"><img alt="The Hopf fibration: colorful linked circles form nested tori as beads travel along them" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/hopf_fibration.gif" width="32%"></a>
+  <a href="https://github.com/academa-labs/manimgx/blob/main/examples/catenoid_helicoid.py"><img alt="A rainbow helicoid bends into a catenoid while preserving its intrinsic curvature" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/catenoid_helicoid.gif" width="32%"></a>
 </p>
 
 **10 seconds of 3D video, rendered in 0.85 seconds.** On our 1080p60 benchmark,

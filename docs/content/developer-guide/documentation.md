@@ -138,9 +138,9 @@ the README.
   [`scripts/showcase/logo.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/logo.py)
   draws it, the header's still logo (`images/logo-*.svg`) and the favicon;
   `uv run --frozen python -m scripts.showcase.logo` draws them again.
-- **The wall** (`showcase/<film>.gif`): five seconds of seven example
-  films, three a row with HeavyTop centered in the last row, each its own image linked to
-  its film.
+- **The wall** (`showcase/<film>.gif`): five seconds of nine example
+  films in a three-by-three grid, each its own image linked to its film. HeavyTop,
+  the Hopf fibration and the catenoid–helicoid transformation fill the last row.
   [`scripts/showcase/wall.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/wall.py)
   renders each film directly at 50 frames a second, without what it fixes in the frame
   (its titles and readouts). Each clip is cropped and resized to 320 × 180, composited onto
@@ -148,7 +148,7 @@ the README.
   and lossy quality all set to 100. The 250 source frames are spaced 20 ms apart. Samples
   that become visually equivalent during encoding can combine into longer holds while
   preserving the five-second timeline and continuous looping.
-  Each file must stay below 12,000,000 bytes, and the complete wall below 18,000,000 bytes;
+  Each file must stay below 12,000,000 bytes, and the complete wall below 24,000,000 bytes;
   the generator validates the whole staged set before replacing any published file.
   The README points directly to
   `raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/`.

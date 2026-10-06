@@ -266,7 +266,7 @@ def test_the_readme_shows_every_film_linked_to_its_file() -> None:
         assert f"/blob/main/examples/{clip.name}.py" in readme
 
 
-def test_heavy_top_is_the_seventh_film_in_a_centered_row_at_the_same_size() -> None:
+def test_the_readme_shows_nine_films_in_three_equal_rows() -> None:
     names = [
         "quadratic_formula",
         "fourier_pi",
@@ -275,10 +275,13 @@ def test_heavy_top_is_the_seventh_film_in_a_centered_row_at_the_same_size() -> N
         "complex_maps",
         "lorenz_attractor",
         "heavy_top",
+        "hopf_fibration",
+        "catenoid_helicoid",
     ]
     assert [clip.name for clip in wall.CLIPS] == names
-    assert wall.CLIPS[-1].start == 24
-    assert wall.CLIPS[-1].box == (0, 0, *wall.FILM)
+    heavy_top = next(clip for clip in wall.CLIPS if clip.name == "heavy_top")
+    assert heavy_top.start == 24
+    assert heavy_top.box == (0, 0, *wall.FILM)
     assert wall.scene("heavy_top").__name__ == "HeavyTop"
     readme = README.read_text(encoding="utf-8")
     first = readme.index("/examples/quadratic_formula.py")
@@ -292,5 +295,10 @@ def test_heavy_top_is_the_seventh_film_in_a_centered_row_at_the_same_size() -> N
     assert rows == [
         [(f"{name}.gif", "32%") for name in names[:3]],
         [(f"{name}.gif", "32%") for name in names[3:6]],
-        [("heavy_top.gif", "32%")],
+        [(f"{name}.gif", "32%") for name in names[6:9]],
     ]
+
+
+@pytest.mark.parametrize("name", ["hopf_fibration", "catenoid_helicoid"])
+def test_the_added_examples_are_three_dimensional_scenes(name: str) -> None:
+    assert issubclass(wall.scene(name), wall.m.ThreeDScene)
