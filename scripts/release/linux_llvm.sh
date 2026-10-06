@@ -19,9 +19,11 @@ llc --version > llc-version.txt
 rpm -qa | sort > rpm-packages.txt
 triple=$(llvm-config --host-target)
 # Derived from the retained CPU flags, Mesa 26.2.3 lp_build_fill_mattrs and LLVM 21's
-# family 19h/model 11h mapping. MCJIT defaults to large code model and static relocation.
+# family 1Ah mapping. MCJIT defaults to large code model and static relocation.
+grep -Eq '^CPU family:[[:space:]]+26$' cpu.txt
+grep -Eq '^Model:[[:space:]]+2$' cpu.txt
 features=+64bit,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+avx,+f16c,+fma,+avx2,+avx512f,+avx512cd,+avx512bw,+avx512dq,+avx512vl,+avx512vbmi
-target=(-mtriple="$triple" -mcpu=znver4 -mattr="$features" -code-model=large -relocation-model=static)
+target=(-mtriple="$triple" -mcpu=znver5 -mattr="$features" -code-model=large -relocation-model=static)
 for stage in before minimal optimized; do
   llvm-dis "$stage.bc" -o "$stage.ll"
   opt -passes=verify -disable-output "$stage.bc" > "$stage-verify.log" 2>&1
