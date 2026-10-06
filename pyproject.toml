@@ -64,6 +64,7 @@ build-backend = "maturin"
 [tool.maturin]
 module-name = "manimgx._engine"
 manifest-path = "rust/engine/Cargo.toml"
+locked = true
 # what a wheel takes besides the package's sources: the lavapipe a Linux wheel bundles, built
 # before it (scripts/release/build_lavapipe.sh) and ignored by git
 include = [

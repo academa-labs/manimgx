@@ -51,6 +51,13 @@ def test_wheel_jobs_expand_platform_in_the_same_shell_on_every_os() -> None:
     assert "${PLATFORM}" in build["run"]
 
 
+def test_native_and_embedded_browser_builds_require_the_committed_cargo_lock() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["tool"]["maturin"]["locked"] is True
+    build = (ROOT / "rust/engine/build.rs").read_text(encoding="utf-8")
+    assert '.args(["build", "--locked",' in build
+
+
 def test_windows_diagnostic_pairs_the_wheel_with_its_original_source() -> None:
     job = yaml.safe_load(
         (ROOT / ".github/workflows/windows-diagnostic.yaml").read_text(encoding="utf-8")

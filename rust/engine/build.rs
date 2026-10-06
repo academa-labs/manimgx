@@ -33,7 +33,7 @@ fn web_player() {
         .map_or_else(|| crate_dir.join("../target"), PathBuf::from)
         .join("web-player");
     let built = std::process::Command::new(std::env::var("CARGO").unwrap())
-        .args(["build", "--lib", "--release", "--target", "wasm32-unknown-unknown", "--no-default-features", "--features", "web"])
+        .args(["build", "--locked", "--lib", "--release", "--target", "wasm32-unknown-unknown", "--no-default-features", "--features", "web"])
         .arg("--target-dir")
         .arg(&target)
         .current_dir(&crate_dir)
