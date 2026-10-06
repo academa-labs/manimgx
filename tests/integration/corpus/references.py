@@ -62,6 +62,9 @@ def render(case: Case, wanted: set[Engine]) -> tuple[Facts, str]:
                 isinstance(previous, Frames)
                 and previous.runs == result.frames.runs
                 and video.exists()
+                and case.video_hash(engine).exists()
+                and case.video_hash(engine).read_text(encoding="ascii")
+                == f"{hashlib.sha256(video.read_bytes()).hexdigest()}  {video.name}\n"
             ):
                 notes.append(f"{engine} unchanged")
             else:

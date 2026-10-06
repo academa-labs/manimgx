@@ -151,7 +151,12 @@ def made(name: str, scene: str) -> Case:
 
 
 @pytest.mark.usefixtures("cases")
+@pytest.mark.parametrize(
+    "state",
+    ["missing movie", "corrupt movie", "missing checksum", "wrong checksum", "valid"],
+)
 def test_recreated_movie_checksum_binds_its_actual_container_bytes(
+    state: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     example = made("recreated", "import manimgx\n")
@@ -164,6 +169,18 @@ def test_recreated_movie_checksum_binds_its_actual_container_bytes(
         f"{hashlib.sha256(b'original encoding').hexdigest()}  manimgx.mkv\n",
         encoding="ascii",
     )
+    example.video("manimgx").write_bytes(b"original encoding")
+    anchor = baseline.Anchor.capture(example, "0" * 64)
+    if state == "missing movie":
+        example.video("manimgx").unlink()
+    elif state == "corrupt movie":
+        example.video("manimgx").write_bytes(b"damaged container")
+    elif state == "missing checksum":
+        example.video_hash("manimgx").unlink()
+    elif state == "wrong checksum":
+        example.video_hash("manimgx").write_text(
+            "incorrect checksum\n", encoding="ascii"
+        )
     movie = b"identical decoded frames in a different lossless container"
 
     def render(_case: Case, _engine: str, *, video: Path) -> engines.Result:
@@ -173,10 +190,16 @@ def test_recreated_movie_checksum_binds_its_actual_container_bytes(
     monkeypatch.setattr(engines, "run", render)
     facts, _ = references.render(example, {"manimgx"})
     assert facts.manimgx == STORED
-    assert example.video("manimgx").read_bytes() == movie
+    kept = b"original encoding" if state == "valid" else movie
+    assert example.video("manimgx").read_bytes() == kept
     assert example.video_hash("manimgx").read_text(encoding="ascii") == (
-        f"{hashlib.sha256(movie).hexdigest()}  manimgx.mkv\n"
+        f"{hashlib.sha256(kept).hexdigest()}  manimgx.mkv\n"
     )
+    if state == "valid":
+        anchor.validate(example)
+    else:
+        with pytest.raises(ValueError, match="promote it explicitly"):
+            anchor.validate(example)
 
 
 @pytest.mark.usefixtures("cases")
