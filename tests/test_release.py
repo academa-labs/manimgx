@@ -3,6 +3,7 @@ The release must route only that project's distributions to it, and publish the 
 before anything that installs manimgx from PyPI.
 """
 
+import hashlib
 import io
 import json
 import subprocess
@@ -566,6 +567,79 @@ def test_python_binary_acquisition_is_verified_and_never_retained_as_source(
         create_executable.fetch(
             "https://example.invalid/input", digest, tmp_path, source=False
         )
+
+
+def test_executable_installs_authenticated_dependencies_before_local_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str | Path, ...]] = []
+    monkeypatch.setattr(create_executable, "run", lambda *args: calls.append(args))
+    runtime, wheel = tmp_path / "python", tmp_path / "product.whl"
+    create_executable.install_manimgx(runtime, wheel, tmp_path)
+    export, dependencies, product = calls
+    assert export[:2] == ("uv", "export")
+    assert "--no-hashes" not in export
+    assert "--no-emit-workspace" in export
+    assert "--require-hashes" in dependencies
+    assert "--no-deps" in dependencies
+    assert "--requirements" in dependencies
+    assert wheel not in dependencies
+    assert "--no-deps" in product
+    assert "--requirements" not in product
+    assert product[-3:] == (
+        wheel,
+        ROOT / "fonts/manimgx-fonts",
+        ROOT / "fonts/manimgx-fonts-cjk",
+    )
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_uv_hash_gate_rejects_changed_dependency_bytes_before_installation(
+    tmp_path: Path, changed: bool
+) -> None:
+    wheel = tmp_path / "audited_dependency-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("audited_dependency.py", "value = 'verified'\n")
+        archive.writestr(
+            "audited_dependency-1.0.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: audited-dependency\nVersion: 1.0\n",
+        )
+        archive.writestr(
+            "audited_dependency-1.0.dist-info/WHEEL",
+            "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        archive.writestr("audited_dependency-1.0.dist-info/RECORD", "")
+    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    if changed:
+        with zipfile.ZipFile(wheel, "a") as archive:
+            archive.writestr("unexpected.py", "value = 'changed'\n")
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        f"audited-dependency @ {wheel.as_uri()} --hash=sha256:{digest}\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "installed"
+    result = subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--target",
+            str(target),
+            "--no-index",
+            "--no-deps",
+            "--require-hashes",
+            "--requirements",
+            str(requirements),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) != changed, result.stdout + result.stderr
+    assert (target / "audited_dependency.py").exists() != changed
+    if changed:
+        assert "Hash mismatch" in result.stderr
 
 
 @pytest.mark.parametrize("system", ["linux", "macos", "windows"])

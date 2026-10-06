@@ -335,12 +335,16 @@ def install_manimgx(python: Path, wheel: Path, work: Path) -> None:
     requirements = work / "requirements.txt"
     run(
         "uv", "export", "--frozen", "--package", "manimgx", "--no-default-groups",
-        "--no-emit-workspace", "--no-hashes", "--output-file", requirements,
+        "--no-emit-workspace", "--output-file", requirements,
     )  # fmt: skip
     fonts = sorted((ROOT / "fonts").glob("manimgx-fonts*"))
     run(
         "uv", "pip", "install", "--python", python / INTERPRETER, "--break-system-packages",
-        "--compile-bytecode", "--requirements", requirements, wheel, *fonts,
+        "--compile-bytecode", "--no-deps", "--require-hashes", "--requirements", requirements,
+    )  # fmt: skip
+    run(
+        "uv", "pip", "install", "--python", python / INTERPRETER, "--break-system-packages",
+        "--compile-bytecode", "--no-deps", wheel, *fonts,
     )  # fmt: skip
     # the Python is manimgx's own: `manimgx self pip install` may add packages to it
     for marker in python.glob("**/EXTERNALLY-MANAGED"):
