@@ -638,7 +638,7 @@ pub(crate) struct Vector {
     shader: wgpu::ShaderModule,
     single_shader: Option<wgpu::ShaderModule>, // the same composite with single-sample textures
     write_layout: wgpu::BindGroupLayout,
-    flatten: wgpu::ComputePipeline,
+    flatten: [Option<wgpu::ComputePipeline>; 2], // independent fill and stroke records, made when needed
     composite: [Option<[wgpu::ComputePipeline; 2]>; 32], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
     crossing: [Option<[wgpu::ComputePipeline; 2]>; 32], // where depths cross: the count, the pixels (alike)
     crossings: (wgpu::Buffer, wgpu::Buffer, u64),      // their list, the second pass's workgroups; pixels it holds
@@ -730,9 +730,6 @@ impl Vector {
         let depth_resolve = [("nearest_of_samples", &depth_layouts[0]), ("single_sample", &depth_layouts[1])].map(|(entry, l)| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&pipeline_layout(&[Some(l)])), module: &depth_shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
         });
-        // workgroup memory is written before it is read: zeroing it would only cost time
-        let options = wgpu::PipelineCompilationOptions { zero_initialize_workgroup_memory: false, ..Default::default() };
-        let flatten = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("flatten"), layout: Some(&pipeline_layout(&[Some(&scene_layout), None, Some(&write_layout)])), module: &shader, entry_point: Some("flatten"), compilation_options: options, cache: None });
         let no_samples = [1, 4].map(|samples| [(super::COLOR, None), (super::DEPTH, Some(wgpu::TextureAspect::DepthOnly))].map(|(format, aspect)| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("no samples"),
@@ -765,7 +762,7 @@ impl Vector {
             shader,
             single_shader: None,
             write_layout,
-            flatten,
+            flatten: [None, None],
             composite: Default::default(),
             crossing: Default::default(),
             crossings: (buffer(device, "crossings", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST), buffer(device, "crossing groups", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT), 3),
@@ -1128,6 +1125,17 @@ impl Vector {
         }
     }
 
+    /// Fill and stroke records have independent producers. A view pays only for the families it draws.
+    fn prepare_flatten(&mut self, device: &wgpu::Device, counts: [u32; 2]) {
+        for (i, count) in counts.into_iter().enumerate() {
+            if count == 0 || self.flatten[i].is_some() { continue; }
+            let entry = ["flatten_fill", "flatten_stroke"][i];
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&self.scene_layout), None, Some(&self.write_layout)], immediate_size: 0 });
+            let options = wgpu::PipelineCompilationOptions { zero_initialize_workgroup_memory: false, ..Default::default() };
+            self.flatten[i] = Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&layout), module: &self.shader, entry_point: Some(entry), compilation_options: options, cache: None }));
+        }
+    }
+
     /// The pipelines of a light's map and of a view's opaque depth from its paths (`fs_nearest`), made when one is
     /// first needed: the coverage atlas and a non-planar path's strokes' depths are what they read besides the scene.
     fn nearest(&mut self, device: &wgpu::Device) {
@@ -1177,6 +1185,7 @@ impl Vector {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, plan: &Plan, g: usize, statics: &[wgpu::BindingResource<'_>; 3], out: Out<'_>) {
         let group = &plan.groups[g];
+        self.prepare_flatten(device, [group.fills, group.strokes]);
         let [w, h] = plan.size;
         let [tiles_x, tiles_y] = [w.div_ceil(TILE), h.div_ceil(TILE)];
         let (base, light, listed, glowing, slabs) = match &out {
@@ -1313,10 +1322,11 @@ impl Vector {
         };
         let write = bind(&self.write_layout, &[(0, fill_records.as_entire_binding()), (1, stroke_records.as_entire_binding())]);
         let read = bind(&self.read_layout, &[(0, fill_records.as_entire_binding()), (1, stroke_records.as_entire_binding()), (2, depths.as_entire_binding())]);
-        let slots = group.fills.saturating_add(group.strokes).div_ceil(64); // workgroups: a thread per slot
-        if slots > 0 {
+        for (pipeline, count) in self.flatten.iter().zip([group.fills, group.strokes]) {
+            let slots = count.div_ceil(64); // workgroups: a thread per slot
+            if slots == 0 { continue; }
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("flatten"), timestamp_writes: None });
-            pass.set_pipeline(&self.flatten);
+            pass.set_pipeline(pipeline.as_ref().expect("the required record producer"));
             pass.set_bind_group(0, &scene, &[]);
             pass.set_bind_group(2, &write, &[]);
             pass.dispatch_workgroups(slots.min(65535), slots.div_ceil(65535), 1);
@@ -1397,6 +1407,27 @@ const SINGLE: usize = 16; // single-sample texture bindings, with the same compo
 #[cfg(test)]
 mod pipeline_demand {
     use super::*;
+
+    #[test]
+    fn record_families_compile_only_when_first_needed() {
+        super::super::with_gpu(|gpu| {
+            for first in 0..2 {
+                let mut vector = Vector::new(&gpu.device, &gpu.queue);
+                vector.prepare_flatten(&gpu.device, [0, 0]);
+                assert!(vector.flatten.iter().all(Option::is_none));
+                let mut counts = [0, 0];
+                counts[first] = 1;
+                vector.prepare_flatten(&gpu.device, counts);
+                assert!(vector.flatten[1 - first].is_none());
+                let pipeline = vector.flatten[first].clone().unwrap();
+                for counts in [[0, 0], counts, [1, 1]] {
+                    vector.prepare_flatten(&gpu.device, counts);
+                    assert_eq!(vector.flatten[first].as_ref(), Some(&pipeline));
+                }
+                assert!(vector.flatten.iter().all(Option::is_some));
+            }
+        }).unwrap();
+    }
 
     #[test]
     fn two_d_views_leave_crossing_passes_for_the_first_three_d_view() {
