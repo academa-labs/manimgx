@@ -28,14 +28,32 @@ for stage in before minimal optimized; do
   llvm-dis "$stage.bc" -o "$stage.ll"
   opt -passes=verify -disable-output "$stage.bc" > "$stage-verify.log" 2>&1
 done
+verification_failures=0
 for level in 0 1 2; do
-  llc "${target[@]}" -O"$level" -verify-machineinstrs optimized.bc -o "optimized-O$level.s"
+  status=0
+  llc "${target[@]}" -O"$level" -verify-machineinstrs optimized.bc \
+    -o "optimized-O$level-verified.s" > "optimized-O$level-verify.log" 2>&1 || status=$?
+  printf '%s %s\n' "$level" "$status" >> machine-verifier-status.txt
+  if [ "$status" -ne 0 ]; then
+    verification_failures=$((verification_failures + 1))
+  fi
+  # Preserve ordinary emitted code too: Mesa does not enable the machine verifier.
+  llc "${target[@]}" -O"$level" optimized.bc -o "optimized-O$level.s"
 done
-llc "${target[@]}" -O2 -verify-machineinstrs minimal.bc -o minimal-O2.s
+status=0
+llc "${target[@]}" -O2 -verify-machineinstrs minimal.bc \
+  -o minimal-O2-verified.s > minimal-O2-verify.log 2>&1 || status=$?
+printf 'minimal-2 %s\n' "$status" >> machine-verifier-status.txt
+if [ "$status" -ne 0 ]; then
+  verification_failures=$((verification_failures + 1))
+fi
+llc "${target[@]}" -O2 minimal.bc -o minimal-O2.s
 llc "${target[@]}" -O2 -stop-after=finalize-isel optimized.bc -o optimized-isel.mir
 llc "${target[@]}" -O2 -stop-before=greedy optimized.bc -o optimized-before-regalloc.mir
+llc "${target[@]}" -O2 -stop-after=greedy optimized.bc -o optimized-greedy.mir
 llc "${target[@]}" -O2 -stop-after=virtregrewriter optimized.bc -o optimized-after-regalloc.mir
 llc "${target[@]}" -O2 -print-after-all -filter-print-funcs=cs_variant optimized.bc \
   -o optimized-traced.s 2> optimized-passes.log
 cmp optimized-O2.s optimized-traced.s
 sha256sum ./*.bc ./*.ll ./*.s ./*.mir > hashes.txt
+test "$verification_failures" -eq 0
