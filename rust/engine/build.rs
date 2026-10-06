@@ -7,6 +7,8 @@
 use std::path::{Path, PathBuf};
 
 fn main() {
+    #[cfg(feature = "render")]
+    dxc::prepare();
     println!("cargo::rustc-check-cfg=cfg(web_player)");
     #[cfg(feature = "python")]
     web_player();

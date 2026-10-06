@@ -67,6 +67,27 @@ def linear(value: float) -> float:
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
 
 
+@pytest.mark.parametrize(
+    ("light", "level"),
+    [((0.0, 0.0, 1e8), 255), ((0.0, 0.0, -1e8), 64), ((0.0, 0.0, 0.0), 128)],
+)
+def test_a_surface_without_a_material_keeps_signed_camera_shading(
+    light: tuple[float, float, float], level: int
+) -> None:
+    # Along the normal, shading adds 1/2; from behind, it subtracts 1/4. The distant
+    # light makes the cosine round to exactly ±1 at every vertex: grey 128 becomes
+    # clipped white 255 or round(128 - 255/4) = 64. A light in the plane adds nothing,
+    # including at its coincident vertex, where the light has no direction.
+    def build(scene: m.ThreeDScene) -> None:
+        surface = plane(None).set_color("#808080")
+        assert (surface.get_all_points() == m.ORIGIN).all(axis=1).any()
+        scene.camera.light_source.move_to(light)
+        scene.add(surface)
+        scene.wait(0.1)
+
+    assert (frames(build)[0] == level).all()
+
+
 def test_a_white_matte_surface_facing_a_light_of_intensity_one_shows_white() -> None:
     def build(scene: m.ThreeDScene) -> None:
         scene.add(plane(), m.SunLight(5 * m.OUT, intensity=1.0))

@@ -18,6 +18,7 @@ import argparse
 import ast
 import hashlib
 import html
+import importlib
 import json
 import os
 import platform
@@ -25,6 +26,7 @@ import re
 import shutil
 import sys
 import textwrap
+import traceback
 import types
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -271,6 +273,18 @@ def _draw(example: Example, folder: Path, readme: bool) -> None:
         svg.write(recording, folder / f"{example.stem}-light.svg", light=True)
 
 
+def _render(example: Example, readme: bool) -> None:
+    """A worker's failures cross the process boundary as text, including native panics."""
+    try:
+        render(example, readme)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as error:
+        # PyO3's PanicException and exceptions defined by an example cannot necessarily
+        # be imported by the coordinator. Pickling them loses the rendering failure.
+        raise RuntimeError(traceback.format_exc()) from error
+
+
 def scenes() -> dict[str, Example]:
     """The unique scenes, rejecting conflicting definitions before any work is done."""
     scenes: dict[str, Example] = {}
@@ -295,6 +309,7 @@ def cache_key() -> dict[str, str]:
 
 def main(only: list[str], jobs: int | None = None) -> None:
     """Render missing or damaged films, and discard outputs no current example owns."""
+    importlib.import_module("manimgx")  # fail once if the shared runtime cannot load
     FILMS.mkdir(parents=True, exist_ok=True)
     scenes_to_render = scenes()
     readme = _readme()
@@ -323,7 +338,7 @@ def main(only: list[str], jobs: int | None = None) -> None:
         print(f"rendering {len(todo)}: {names}{', ...' * (len(todo) > 6)}", flush=True)
     failed = 0
     with ProcessPoolExecutor(max_workers=jobs, max_tasks_per_child=1) as pool:
-        futures = {pool.submit(render, e, e.scene in readme): e for e in todo}
+        futures = {pool.submit(_render, e, e.scene in readme): e for e in todo}
         for done, future in enumerate(as_completed(futures), 1):
             example = futures[future]
             if (error := future.exception()) is not None:

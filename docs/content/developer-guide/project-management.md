@@ -144,6 +144,7 @@ types the same long commands with different options. With it:
 
 ```sh
 just test        # pytest, in parallel, in the locked environment
+just test-rust   # the Rust core and native libraries, without embedding Python
 just check       # every check of .pre-commit-config.yaml
 just serve-docs  # render the docs' examples, write the reference, serve the site
 ```

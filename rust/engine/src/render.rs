@@ -24,8 +24,11 @@ use std::ops::Range;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{CameraView, environment, read};
+use crate::{CameraView, check_key, environment, mesh::Mesh, read};
 
+#[cfg(windows)]
+#[path = "dxc.rs"]
+mod dxc;
 #[path = "bloom.rs"]
 mod bloom;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1020,8 +1023,8 @@ fn storage(binding: u32) -> wgpu::BindGroupLayoutEntry {
     entry(binding, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None })
 }
 
-/// How a pass uses the stencil: count a stroke's coverage, cover once where counted (zeroing it,
-/// even where depth rejects), or leave it alone.
+/// How a pass uses the stencil: count a stroke's coverage, cover once where visible (zeroing it
+/// only when depth passes), or leave it alone.
 #[derive(Clone, Copy)]
 enum Stencil {
     Coverage,
@@ -1055,7 +1058,13 @@ impl Gpu {
     /// The system's GPU, WebGPU's (Metal, Vulkan, DX12, the browser's): its device, and what draws on it.
     pub(crate) async fn new() -> Result<Self, String> {
         // the system's adapter; where none will do, the lavapipe a Linux wheel bundles
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let descriptor = wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() };
+        #[cfg(windows)]
+        let descriptor = wgpu::InstanceDescriptor {
+            backend_options: wgpu::BackendOptions { dx12: wgpu::Dx12BackendOptions { shader_compiler: dxc::compiler()?, ..Default::default() }, ..descriptor.backend_options },
+            ..descriptor
+        };
+        let instance = wgpu::Instance::new(descriptor);
         #[cfg(target_arch = "wasm32")]
         let adapter = adapter(&instance).await?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -1189,7 +1198,7 @@ impl Gpu {
         let p = |vs: &str, fs: Option<&str>, stencil: Stencil, write: bool, color: bool| {
             let (front, back) = match stencil {
                 Stencil::Coverage => (face(C::Always, Op::IncrementClamp, Op::Keep), face(C::Always, Op::IncrementClamp, Op::Keep)),
-                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Zero), face(C::NotEqual, Op::Zero, Op::Zero)),
+                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Keep), face(C::NotEqual, Op::Zero, Op::Keep)),
                 Stencil::Ignore => (face(C::Always, Op::Keep, Op::Keep), face(C::Always, Op::Keep, Op::Keep)),
             };
             let targets = targets_for(if color { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() });
@@ -1215,7 +1224,7 @@ impl Gpu {
             })
         };
         let stroke = |vs, fs| Passes {
-            count: p(vs, Some("fs_none"), Stencil::Coverage, false, false),
+            count: p(vs, Some("fs_none"), Stencil::Coverage, true, false),
             cover: p(vs, Some(fs), Stencil::Cover, true, true),
         };
         // the see-through layers' appends test the opaque depth themselves (read-only here) and
@@ -1903,8 +1912,8 @@ impl Player {
         };
         // which passes change pixels
         let (fill, stroke) = a.raster.shown([r.params[0], r.params[1]]); // (a path has no raster form: nothing)
-        // a mesh's faces' edges blend and write depth once per pixel, by the stencil: even opaque,
-        // where blending twice is invisible, the first fragment's depth must be the one kept
+        // a mesh's edges first find their nearest covered depth, then blend once per sample:
+        // a hidden ribbon cannot consume another ribbon's visible coverage
         let stroked = a.kind == Kind::Mesh && !stroke.is_empty() && r.params[2] > 0.0 && (paint.stroke[3] > 0.0 || many_stroke);
         // a layer can be seen through where its color is, or a row of its brushes (a tween's
         // either paint); a textured mesh also where its picture can be
@@ -2495,36 +2504,6 @@ impl Player {
     }
 }
 
-/// Area-weighted vertex normals: each triangle's (b − a) × (c − a) added to its corners — every
-/// triangle's first corner, then every second, then every third, so that each vertex sums its
-/// faces in one fixed order.
-fn smooth_normals(p: &[[f64; 3]], triangles: &[u32]) -> Vec<[f64; 3]> {
-    let faces: Vec<[f64; 3]> = triangles
-        .chunks_exact(3)
-        .map(|t| {
-            let (a, b, c) = (p[t[0] as usize], p[t[1] as usize], p[t[2] as usize]);
-            let (u, w) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
-            [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
-        })
-        .collect();
-    let mut out = vec![[0.0f64; 3]; p.len()];
-    for k in 0..3 {
-        for (t, f) in triangles.chunks_exact(3).zip(&faces) {
-            let o = &mut out[t[k] as usize];
-            o[0] += f[0];
-            o[1] += f[1];
-            o[2] += f[2];
-        }
-    }
-    out
-}
-
-
-/// `bytes` as whole items of `T`.
-pub(crate) fn check_key(key: u64) -> Result<(), String> {
-    if key == 0 { Err("key 0 is reserved".into()) } else { Ok(()) }
-}
-
 /// What every host asks of a player: shapes, brushes and images uploaded once under a key, then
 /// frames drawn from views and records (see `python` and `web`).
 impl Player {
@@ -2578,30 +2557,10 @@ impl Player {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) -> Result<(), String> {
         check_key(key)?;
-        let p = read::<[f64; 3]>(points, "points")?;
-        let uv = read::<[f64; 2]>(uvs, "uvs")?;
-        let t = read::<u32>(triangles, "triangles")?;
-        if uv.len() != p.len() || !t.len().is_multiple_of(3) || t.iter().any(|&i| i as usize >= p.len()) {
-            return Err("a mesh needs a (u, v) per point, and whole triangles of its points".into());
-        }
-        let n = if normals.is_empty() { smooth_normals(&p, &t) } else { read::<[f64; 3]>(normals, "normals")? };
-        if n.len() != p.len() {
-            return Err("a mesh needs a normal per point".into());
-        }
-        let block = if block == 0 { outline } else { block };
-        if outline > 2 && (block < outline || !p.len().is_multiple_of(block as usize)) {
-            return Err("an outlined mesh is whole faces of vertices, each beginning with its loop".into());
-        }
-        // a reveal shows a surface face by face (`Raster`): each face's triangles are its own, in its turn
-        let faces = (p.len() / block.max(1) as usize).max(1);
-        let own = |(k, face): (usize, &[u32])| face.iter().all(|&i| i as usize / block as usize == k);
-        if outline > 2 && (!t.len().is_multiple_of(3 * faces) || (!t.is_empty() && !t.chunks(t.len() / faces).enumerate().all(own))) {
-            return Err("an outlined mesh's triangles are its faces' own, face after face, as many each".into());
-        }
-        // what the shaders read: (x, y, z, v) and (normal, u)
-        let v: Vec<[f32; 4]> = p.iter().zip(&uv).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
-        let e: Vec<[f32; 4]> = n.iter().zip(&uv).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
-        self.store.add_mesh(key, &v, &e, &t, outline, block);
+        let mesh = Mesh::new(points, uvs, normals, triangles, outline, block)?;
+        let v: Vec<[f32; 4]> = mesh.points.iter().zip(&*mesh.uvs).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
+        let e: Vec<[f32; 4]> = mesh.normals.iter().zip(&*mesh.uvs).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
+        self.store.add_mesh(key, &v, &e, &mesh.triangles, mesh.outline, mesh.block);
         Ok(())
     }
 

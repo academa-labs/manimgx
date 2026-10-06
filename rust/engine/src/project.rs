@@ -171,6 +171,35 @@ pub(crate) struct Take {
 }
 
 impl Take {
+    /// One complete, successful recording, decoded by the same projector as a window or page.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn read(stream: &[u8]) -> Result<Self, String> {
+        let mut projector = Projector::default();
+        projector.feed(stream)?;
+        if !projector.pending.is_empty() { return Err("a message of the take ends early".into()); }
+        if projector.takes != 1 { return Err("a recording must contain exactly one take".into()); }
+        let take = projector.shown.unwrap();
+        if !take.ended || take.failed { return Err("the take did not end successfully".into()); }
+        if take.frames == 0 || take.size.0 == 0 || take.size.1 == 0 || !take.fps.is_finite() || take.fps <= 0.0 {
+            return Err("a take needs frames, positive dimensions, and a finite positive frame rate".into());
+        }
+        Ok(take)
+    }
+
+    /// A recording's exact integer frame, including holds; every upload uses the projector's
+    /// existing recipes and bounded decoded-array cache.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn frame_views(&mut self, frame: u32) -> Result<Vec<Frame>, String> {
+        if frame >= self.frames { return Err(format!("frame {frame} is outside the take's {} frames", self.frames)); }
+        self.views(self.shot(frame).ok_or("the take has no recorded frames")?)
+    }
+
+    /// Each recorded shot's first frame and repeat count, without expanding its held frames.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn timeline(&self) -> Vec<(u32, u32)> {
+        self.shots.iter().enumerate().map(|(i, shot)| (shot.first, self.shots.get(i + 1).map_or(self.frames, |next| next.first) - shot.first)).collect()
+    }
+
     /// Its frame at `time` seconds (the last, past its end).
     pub(crate) fn frame(&self, time: f64) -> u32 {
         ((time * self.fps + 1e-6).floor().max(0.0) as u32).min(self.frames.saturating_sub(1))
@@ -181,11 +210,10 @@ impl Take {
         f64::from(self.frames) > (time * self.fps + 1e-6).floor()
     }
 
-    /// Its shot showing the frame at `time` (the last, past its end).
-    fn shot(&self, time: f64) -> Option<usize> {
+    /// Its shot showing `frame` (the last, past its end).
+    fn shot(&self, frame: u32) -> Option<usize> {
         let last = self.shots.len().checked_sub(1)?;
-        let index = self.frame(time);
-        Some(self.shots.partition_point(|s| s.first <= index).saturating_sub(1).min(last))
+        Some(self.shots.partition_point(|s| s.first <= frame).saturating_sub(1).min(last))
     }
 
     /// Shot `at`'s views (its cameras', then the frame), everything they draw in the player.
@@ -294,7 +322,12 @@ impl Projector {
     fn message(&mut self, message: &[u8], notes: &mut Vec<(u32, Note)>) -> Result<(), String> {
         let mut f = Fields(message);
         let op = f.u8()?;
+        if op == 0 {
+            return Err("unversioned takes are unsupported; record the scene again with this version of manimgx".into());
+        }
         if op == take::START {
+            let format = f.u32()?;
+            if format != take::VERSION { return Err(format!("unsupported take format {format}; this engine reads format {}", take::VERSION)); }
             let (width, height, fps) = (f.u32()?, f.u32()?, f.f64()?);
             self.takes += 1;
             let fresh = Take { number: self.takes, size: (width, height), player: Player::new(width, height, 4), pack: Pack::default(), recipes: HashMap::new(), shots: Vec::new(), used: HashMap::new(), draws: 0, frames: 0, fps, ended: false, failed: false };
@@ -371,7 +404,7 @@ impl Projector {
     /// Whether the frame at `time`, at `size`, is what was drawn last (nothing to draw again).
     pub(crate) fn drawn(&self, time: f64, size: (u32, u32)) -> bool {
         let Some(t) = self.shown.as_ref() else { return true };
-        t.shot(time).is_none_or(|at| self.drawn == Some((t.number, at, size)))
+        t.shot(t.frame(time)).is_none_or(|at| self.drawn == Some((t.number, at, size)))
     }
 
     /// Draw the frame at `time` of the shown take at `size` (its proportions; a view is
@@ -380,7 +413,7 @@ impl Projector {
     /// (`submitted`, then `settle`).
     pub(crate) fn encode(&mut self, gpu: &mut Gpu, time: f64, size: (u32, u32)) -> Result<Option<wgpu::CommandEncoder>, String> {
         let Some(t) = self.shown.as_mut() else { return Ok(None) };
-        let Some(at) = t.shot(time) else { return Ok(None) };
+        let Some(at) = t.shot(t.frame(time)) else { return Ok(None) };
         if (t.player.width, t.player.height) != size {
             (t.player.width, t.player.height, t.player.targets) = (size.0, size.1, None);
         }
@@ -474,6 +507,62 @@ mod tests {
 
     fn shown(p: &Projector) -> Option<(u32, u32, bool)> {
         p.shown.as_ref().map(|t| (t.number, t.frames, t.ended))
+    }
+
+    #[test]
+    fn a_recording_is_exactly_one_complete_successful_take() {
+        let stream = take(2, Some(false));
+        let recording = Take::read(&stream).unwrap();
+        assert_eq!((recording.size, recording.frames, recording.fps), ((64, 36), 2, 30.0));
+        for end in 0..stream.len() { assert!(Take::read(&stream[..end]).is_err(), "cut at {end}"); }
+        for bad in [take(0, Some(false)), take(2, None), take(2, Some(true)), [stream.clone(), stream].concat()] {
+            assert!(Take::read(&bad).is_err());
+        }
+    }
+
+    #[test]
+    fn an_unsupported_take_is_rejected_before_its_resources_are_read() {
+        let stream = take(2, Some(false));
+        for version in [0, take::VERSION + 1, u32::MAX] {
+            let mut unsupported = stream.clone();
+            unsupported[5..9].copy_from_slice(&version.to_le_bytes());
+            // Split even the length and version fields, as native and browser streams can be.
+            for chunk in [1, 3, unsupported.len()] {
+                let mut projector = Projector::default();
+                let result = unsupported.chunks(chunk).try_for_each(|bytes| projector.feed(bytes).map(|_| ()));
+                assert_eq!(result.unwrap_err(), format!("unsupported take format {version}; this engine reads format {}", take::VERSION));
+                assert!(projector.shown.is_none());
+            }
+        }
+        // The former START had no version, only width, height and fps (17 payload bytes).
+        let legacy = [17u32.to_le_bytes().as_slice(), &[0], &64u32.to_le_bytes(), &36u32.to_le_bytes(), &30f64.to_le_bytes()].concat();
+        let mut projector = Projector::default();
+        assert!(projector.feed(&legacy).err().unwrap().contains("unversioned takes are unsupported"));
+        assert!(projector.shown.is_none());
+    }
+
+    #[test]
+    fn a_recording_seeks_exact_integer_frames_including_holds() {
+        let mut w = Writer::default();
+        w.start(64, 36, 29.97);
+        let mut view = vec![0.0_f32; crate::render::VIEW_LENGTH];
+        view[44] = 0.25;
+        let cameras = vec![(7, 16, 12, bytemuck::cast_slice(&view).to_vec(), Vec::new())];
+        w.frame(bytemuck::cast_slice(&view), &[], 3, &cameras);
+        view[44] = 0.75;
+        w.frame(bytemuck::cast_slice(&view), &[], 2, &cameras);
+        w.close(false);
+        let mut recording = Take::read(&w.drain()).unwrap();
+        assert_eq!(recording.timeline(), [(0, 3), (3, 2)]);
+        for frame in [4, 0, 3, 2, 1, 4] {
+            let views = recording.frame_views(frame).unwrap();
+            assert_eq!(views.len(), 2);
+            assert_eq!((views[0].key, views[0].width, views[0].height), (7, 16, 12));
+            assert_eq!(views[0].view[44], 0.25);
+            assert_eq!(views[1].view[44], if frame < 3 { 0.25 } else { 0.75 });
+        }
+        assert!(recording.frame_views(5).is_err());
+        assert!(recording.frame_views(u32::MAX).is_err());
     }
 
     /// The first take is shown at once; a newer one comes in beside it and replaces it once it

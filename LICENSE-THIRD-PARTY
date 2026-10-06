@@ -9,7 +9,8 @@ GitHub release of its version,
 https://github.com/academa-labs/manimgx/releases/tag/vX.Y.Z for manimgx X.Y.Z:
 manimgx-X.Y.Z-source.tar.xz, manimgx's source distribution with every crate
 rust/Cargo.lock names and each archive a workspace's crate fetches. The Linux
-wheels' lavapipe is in LICENSE-LAVAPIPE. Written by scripts/release/licenses.py.
+wheels' lavapipe is in LICENSE-LAVAPIPE. Written by scripts/release/licenses.py. The
+Windows wheels' DXC is in LICENSE-DXC.
 
 ===============================================================================
 ab_glyph 0.2.32 (Apache-2.0): LICENSE

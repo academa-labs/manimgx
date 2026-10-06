@@ -17,6 +17,8 @@ mod chrome;
 #[cfg(feature = "export")]
 mod encode;
 mod environment;
+#[cfg(any(feature = "python", feature = "render", test))]
+mod mesh;
 #[cfg(feature = "export")]
 mod export;
 #[cfg(feature = "export")]
@@ -55,6 +57,10 @@ pub fn digest<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> u64 {
 /// A camera's view, drawn into a texture that later views sample by its key: (key, width,
 /// height, view, records).
 pub(crate) type CameraView = (u64, u32, u32, Vec<u8>, Vec<u8>);
+
+pub(crate) fn check_key(key: u64) -> Result<(), String> {
+    if key == 0 { Err("key 0 is reserved".into()) } else { Ok(()) }
+}
 
 /// Bytes as the items they hold (`what` names them in the error).
 pub(crate) fn read<T: bytemuck::Pod>(bytes: &[u8], what: &str) -> Result<Vec<T>, String> {

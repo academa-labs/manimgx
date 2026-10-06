@@ -146,7 +146,10 @@ MESHES: dict[str, tuple[dict[str, np.ndarray], bool]] = {  # a mesh's changes; t
 
 
 @pytest.mark.parametrize("name", MESHES)
-def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
+@pytest.mark.parametrize("sink", [Player, Recorder])
+def test_a_mesh_is_taken_if_it_fits_its_points(
+    name: str, sink: type[Player] | type[Recorder]
+) -> None:
     changes, taken = MESHES[name]
     mesh = {
         "points": np.zeros((4, 3)),
@@ -156,7 +159,7 @@ def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
     } | changes
 
     def add() -> None:
-        Player(16, 16, 1).add_mesh(
+        sink(16, 16, 1).add_mesh(
             1,
             np.asarray(mesh["points"], "<f8").tobytes(),
             np.asarray(mesh["uvs"], "<f8").tobytes(),
@@ -169,6 +172,12 @@ def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
     else:
         with pytest.raises(ValueError, match="mesh"):
             add()
+
+
+@pytest.mark.parametrize("sink", [Player, Recorder])
+def test_mesh_uploads_reserve_key_zero(sink: type[Player] | type[Recorder]) -> None:
+    with pytest.raises(ValueError, match="key 0 is reserved"):
+        sink(16, 16, 1).add_mesh(0, b"", b"", b"", b"")
 
 
 @pytest.mark.parametrize("start_paced", [False, True])

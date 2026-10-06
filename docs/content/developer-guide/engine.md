@@ -320,6 +320,13 @@ float32, the precision the GPU draws them at; everything else goes exactly as Py
 integration corpus's 841 scenes, 534 are identical in every frame, and the others differ by
 rounding, one level in a few pixels.
 
+Each take starts with its format version, exposed to Python as `_engine.TAKE_VERSION`.
+It covers the layouts of views, records, uploads and coded arrays. The shared projector
+checks it before reading resources, so a native window, browser and headless replay reject
+unsupported or unversioned recordings with an explicit error. A change to those layouts
+that alters their meaning needs a new format version; package releases and reference
+manifests have their own versions.
+
 ## Others' sources
 
 The repository holds only manimgx's code. What the engine is built from that others wrote —

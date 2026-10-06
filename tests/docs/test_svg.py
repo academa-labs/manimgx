@@ -21,7 +21,10 @@ def test_no_background_and_white_ink_dark_on_a_light_page(tmp_path: Path) -> Non
     dark, light = tmp_path / "dark.svg", tmp_path / "light.svg"
     svg.write(recording, dark)
     svg.write(recording, light, light=True)
-    on_dark, on_light = dark.read_text(), light.read_text()
+    on_dark, on_light = (
+        dark.read_text(encoding="utf-8"),
+        light.read_text(encoding="utf-8"),
+    )
     for text in (on_dark, on_light):
         assert "<rect" not in text  # nothing under the scene
         assert "#FFC94A" in text  # the color stays

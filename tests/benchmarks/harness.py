@@ -1,7 +1,7 @@
 """Two manimgx trees, timed side by side on one machine.
 
-A `Tree` is a manimgx package on disk: its `src/`, its engine built in it. `here()` is this
-checkout's; `checkout(ref, trees)` makes one of a commit under `trees` (its sources from git; its
+A `Tree` is a manimgx package on disk, with its engine. `here()` is the imported package,
+editable or installed; `checkout(ref, trees)` makes one of a commit under `trees` (its sources from git; its
 engine this checkout's when the commit's engine sources are this checkout's, else built), or
 takes another checkout's. A `Workload` is a scene file, rendered as a user renders it:
 `manimgx render`, in a fresh process with a tree first on its path. `run` measures one render,
@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import IO
 
 from tests.benchmarks.work import Work
+
+import manimgx
 
 ROOT = Path(__file__).resolve().parents[2]
 KEEP = 4
@@ -109,9 +111,9 @@ def _engine(src: Path) -> Path | None:
 
 
 def here() -> Tree:
-    """This checkout, as it is on disk."""
-    src = ROOT / LAYOUTS[0][0]
-    return Tree(src, f"this checkout ({_git('rev-parse', '--short', 'HEAD')})")
+    """The package imported by this process, including an installed wheel."""
+    src = Path(manimgx.__file__).resolve().parent.parent
+    return Tree(src, f"this package ({_git('rev-parse', '--short', 'HEAD')})")
 
 
 def checkout(ref: str, trees: Path) -> Tree:

@@ -61,6 +61,13 @@ check-typescript:
 test *args:
     uv run --frozen pytest -n auto {{ args }}
 
+# Test the Rust core and native libraries; the installed-wheel suite tests Python's bindings
+[group('testing')]
+test-rust:
+    cargo test --locked --release --manifest-path rust/Cargo.toml --workspace \
+        --no-default-features \
+        --features manimgx-engine/render,manimgx-engine/export,manimgx-engine/typeset,manimgx-engine/player
+
 # Test the browser package, its compiled worker, and its public declarations
 [group('testing')]
 test-typescript:
@@ -74,9 +81,9 @@ test-coverage *args:
 # Combine the coverage of several test runs (their .coverage.* files) into htmlcov/ and a table
 [group('testing')]
 combine-coverage directory:
-    uvx coverage combine --quiet {{ directory }}
-    uvx coverage html --quiet
-    uvx coverage report --format=markdown
+    uv run --frozen coverage combine --quiet {{ directory }}
+    uv run --frozen coverage html --quiet
+    uv run --frozen coverage report --format=markdown
 
 # Run the unit tests' properties on 2,000 examples each (the `thorough` Hypothesis profile)
 [group('testing')]
