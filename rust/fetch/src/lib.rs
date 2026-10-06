@@ -62,7 +62,7 @@ fn acquire(url: &str, hash: &str, out: &Path, sources: Option<&Path>, prepare: P
             let download = tempfile::tempdir_in(folder)?;
             let archive = download.path().join("archive");
             run(Command::new("curl")
-                .args(["-fsSL", "--retry", "3", "--connect-timeout", "30", "--max-time", "300", "--retry-max-time", "600", "-o"])
+                .args(["-fsSL", "--retry", "3", "--retry-connrefused", "--connect-timeout", "30", "--max-time", "300", "--retry-max-time", "600", "-o"])
                 .arg(&archive)
                 .arg(url))?;
             let root = prepare(&archive, &unpacked, hash)?;

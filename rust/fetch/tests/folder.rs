@@ -140,6 +140,54 @@ fn a_successful_http_response_must_still_be_a_verified_archive() {
 }
 
 #[test]
+fn a_source_that_temporarily_refuses_connections_recovers() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let mut source = Source::new();
+    let reserved = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reserved.local_addr().unwrap();
+    drop(reserved); // The first requests see a refused connection, not an HTTP error.
+    source.url = format!("http://{address}/tree.tar.gz");
+    let archive = fs::read(source.path("served/tree.tar.gz")).unwrap();
+    let (finished, stopped) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        if stopped.recv_timeout(Duration::from_secs(2)).is_ok() {
+            return; // A downloader without retries already failed.
+        }
+        let listener = TcpListener::bind(address).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        stream.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                    }
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", archive.len()).unwrap();
+                    stream.write_all(&archive).unwrap();
+                    return;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if stopped.recv_timeout(Duration::from_millis(10)).is_ok() {
+                        return;
+                    }
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+    });
+    let result = source.build("first").output().unwrap();
+    let _ = finished.send(());
+    server.join().unwrap();
+    success(result);
+    source.check("first");
+}
+
+#[test]
 fn the_pin_rejects_valid_archives_with_different_files() {
     let source = Source::new();
     let output = source.build("first").env("FETCH_TEST_HASH", "0".repeat(64)).output().unwrap();
