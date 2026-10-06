@@ -11,6 +11,7 @@
   (nor is its type manimgx's imprecision).
 """
 
+import hashlib
 import json
 import os
 import signal
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import pytest
 from tests.integration import test_corpus as corpus
-from tests.integration.corpus import baseline, case, engines, typecheck
+from tests.integration.corpus import baseline, case, engines, references, typecheck
 from tests.integration.corpus.case import (
     FPS,
     METRICS,
@@ -147,6 +148,35 @@ def made(name: str, scene: str) -> Case:
     example.dir.mkdir()
     example.scene.write_text(scene, encoding="utf-8")
     return example
+
+
+@pytest.mark.usefixtures("cases")
+def test_recreated_movie_checksum_binds_its_actual_container_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    example = made("recreated", "import manimgx\n")
+    example.write_facts(
+        Facts(
+            example.source_hash(), SIZE, FPS, STORED, Failure("unavailable"), "", None
+        )
+    )
+    example.video_hash("manimgx").write_text(
+        f"{hashlib.sha256(b'original encoding').hexdigest()}  manimgx.mkv\n",
+        encoding="ascii",
+    )
+    movie = b"identical decoded frames in a different lossless container"
+
+    def render(_case: Case, _engine: str, *, video: Path) -> engines.Result:
+        video.write_bytes(movie)
+        return engines.Result(example.source_hash(), STORED)
+
+    monkeypatch.setattr(engines, "run", render)
+    facts, _ = references.render(example, {"manimgx"})
+    assert facts.manimgx == STORED
+    assert example.video("manimgx").read_bytes() == movie
+    assert example.video_hash("manimgx").read_text(encoding="ascii") == (
+        f"{hashlib.sha256(movie).hexdigest()}  manimgx.mkv\n"
+    )
 
 
 @pytest.mark.usefixtures("cases")
