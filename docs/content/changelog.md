@@ -16,12 +16,6 @@ The notable changes to manimgx, release by release. The format follows
 ### Removed
 -->
 
-## Unreleased
-
-### Changed
-
-- The integration corpus keeps SHA-256 hashes of its reference videos in Git while generating the videos locally, reducing clone size.
-
 ## 0.1.0
 
 First release of manimgx.
