@@ -32,7 +32,7 @@ def test_recorded_geometry_and_images_replay_exactly_in_any_order() -> None:
                 dtype=np.uint8,
             )
         )
-        .scale(0.8)
+        .scale_to_fit_height(1.6)
         .shift(2 * m.RIGHT)
     )
     objects: list[m.Mobject] = [path, mesh, image]
@@ -57,7 +57,7 @@ def test_recorded_geometry_and_images_replay_exactly_in_any_order() -> None:
 
 
 def test_independent_takes_own_their_resources_when_keys_overlap() -> None:
-    image = m.ImageMobject(np.full((2, 2, 4), 255, np.uint8)).scale(2)
+    image = m.ImageMobject(np.full((2, 2, 4), 255, np.uint8)).scale_to_fit_height(4)
     camera = m.Camera()
 
     def take(color: bytes) -> tuple[Replay, bytes, int]:
