@@ -26,7 +26,7 @@ jobs:
   build:
     name: Build
     if: github.event.action != 'closed'
-    runs-on: ubuntu-24.04
+    runs-on: macos-26
     timeout-minutes: 45
     permissions:
       contents: read
@@ -38,13 +38,6 @@ jobs:
       - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
         with:
           tool: just
-
-      # the GPU the examples' videos are drawn with, on the CPU: Mesa's lavapipe (the narrated
-      # examples speak from docs/voice/, where what they say is kept)
-      - name: Install a GPU driver
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
@@ -62,7 +55,7 @@ jobs:
       - name: Identify the rendered examples
         id: films
         run: |
-          export MANIMGX_DOCS_RENDER_PROFILE="$(rustc --version);$(dpkg-query --show --showformat='${Package}=${Version};' libvulkan1 mesa-vulkan-drivers)"
+          export MANIMGX_DOCS_RENDER_PROFILE="$(rustc --version);macOS=$(sw_vers -productVersion);build=$(sw_vers -buildVersion)"
           printf 'MANIMGX_DOCS_RENDER_PROFILE=%s\n' "$MANIMGX_DOCS_RENDER_PROFILE" >> "$GITHUB_ENV"
           uv run --frozen --no-default-groups --group docs python -m docs.examples --cache-key \
             | jq -r '"key=\(.key)\nprefix=\(.prefix)"' >> "$GITHUB_OUTPUT"
