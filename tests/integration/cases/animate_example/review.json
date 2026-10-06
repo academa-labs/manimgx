@@ -1,8 +1,8 @@
 {
   "verdict": "working",
-  "note": "",
+  "note": "Sampled the canonical frames: square creation, shift, scale, rotation and removal match the scene.",
   "source": "sha256:ece2bac78c023865e0842f064699a7841750359d20617e1f8efc2084fceed10a",
-  "manimgx": "sha256:a7817ec2f961fed48bf4b23caff0aeec74120c48d0539981170a198f46111cc6",
+  "manimgx": "sha256:e54489ced1157e972fc9b7bea6dcd74b7e95234559b5436a28b3f91bb81062a7",
   "ce": "sha256:dd87d3e4bc3d74ccf869a8d3c572cd8fb587fb06631f7df19e2c78fd6532516b",
-  "at": "2026-09-24"
+  "at": "2026-10-05"
 }
