@@ -6,6 +6,7 @@ export interface Engine {
 }
 
 export interface Player {
+  free(): void;
   feed(bytes: Uint8Array): void;
   key(key: string, ctrl: boolean, alt: boolean, meta: boolean): boolean;
   pointer(x: number, y: number): void;

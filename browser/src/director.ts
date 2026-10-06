@@ -1,7 +1,7 @@
 // The director's worker: Python (Pyodide) running scenes, their takes sent to the page's players.
 // manimgx comes from PyPI (micropip), and with it the player's engine, which is handed on.
 //
-// In: {boot: {pyodide, manimgx}} once; {film, run: {source, scene}}.
+// In: {boot: {pyodide, manimgx}} once; {film, run: {source, scene}}; {film, drop} on detach.
 // Out: {status} while it boots (what it waits for); {engine: {js, wasm, fonts}} once (the
 // player: its JS and WebAssembly, and the fonts its face is set in); then each film's take stream,
 // {film, feed}: its takes, and between them the director's notes (the file's scenes, an error),
@@ -42,11 +42,14 @@ interface Python {
   py: Pyodide;
   micropip: Micropip;
   runner: Runner;
+  note: (text: string) => Uint8Array<ArrayBuffer>;
+  drop: (film: number) => void;
 }
 
-const queue = new Map<number, Run>(); // film → the latest run asked for, not begun (an edit replaces it)
+const queue = new Map<number, Run | null>(); // the latest run, or teardown after the active run
 let booted: Promise<Python | null> | undefined;
 let busy = false;
+let failed = false;
 
 function send(data: FromDirector, transfer: Transferable[] = []): void {
   postMessage(data, transfer);
@@ -55,13 +58,15 @@ function send(data: FromDirector, transfer: Transferable[] = []): void {
 onmessage = ({ data }: MessageEvent<ToDirector>) => {
   if ("boot" in data) {
     booted = boot(data.boot).catch((error: unknown) => {
-      send({ status: `manimgx could not start: ${message(error)}` });
+      failed = true;
+      queue.clear();
+      send({ failure: `manimgx could not start: ${message(error)}` });
       return null;
     });
     return;
   }
-  if ("run" in data) {
-    queue.set(data.film, data.run);
+  if (!failed) {
+    queue.set(data.film, "run" in data ? data.run : null);
     drain();
   }
 };
@@ -87,54 +92,72 @@ from manimgx.drawing.typesetting import FONTS
   built.destroy();
   send({ engine: { js, wasm, fonts } }, [wasm.buffer, ...fonts.map((f) => f.buffer)]);
   const runner = py.runPython(RUNNER) as Runner;
-  return { py, micropip, runner };
+  const note = py.runPython("lambda text: to_js(_engine.note(text))") as Python["note"];
+  const drop = py.runPython("drop") as Python["drop"];
+  return { py, micropip, runner, note, drop };
 }
 
 async function drain(): Promise<void> {
   const python = await booted;
   if (!python || busy) return;
-  const { py, micropip, runner } = python;
+  const { py, micropip, runner, note, drop } = python;
   busy = true;
-  for (const [film, { source, scene }] of queue) {
-    queue.delete(film);
-    const feed = (bytes: Uint8Array<ArrayBuffer>): void =>
-      send({ film, feed: bytes.buffer }, [bytes.buffer]);
-    await py.loadPackagesFromImports(source); // what the scene imports from Pyodide's own packages
-    // a module the scene misses (its own import, or one manimgx imports when needed: networkx
-    // for a Graph) is installed, and the scene run again
-    const tried: string[] = [];
-    for (let missing; (missing = runner(film, source, scene ?? null, feed, tried));) {
-      tried.push(missing);
-      await micropip.install(missing).catch(() => {});
+  try {
+    for (const [film, run] of queue) {
+      queue.delete(film);
+      const feed = (bytes: Uint8Array<ArrayBuffer>): void =>
+        send({ film, feed: bytes.buffer }, [bytes.buffer]);
+      try {
+        if (run === null) {
+          drop(film);
+          continue;
+        }
+        const { source, scene } = run;
+        await py.loadPackagesFromImports(source); // the scene's Pyodide package imports
+        // A missing module is installed once, then the ordinary runner reports any failure.
+        const tried: string[] = [];
+        for (let missing; (missing = runner(film, source, scene ?? null, feed, tried));) {
+          tried.push(missing);
+          await micropip.install(missing).catch(() => {});
+        }
+      } catch (error) {
+        // Loading and calling Python can fail outside its own scene error boundary. Keep the
+        // error in this film's ordinary note stream so another film or edit can still run.
+        feed(note(JSON.stringify({ error: { message: message(error), type: "Error" } })));
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve)); // let newer runs in
     }
-    await new Promise<void>((resolve) => setTimeout(resolve)); // let newer runs in
+  } finally {
+    busy = false;
+    if (queue.size) drain();
   }
-  busy = false;
-  if (queue.size) drain();
 }
 
 // Python: a film's source run as a scene file, like `manimgx render` runs one, its take sent on.
 const RUNNER = `
-import dataclasses, importlib.util, json, sys, traceback
+import dataclasses, importlib.util, json, linecache, shutil, sys, traceback
 from pathlib import Path
 from pyodide.ffi import to_js
 from manimgx import _engine
 from manimgx.config import Config, config
 from manimgx.scene import Scene
 
+FILMS = Path("/home/pyodide/films")
+
 def run(film, source, name, send, tried):
     out = lambda data: send(to_js(data))
-    path = Path(f"/home/pyodide/films/{film}/scene.py")
+    path = FILMS / str(film) / "scene.py"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source)
+        path.write_text(source, encoding="utf-8")
+        linecache.cache.pop(str(path), None)
         defaults = Config()
         for field in dataclasses.fields(Config):
             setattr(config, field.name, getattr(defaults, field.name))
         spec = importlib.util.spec_from_file_location("scene", path)
         module = importlib.util.module_from_spec(spec)
         sys.modules["scene"] = module
-        spec.loader.exec_module(module)
+        exec(compile(source, str(path), "exec"), module.__dict__)
         scenes = [v for v in vars(module).values() if isinstance(v, type) and issubclass(v, Scene) and v.__module__ == "scene"]
         names = [s.__name__ for s in scenes]
         if not scenes:
@@ -148,6 +171,17 @@ def run(film, source, name, send, tried):
         report(out, path, error)
     except Exception as error:
         report(out, path, error)
+
+def drop(film):
+    path = FILMS / str(film) / "scene.py"
+    module = sys.modules.get("scene")
+    if getattr(module, "__file__", None) == str(path):
+        del sys.modules["scene"]
+    for filename in list(linecache.cache):
+        if Path(filename).is_relative_to(path.parent):
+            del linecache.cache[filename]
+    if path.parent.exists():
+        shutil.rmtree(path.parent)
 
 def report(out, path, error):
     # the scene's own frames, not manimgx's or Pyodide's

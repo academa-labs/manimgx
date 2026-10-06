@@ -31,13 +31,15 @@ export const runtime = {
 interface PagePlayer {
   wait(): void;
   feed(bytes: ArrayBuffer): void;
+  fail(error: string): void;
 }
 
 interface Page {
   director: Worker;
   players: Map<number, PagePlayer>;
-  engine: Promise<Engine>;
+  engine: Promise<Engine | null>;
   status: string;
+  failure: string | null;
 }
 
 let page: Page | undefined; // the page's director, its engine (once it is up), and its players
@@ -51,15 +53,27 @@ function begin(): Page {
   if (page) return page;
   const director = new Worker(runtime.worker(), { type: "module" });
   const players = new Map<number, PagePlayer>();
-  let up: (engine: Engine) => void = () => {};
+  let up: (engine: Engine | null) => void = () => {};
   const current: Page = {
     director,
     players,
     engine: new Promise((resolve) => (up = resolve)),
     status: "Loading Python…",
+    failure: null,
   };
   page = current;
+  const fail = (error: string): void => {
+    if (current.failure !== null) return;
+    current.failure = current.status = error;
+    up(null);
+    director.terminate();
+    for (const player of players.values()) player.fail(error);
+  };
+  director.onerror = (event) => fail(`manimgx could not start: ${event.message}`);
+  director.onmessageerror = () => fail("manimgx could not read its worker's reply");
   director.onmessage = async ({ data }: MessageEvent<FromDirector>) => {
+    if (current.failure !== null) return;
+    if ("failure" in data) return fail(data.failure);
     if ("status" in data) {
       current.status = data.status;
       for (const player of players.values()) player.wait();
@@ -68,16 +82,16 @@ function begin(): Page {
       // the player, from the manimgx the director installed: its JS, its WebAssembly, the fonts
       // its face is set in
       const { js, wasm, fonts } = data.engine;
+      const url = URL.createObjectURL(new Blob([js], { type: "text/javascript" }));
       try {
-        const engine = (await import(
-          URL.createObjectURL(new Blob([js], { type: "text/javascript" }))
-        )) as Engine;
+        const engine = (await import(url)) as Engine;
         await engine.default({ module_or_path: wasm });
         await engine.init(fonts);
         up(engine);
       } catch (error) {
-        current.status = `manimgx can't draw here: ${message(error)}`;
-        for (const player of players.values()) player.wait();
+        fail(`manimgx can't draw here: ${message(error)}`);
+      } finally {
+        URL.revokeObjectURL(url);
       }
     }
     if ("film" in data) players.get(data.film)?.feed(data.feed);
@@ -93,7 +107,7 @@ let films = 0;
 export class ManimgxPlayer extends HTMLElement {
   static observedAttributes = ["scene"];
 
-  #film = ++films;
+  #film = 0;
   #canvas: HTMLCanvasElement;
   #said: HTMLParagraphElement;
   #source: string | null = null;
@@ -101,7 +115,8 @@ export class ManimgxPlayer extends HTMLElement {
   #wants: { time: number; playing: boolean | null } = { time: 0, playing: null };
   #begun = false;
   #failed = false;
-  #player: Player | null = null;
+  #player: Player | null = null; // native GPU resources belong to one connected lifetime
+  #connection: AbortController | undefined;
   #timer: number | undefined;
   #frame = 0;
   #root: ShadowRoot;
@@ -123,12 +138,39 @@ export class ManimgxPlayer extends HTMLElement {
 
   connectedCallback(): void {
     if (!this.hasAttribute("tabindex")) this.tabIndex = 0; // it takes keys
-    // begun a task later: a page can still set `settings` after importing this
-    if (!this.#begun) setTimeout(() => this.isConnected && !this.#begun && this.#begin());
+    if (this.#connection || this.#failed) return;
+    this.#film = ++films; // late bytes from an earlier connection belong to its old decoder
+    const connection = (this.#connection = new AbortController());
+    // Begun a task later: a page can still set `settings` after importing this.
+    const task = setTimeout(() => {
+      if (!connection.signal.aborted) this.#begin(connection.signal);
+    });
+    connection.signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(task);
+        clearTimeout(this.#timer);
+        cancelAnimationFrame(this.#frame);
+        this.#frame = 0;
+      },
+      { once: true },
+    );
   }
 
   disconnectedCallback(): void {
-    if (this.#player) this.pause();
+    this.#connection?.abort();
+    this.#connection = undefined;
+    if (page?.players.delete(this.#film) && page.failure === null) {
+      send(page.director, { film: this.#film, drop: true });
+    }
+    this.#backlog = [];
+    const player = this.#player;
+    if (player) {
+      this.#wants = { time: player.time, playing: false };
+      player.pause();
+      this.#player = null;
+      player.free();
+    }
   }
 
   attributeChangedCallback(): void {
@@ -187,22 +229,36 @@ export class ManimgxPlayer extends HTMLElement {
 
   // ── the player ─────────────────────────────────────────────────────────────────────────
 
-  async #begin(): Promise<void> {
-    this.#begun = true;
-    const script = this.querySelector('script[type="text/python"]');
-    if (script && this.#source === null) this.#source = dedent(script.textContent);
-    const { players, engine } = begin();
-    players.set(this.#film, { wait: () => this.#wait(), feed: (bytes) => this.#feed(bytes) });
+  async #begin(signal: AbortSignal): Promise<void> {
+    if (this.#failed) return;
+    if (!this.#begun) {
+      this.#begun = true;
+      const script = this.querySelector('script[type="text/python"]');
+      if (script && this.#source === null) this.#source = dedent(script.textContent);
+    }
+    const { players, engine, failure } = begin();
+    if (failure !== null) return this.#fail(failure);
+    players.set(this.#film, {
+      wait: () => this.#wait(),
+      feed: (bytes) => this.#feed(bytes),
+      fail: (error) => this.#fail(error),
+    });
     this.#wait();
     if (this.#source !== null) this.#run();
     const canvas = this.#canvas;
     const box = canvas.getBoundingClientRect();
-    [canvas.width, canvas.height] = [
-      Math.max(1, Math.round(box.width * devicePixelRatio)),
-      Math.max(1, Math.round(box.height * devicePixelRatio)),
-    ];
-    const made = await engine;
-    if (this.#failed) return;
+    const width = Math.max(1, Math.round(box.width * devicePixelRatio));
+    const height = Math.max(1, Math.round(box.height * devicePixelRatio));
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    // An unattached element must not be retained by the page's pending runtime promise.
+    const made = await Promise.race([
+      engine,
+      new Promise<undefined>((resolve) =>
+        signal.addEventListener("abort", () => resolve(undefined), { once: true }),
+      ),
+    ]);
+    if (!made || signal.aborted || this.#failed) return;
     try {
       const { time, playing } = this.#wants;
       this.#player = new made.Player(canvas, time, playing ?? this.hasAttribute("autoplay"), MAC);
@@ -211,7 +267,7 @@ export class ManimgxPlayer extends HTMLElement {
       return this.#fail(error);
     }
     this.#said.remove();
-    this.#wire();
+    this.#wire(signal);
     for (const bytes of this.#backlog.splice(0)) this.#feed(bytes);
     this.#after();
   }
@@ -221,15 +277,14 @@ export class ManimgxPlayer extends HTMLElement {
   }
 
   #fail(error: unknown): void {
-    this.#player = null;
     this.#failed = true;
-    this.#backlog = [];
+    this.disconnectedCallback();
     this.#said.textContent = message(error);
     this.#root.append(this.#said);
   }
 
   #run(): void {
-    if (this.#source === null) return;
+    if (this.#source === null || !page?.players.has(this.#film)) return;
     send(begin().director, {
       film: this.#film,
       run: { source: this.#source, scene: this.getAttribute("scene") },
@@ -254,7 +309,7 @@ export class ManimgxPlayer extends HTMLElement {
   }
 
   /** What the viewer does, handed on as the web has it; what the player takes, the page doesn't. */
-  #wire(): void {
+  #wire(signal: AbortSignal): void {
     const p = this.#player,
       canvas = this.#canvas;
     if (!p) return;
@@ -280,7 +335,7 @@ export class ManimgxPlayer extends HTMLElement {
           if (hand(e)) e.preventDefault();
           this.#after();
         },
-        options,
+        { ...options, signal },
       );
     let pressed: number | null = null; // the pointer that pressed: one at a time, its primary button or finger
     on(this, "keydown", (e) => p.key(e.key, e.ctrlKey, e.altKey, e.metaKey));
@@ -311,7 +366,7 @@ export class ManimgxPlayer extends HTMLElement {
     );
     on(document, "fullscreenchange", () => p.fullscreen(document.fullscreenElement === this));
     // drawn at the size the page shows it, in the screen's own pixels: sharp at any size
-    new ResizeObserver(([entry]) => {
+    const resize = new ResizeObserver(([entry]) => {
       if (!entry) return;
       const box = entry.devicePixelContentBoxSize?.[0];
       const css = entry.contentBoxSize[0];
@@ -321,21 +376,31 @@ export class ManimgxPlayer extends HTMLElement {
       if (this.#player !== p) return;
       p.resize(w, h, w / css.inlineSize);
       this.#after();
-    }).observe(canvas);
+    });
+    resize.observe(canvas);
     // out of sight, it draws nothing (its clock and sound go on)
-    new IntersectionObserver(([entry]) => {
+    const visibility = new IntersectionObserver(([entry]) => {
       if (!entry) return;
       if (this.#player !== p) return;
       p.hide(!entry.isIntersecting);
       this.#after();
-    }).observe(this);
+    });
+    visibility.observe(this);
+    signal.addEventListener(
+      "abort",
+      () => {
+        resize.disconnect();
+        visibility.disconnect();
+      },
+      { once: true },
+    );
   }
 
   /** What the player asks (its director to run another scene, full screen), its cursor, and its
    *  next picture, when it is due. */
   #after(): void {
     const p = this.#player;
-    if (!p) return;
+    if (!p || !this.#connection || this.#connection.signal.aborted) return;
     for (const [ask, value] of p.asks()) {
       if (ask === "scene") {
         this.setAttribute("scene", value);

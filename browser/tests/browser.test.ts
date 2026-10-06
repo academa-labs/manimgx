@@ -10,21 +10,77 @@ const packageJSON = (await Bun.file(new URL("../package.json", import.meta.url))
 
 // Each page gets its own globals and module, just as separate browser tabs do. Loading the
 // emitted file also catches packaging mistakes that importing the TypeScript source misses.
-async function page(script: string | null = null) {
-  const tasks: (() => void)[] = [];
+async function page(
+  script: string | null = null,
+  failAt: "import" | "wasm" | "fonts" | null = null,
+) {
+  const tasks = new Map<number, () => void>();
+  const frames = new Map<number, () => void>();
+  let taskId = 0;
   const blobs: Blob[] = [];
   const elements = new Map<string, unknown>();
   const workers: Director[] = [];
+  const natives: NativePlayer[] = [];
+  const observers: Observer[] = [];
+  const document = Object.assign(new EventTarget(), { fullscreenElement: null });
+  class Observer {
+    targets = new Set<unknown>();
+    constructor(_callback: unknown) {
+      observers.push(this);
+    }
+    observe(target: unknown) {
+      this.targets.add(target);
+    }
+    disconnect() {
+      this.targets.clear();
+    }
+  }
+  class NativePlayer {
+    time = 0;
+    playing = false;
+    cursor = "default";
+    feeds: number[][] = [];
+    fullscreenChanges = 0;
+    wakeAfter = -1;
+    frees = 0;
+    constructor(_canvas: unknown, time: number, playing: boolean) {
+      this.time = time;
+      this.playing = playing;
+      natives.push(this);
+    }
+    free() {
+      this.frees++;
+    }
+    resize() {}
+    pause() {
+      this.playing = false;
+    }
+    asks() {
+      return [];
+    }
+    wake() {
+      return this.wakeAfter;
+    }
+    feed(bytes: Uint8Array) {
+      if (bytes[0] === 255) throw new Error("decode failed");
+      this.feeds.push([...bytes]);
+    }
+    fullscreen() {
+      this.fullscreenChanges++;
+    }
+  }
   const waiting = { textContent: "", remove() {} };
-  const canvas = {
+  const canvas = Object.assign(new EventTarget(), {
+    style: { cursor: "" },
     width: 0,
     height: 0,
     getBoundingClientRect: () => ({ width: 320, height: 180 }),
-  };
+  });
 
   class Element extends EventTarget {
     isConnected = true;
     tabIndex = -1;
+    style = { setProperty() {} };
     attributes = new Map<string, string>();
     shadowRoot = {
       innerHTML: "",
@@ -57,6 +113,8 @@ async function page(script: string | null = null) {
   class Director {
     sent: unknown[] = [];
     onmessage: ((event: { data: unknown }) => Promise<void>) | null = null;
+    onerror: ((event: { message: string }) => void) | null = null;
+    terminations = 0;
     constructor(
       readonly url: string,
       readonly options: WorkerOptions,
@@ -66,10 +124,17 @@ async function page(script: string | null = null) {
     postMessage(data: unknown) {
       this.sent.push(data);
     }
+    terminate() {
+      this.terminations++;
+    }
   }
 
   const context = createContext({
     HTMLElement: Element,
+    AbortController,
+    document,
+    ResizeObserver: Observer,
+    IntersectionObserver: Observer,
     navigator: { platform: "Linux" },
     customElements: {
       get: (name: string) => elements.get(name),
@@ -82,11 +147,44 @@ async function page(script: string | null = null) {
         blobs.push(blob);
         return `blob:test/${blobs.length}`;
       }
+      static override revokeObjectURL() {}
     },
     devicePixelRatio: 2,
-    setTimeout: (callback: () => void) => tasks.push(callback),
+    setTimeout: (callback: () => void) => {
+      tasks.set(++taskId, callback);
+      return taskId;
+    },
+    clearTimeout: (id: number) => tasks.delete(id),
+    requestAnimationFrame: (callback: () => void) => {
+      frames.set(++taskId, callback);
+      return taskId;
+    },
+    cancelAnimationFrame: (id: number) => frames.delete(id),
   });
-  const module = new SourceTextModule(bundle, { context });
+  const engine = new SyntheticModule(
+    ["default", "init", "Player"],
+    function () {
+      this.setExport("default", async () => {
+        if (failAt === "wasm") throw new Error("wasm failed");
+      });
+      this.setExport("init", async () => {
+        if (failAt === "fonts") throw new Error("fonts failed");
+      });
+      this.setExport("Player", NativePlayer);
+    },
+    { context },
+  );
+  await engine.link(() => {
+    throw new Error("Unexpected engine import");
+  });
+  await engine.evaluate();
+  const module = new SourceTextModule(bundle, {
+    context,
+    importModuleDynamically: () => {
+      if (failAt === "import") throw new Error("import failed");
+      return engine;
+    },
+  });
   await module.link(() => {
     throw new Error("The published player must be one self-contained module");
   });
@@ -97,9 +195,18 @@ async function page(script: string | null = null) {
     blobs,
     elements,
     workers,
+    natives,
+    observers,
+    document,
+    timers: tasks,
+    frames,
     waiting,
     canvas,
-    flush: () => tasks.splice(0).forEach((task) => task()),
+    flush: () => {
+      const batch = [...tasks.values()];
+      tasks.clear();
+      batch.forEach((task) => task());
+    },
   };
 }
 
@@ -179,10 +286,153 @@ describe("published browser module", () => {
     player.connectedCallback();
     state.flush();
     expect(state.workers).toHaveLength(1);
-    expect(director.sent).toHaveLength(4);
+    expect(director.sent).toHaveLength(6);
   });
 
-  test("the embedded worker is executable JavaScript and coalesces pending scene edits", async () => {
+  test("disconnecting frees native resources and subscriptions; reconnecting preserves the time", async () => {
+    const state = await page();
+    const player = new state.api.ManimgxPlayer();
+    player.source = "first";
+    player.connectedCallback();
+    state.flush();
+    const director = state.workers[0]!;
+    await director.onmessage!({ data: { engine: { js: "", wasm: new Uint8Array(), fonts: [] } } });
+    await settle();
+    expect(state.natives).toHaveLength(1);
+    expect(state.observers.filter((observer) => observer.targets.size)).toHaveLength(2);
+    state.natives[0]!.wakeAfter = 0;
+    player.currentTime = 1.25;
+    expect(state.frames.size).toBe(1);
+    state.natives[0]!.wakeAfter = 20;
+    player.currentTime = 1.25;
+    expect(state.timers.size).toBe(1);
+    state.document.dispatchEvent(new Event("fullscreenchange"));
+    expect(state.natives[0]!.fullscreenChanges).toBe(1);
+
+    Object.defineProperty(player, "isConnected", { value: false, writable: true });
+    player.disconnectedCallback();
+    player.disconnectedCallback(); // teardown is idempotent
+    expect(state.natives[0]!.playing).toBe(false);
+    expect(state.natives[0]!.frees).toBe(1);
+    expect(state.frames.size).toBe(0);
+    expect(state.timers.size).toBe(0);
+    state.natives[0]!.wakeAfter = -1;
+    expect(state.observers.every((observer) => observer.targets.size === 0)).toBe(true);
+    state.document.dispatchEvent(new Event("fullscreenchange"));
+    expect(state.natives[0]!.fullscreenChanges).toBe(1);
+    await director.onmessage!({ data: { film: 1, feed: new Uint8Array([1]).buffer } });
+    expect(state.natives[0]!.feeds).toEqual([]);
+    const sent = director.sent.length;
+    player.source = "edited while detached";
+    expect(director.sent).toHaveLength(sent);
+
+    Object.defineProperty(player, "isConnected", { value: true });
+    player.connectedCallback();
+    state.flush();
+    await settle();
+    expect(state.natives).toHaveLength(2);
+    expect(player.currentTime).toBe(1.25);
+    expect(player.paused).toBe(true);
+    expect(state.observers.filter((observer) => observer.targets.size)).toHaveLength(2);
+    expect(director.sent.at(-1)).toEqual({
+      film: 2,
+      run: { source: "edited while detached", scene: null },
+    });
+    state.document.dispatchEvent(new Event("fullscreenchange"));
+    expect(state.natives[0]!.fullscreenChanges).toBe(1);
+    expect(state.natives[1]!.fullscreenChanges).toBe(1);
+    // The previous run may still be sending bytes when this connection's native decoder is
+    // empty. A continuation from that old take must never enter the new decoder.
+    await director.onmessage!({ data: { film: 1, feed: new Uint8Array([255]).buffer } });
+    expect(state.natives[1]!.frees).toBe(0);
+    await director.onmessage!({ data: { film: 2, feed: new Uint8Array([2]).buffer } });
+    expect(state.natives[0]!.feeds).toEqual([]);
+    expect(state.natives[1]!.feeds).toEqual([[2]]);
+    await director.onmessage!({ data: { film: 2, feed: new Uint8Array([255]).buffer } });
+    expect(state.natives[1]!.frees).toBe(1);
+    expect(state.observers.every((observer) => observer.targets.size === 0)).toBe(true);
+    expect(state.waiting.textContent).toBe("decode failed");
+  });
+
+  test("disconnecting during boot does not create an orphan native player", async () => {
+    const state = await page();
+    const player = new state.api.ManimgxPlayer();
+    player.source = "first";
+    player.connectedCallback();
+    state.flush();
+    Object.defineProperty(player, "isConnected", { value: false, writable: true });
+    player.disconnectedCallback();
+    await state.workers[0]!.onmessage!({
+      data: { engine: { js: "", wasm: new Uint8Array(), fonts: [] } },
+    });
+    await settle();
+    expect(state.natives).toHaveLength(0);
+    Object.defineProperty(player, "isConnected", { value: true });
+    player.connectedCallback();
+    state.flush();
+    await settle();
+    expect(state.natives).toHaveLength(1);
+  });
+
+  test("an old connection cannot create a second player when boot finishes after reconnect", async () => {
+    const state = await page();
+    const player = new state.api.ManimgxPlayer();
+    player.connectedCallback();
+    state.flush();
+    player.disconnectedCallback();
+    player.connectedCallback();
+    state.flush();
+    await state.workers[0]!.onmessage!({
+      data: { engine: { js: "", wasm: new Uint8Array(), fonts: [] } },
+    });
+    await settle();
+    expect(state.natives).toHaveLength(1);
+    expect(state.observers.filter((observer) => observer.targets.size)).toHaveLength(2);
+  });
+
+  test.each(["import", "wasm", "fonts", "worker", "boot"] as const)(
+    "%s initialization failure is terminal for existing and future players",
+    async (failure) => {
+      const state = await page(
+        null,
+        ["worker", "boot"].includes(failure) ? null : (failure as "import" | "wasm" | "fonts"),
+      );
+      const player = new state.api.ManimgxPlayer();
+      player.source = "first";
+      player.connectedCallback();
+      state.flush();
+      const director = state.workers[0]!;
+      await director.onmessage!({ data: { film: 1, feed: new Uint8Array([1]).buffer } });
+      if (failure === "worker") director.onerror!({ message: "worker failed" });
+      else if (failure === "boot") await director.onmessage!({ data: { failure: "boot failed" } });
+      else
+        await director.onmessage!({
+          data: { engine: { js: "", wasm: new Uint8Array(), fonts: [] } },
+        });
+      await settle();
+      expect(state.waiting.textContent).toContain(`${failure} failed`);
+      expect(director.terminations).toBe(1);
+      const sent = director.sent.length;
+      player.source = "cannot run";
+      const later = new state.api.ManimgxPlayer();
+      later.source = "cannot run either";
+      later.connectedCallback();
+      state.flush();
+      await settle();
+      expect(director.sent).toHaveLength(sent);
+      expect(state.natives).toHaveLength(0);
+      expect(state.waiting.textContent).toContain(`${failure} failed`);
+      // Even a late successful boot message cannot resurrect this failed runtime or replay
+      // bytes that arrived before initialization failed.
+      await director.onmessage!({
+        data: { engine: { js: "", wasm: new Uint8Array(), fonts: [] } },
+      });
+      await settle();
+      expect(state.natives).toHaveLength(0);
+    },
+  );
+
+  test("the embedded worker coalesces edits and isolates film failures", async () => {
     const state = await page();
     new state.api.ManimgxPlayer().connectedCallback();
     state.flush();
@@ -191,9 +441,11 @@ describe("published browser module", () => {
     const imports: string[] = [];
     const installs: string[] = [];
     const runs: { film: number; source: string; scene: string | null; tried: string[] }[] = [];
+    const drops: number[] = [];
     const tasks: (() => void)[] = [];
     let destroyed = false;
     let allowBoot!: () => void;
+    let allowImports: (() => void) | undefined;
     const bootGate = new Promise<void>((resolve) => {
       allowBoot = resolve;
     });
@@ -206,6 +458,7 @@ describe("published browser module", () => {
       send: (bytes: Uint8Array) => void,
       tried: string[],
     ) => {
+      if (source === "broken runner") throw new Error("Python worker failure");
       runs.push({ film, source, scene, tried: [...tried] });
       if (source === "latest" && !tried.includes("networkx")) return "networkx";
       send(new Uint8Array([film]));
@@ -226,13 +479,22 @@ describe("published browser module", () => {
       runPython: (source: string) =>
         source.includes("def run(")
           ? runner
-          : {
-              toJs: () => ["engine source", wasm, fonts],
-              destroy: () => {
-                destroyed = true;
-              },
-            },
+          : source === "drop"
+            ? (film: number) => drops.push(film)
+            : source.startsWith("lambda text:")
+              ? (text: string) => new TextEncoder().encode(text)
+              : {
+                  toJs: () => ["engine source", wasm, fonts],
+                  destroy: () => {
+                    destroyed = true;
+                  },
+                },
       loadPackagesFromImports: async (source: string) => {
+        if (source === "broken imports") throw new Error("Package download failed");
+        if (source === "pending imports")
+          await new Promise<void>((resolve) => {
+            allowImports = resolve;
+          });
         imports.push(source);
       },
     };
@@ -275,6 +537,8 @@ describe("published browser module", () => {
     send({ film: 1, run: { source: "stale", scene: null } });
     send({ film: 1, run: { source: "latest", scene: "Demo" } });
     send({ film: 2, run: { source: "other", scene: null } });
+    send({ film: 9, run: { source: "detached before boot", scene: null } });
+    send({ film: 9, drop: true });
     allowBoot();
     await settle();
     expect(installs).toEqual(["manimgx==test", "networkx"]);
@@ -304,5 +568,93 @@ describe("published browser module", () => {
       [2, 2],
     ]);
     for (const { data, transfer } of feeds) expect(transfer).toEqual([data.feed]);
+    tasks.splice(0).forEach((task) => task());
+    await settle();
+    expect(drops).toEqual([9]);
+    // Teardown of one lifetime cannot erase the newly connected film's source directory.
+    send({ film: 2, drop: true });
+    send({ film: 5, run: { source: "reconnected", scene: null } });
+    await settle();
+    expect(drops).toEqual([9, 2]);
+    expect(runs.at(-1)).toMatchObject({ film: 5, source: "reconnected" });
+
+    // A failed dependency load or Python call belongs to one film. It must not lock the
+    // shared queue, and editing that same film must remain possible afterward.
+    for (const [source, error] of [
+      ["broken imports", "Package download failed"],
+      ["broken runner", "Python worker failure"],
+    ]) {
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      send({ film: 3, run: { source, scene: null } });
+      send({ film: 4, run: { source: "next film", scene: null } });
+      await settle();
+      const failed = messages.at(-1)!.data as { film: number; feed: ArrayBuffer };
+      expect(failed.film).toBe(3);
+      expect(JSON.parse(new TextDecoder().decode(failed.feed))).toEqual({
+        error: { message: error, type: "Error" },
+      });
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      expect(runs.at(-1)).toMatchObject({ film: 4, source: "next film" });
+      send({ film: 3, run: { source: "corrected", scene: null } });
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      expect(runs.at(-1)).toMatchObject({ film: 3, source: "corrected" });
+    }
+    tasks.splice(0).forEach((task) => task());
+    await settle();
+    send({ film: 6, run: { source: "pending imports", scene: null } });
+    await settle();
+    send({ film: 6, drop: true });
+    send({ film: 7, run: { source: "new connection", scene: null } });
+    await settle();
+    expect(drops).not.toContain(6);
+    allowImports!();
+    await settle();
+    expect(runs.at(-1)).toMatchObject({ film: 6, source: "pending imports" });
+    expect(drops).not.toContain(6);
+    tasks.splice(0).forEach((task) => task());
+    await settle();
+    expect(drops.at(-1)).toBe(6);
+    expect(runs.at(-1)).toMatchObject({ film: 7, source: "new connection" });
+  });
+
+  test("the embedded worker reports a terminal boot failure and rejects later runs", async () => {
+    const state = await page();
+    new state.api.ManimgxPlayer().connectedCallback();
+    state.flush();
+    const messages: unknown[] = [];
+    const global = {
+      onmessage: null as ((event: { data: unknown }) => void) | null,
+      postMessage: (data: unknown) => messages.push(data),
+    };
+    const worker = new SourceTextModule(await state.blobs[0]!.text(), {
+      context: createContext(global),
+      importModuleDynamically: () => {
+        throw new Error("Python download failed");
+      },
+    });
+    await worker.link(() => {
+      throw new Error("Unexpected dependency");
+    });
+    await worker.evaluate();
+    global.onmessage!({ data: { boot: { pyodide: "https://example.test/", manimgx: "test" } } });
+    global.onmessage!({ data: { film: 1, run: { source: "queued", scene: null } } });
+    await settle();
+    expect(messages).toEqual([
+      { status: "Loading Python…" },
+      { failure: "manimgx could not start: Python download failed" },
+    ]);
+    global.onmessage!({
+      data: {
+        film: 2,
+        get run() {
+          throw new Error("A failed worker must not accept more source");
+        },
+      },
+    });
+    await settle();
+    expect(messages).toHaveLength(2);
   });
 });

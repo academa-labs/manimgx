@@ -9,7 +9,7 @@ export interface Run {
   scene: string | null;
 }
 
-export type ToDirector = { boot: Boot } | { film: number; run: Run };
+export type ToDirector = { boot: Boot } | { film: number; run: Run } | { film: number; drop: true };
 
 /** These byte arrays originate in Pyodide and own transferable ArrayBuffers. */
 export interface EngineFiles {
@@ -19,7 +19,10 @@ export interface EngineFiles {
 }
 
 export type FromDirector =
-  { status: string } | { engine: EngineFiles } | { film: number; feed: ArrayBuffer };
+  | { status: string }
+  | { failure: string }
+  | { engine: EngineFiles }
+  | { film: number; feed: ArrayBuffer };
 
 export function message(error: unknown): string {
   return String(
