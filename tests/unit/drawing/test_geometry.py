@@ -820,6 +820,58 @@ TestBlendEdits = BlendEdits.TestCase
 TestBlendEdits.settings = settings(stateful_step_count=12)
 
 
+@pytest.mark.parametrize(
+    ("path_kind", "alpha"),
+    [("straight", 0.0), ("straight", 0.3), ("straight", 1.0), ("circle", 0.4)],
+)
+def test_a_mix_of_independent_placements_of_one_shape_stays_one_shape(
+    path_kind: str, alpha: float
+) -> None:
+    base = g.Blend.of(CONTROLS)
+    a = base.translated(np.array([2.0, -1.0, 3.0]))
+    b = base.transformed(np.array([[0.0, -1, 0, 4], [1, 0, 0, 5], [0, 0, 1, 6]]))
+    before = tuple(matrix.copy() for blend in (a, b) for matrix, _ in blend.terms)
+    path = (
+        g.straight_path()
+        if path_kind == "straight"
+        else g.path_along_circles(np.pi / 3, np.array([1.0, 2.0, 3.0]))
+    )
+    assert isinstance(path, g.Path)
+    coefficients = path.coefficients(alpha)
+    if path_kind == "circle":
+        assert coefficients[2].any()
+
+    other_shape = g.Shape(base.terms[0][1].array.copy())
+    generic_b = g.Blend(((b.terms[0][0].copy(), other_shape),), b.n)
+    expected = g.Blend.mix(a, generic_b, coefficients)
+    assert other_shape is not base.terms[0][1]
+    assert other_shape.key == base.terms[0][1].key
+    assert expected.terms[0][1] is other_shape
+
+    mixed = g.Blend.mix(a, b, coefficients)
+    assert len(mixed.terms) == 1
+    assert mixed.terms[0][1] is base.terms[0][1]
+    assert mixed.terms[0][0].tobytes() == expected.terms[0][0].tobytes()
+    assert mixed.points().tobytes() == expected.points().tobytes()
+    for matrix, expected in zip(
+        (matrix for blend in (a, b) for matrix, _ in blend.terms), before, strict=True
+    ):
+        np.testing.assert_array_equal(matrix, expected)
+        assert not np.shares_memory(mixed.terms[0][0], matrix)
+
+
+def test_multi_term_and_empty_mixes_keep_their_generic_semantics() -> None:
+    a = g.Blend.of(CONTROLS)
+    b = g.Blend.of(CONTROLS + 1)
+    coefficients = g.straight_path().coefficients(0.4)
+    multi = g.Blend((*a.terms, *b.terms), len(CONTROLS))
+    np.testing.assert_allclose(
+        g.Blend.mix(multi, a, coefficients).points(),
+        0.6 * multi.points() + 0.4 * a.points(),
+    )
+    assert g.Blend.mix(g.EMPTY, g.EMPTY, coefficients).terms == ()
+
+
 @given(start=arrays(3), end=arrays(3))
 def test_a_segment_is_one_straight_curve_between_its_ends(
     start: np.ndarray, end: np.ndarray

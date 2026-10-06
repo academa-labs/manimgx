@@ -2177,6 +2177,10 @@ class Blend:
         """`Lₛ·a + Lₑ·b + k` point by point; terms of the same shape merge, so a morph between copies
         of one shape stays one matrix."""
         ls, le, offset = coefficients
+        if len(a.terms) == 1 and len(b.terms) == 1 and a.terms[0][1] is b.terms[0][1]:
+            mixed = _compose(ls, a.terms[0][0]) + _compose(le, b.terms[0][0])
+            mixed[:, 3] += offset
+            return Blend(((mixed, a.terms[0][1]),), a.n)
         merged: dict[int, Term] = {}
         for linear, blend in ((ls, a), (le, b)):
             for m, shape in blend.terms:
