@@ -974,7 +974,7 @@ struct Pipelines {
     points: wgpu::RenderPipeline,
     sprites: wgpu::RenderPipeline, // a 3D view's see-through points, blended in the order listed
     mesh: wgpu::RenderPipeline,
-    appends: Option<Appends>, // with more than one sample
+    appends: Appends,
 }
 
 /// A 3D view's listed see-through layers, each appending its fragments to the lists once (see
@@ -1008,7 +1008,7 @@ pub(crate) struct Gpu {
     occlusion: Option<occlusion::Occlusion>, // a 3D view's ambient occlusion's passes, made when a view first has it
     no_occlusion: wgpu::TextureView,         // what a view without it binds in its place: 1x1
     bloom: Option<bloom::Bloom>,             // a 3D view's bloom's passes, made when a view first has it
-    blend: Option<wgpu::ShaderModule>, // the raster pipeline's shader, once made (for the shadow passes too)
+    blend: [Option<wgpu::ShaderModule>; 2], // single/multisample texture forms (the shadow passes share either)
     shadow_passes: HashMap<usize, wgpu::RenderPipeline>, // by the light's slot in its view, made when first cast
 }
 
@@ -1039,6 +1039,13 @@ pub(crate) fn with_gpu<T>(f: impl FnOnce(&mut Gpu) -> T) -> Result<T, String> {
 fn shader(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ShaderModule {
     let source = [include_str!("paint.wgsl"), include_str!("tone.wgsl"), source].concat();
     device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(source.into()) })
+}
+
+/// One compositing algorithm; only its texture types differ at one sample. `textureLoad`'s
+/// last argument then names mip zero instead of sample zero.
+fn sampled_shader(device: &wgpu::Device, label: &str, source: &str, multisampled: bool) -> wgpu::ShaderModule {
+    let kind = if multisampled { "multisampled_2d" } else { "2d" };
+    shader(device, label, &format!("alias SampleColor = texture_{kind}<f32>;\nalias SampleDepth = texture_depth_{kind};\n{source}"))
 }
 
 fn entry(binding: u32, ty: wgpu::BindingType) -> wgpu::BindGroupLayoutEntry {
@@ -1156,9 +1163,10 @@ impl Gpu {
         let shadows = layout("lighting", &[maps, compare, dfg, linear, cube, occlusion]);
         // the scene's arrays; a 3D view's see-through lists, written (with the opaque depth), and its slab bounds
         let written = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None };
-        let depth = entry(3, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true });
+        let depth = [false, true].map(|multisampled| entry(3, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled }));
         let bounds = entry(0, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false });
-        let (lists, slabs) = (layout("append", &[written(0), written(1), written(2), depth]), [layout("slab bounds", &[bounds]), layout("slab bounds and depth", &[bounds, depth])]);
+        let lists = depth.map(|depth| layout("append", &[written(0), written(1), written(2), depth]));
+        let slabs = depth.map(|depth| [layout("slab bounds", &[bounds]), layout("slab bounds and depth", &[bounds, depth])]);
         let raster = RasterLayouts { scene: layout("scene", &[view, storage(1), storage(2), storage(4), storage(5), storage(6), storage(7)]), lists, slabs, shadows };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("image"),
@@ -1191,7 +1199,7 @@ impl Gpu {
             instance,
             #[cfg(feature = "player")]
             adapter,
-            device, queue, raster, image_layout, sampler, pipelines: HashMap::new(), max_samples, vector, shadow_compare, dfg, linear, no_environment, prefilter: None, occlusion: None, no_occlusion, bloom: None, blend: None, shadow_passes: HashMap::new() })
+            device, queue, raster, image_layout, sampler, pipelines: HashMap::new(), max_samples, vector, shadow_compare, dfg, linear, no_environment, prefilter: None, occlusion: None, no_occlusion, bloom: None, blend: [None, None], shadow_passes: HashMap::new() })
     }
 
     /// The raster pipeline's passes at `samples`, made when a view first draws rasters with them.
@@ -1206,7 +1214,8 @@ impl Gpu {
         // the body, and its reads: from storage buffers, with the see-through lists
         let raster = &self.raster;
         let parts = [include_str!("blend.wgsl"), include_str!("light.wgsl"), include_str!("blend_buffers.wgsl"), include_str!("blend_lists.wgsl")].concat();
-        let shader = self.blend.get_or_insert_with(|| shader(device, "blend", &parts)).clone();
+        let kind = (samples > 1) as usize;
+        let shader = self.blend[kind].get_or_insert_with(|| sampled_shader(device, "blend", &parts, samples > 1)).clone();
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), Some(&self.image_layout), None, Some(&raster.shadows)], immediate_size: 0 });
         let face = |compare, pass_op, depth_fail_op| wgpu::StencilFaceState { compare, fail_op: Op::Keep, depth_fail_op, pass_op };
         // a view with lit meshes: two targets, its display paint and its light (`blend.wgsl`'s `Base`), each fragment
@@ -1275,15 +1284,15 @@ impl Gpu {
                 cache: None,
             })
         };
-        let appends = (samples > 1).then(|| {
-            let (append, based) = (group_layout(&raster.lists), group_layout(&raster.slabs[0]));
+        let appends = {
+            let (append, based) = (group_layout(&raster.lists[kind]), group_layout(&raster.slabs[kind][0]));
             let appended = |vs: &str, fs: &str| compositing(&append, vs, fs, false, C::Always);
             // the slabs, a target each, over the share of each pixel's samples in front of the opaque depth (their
             // pass tests it, on a single sample)
             let slab = Some(wgpu::ColorTargetState { format: COLOR, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL });
             let slabs = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("fs_sprites_slabs"),
-                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), None, Some(&raster.slabs[1])], immediate_size: 0 })),
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), None, Some(&raster.slabs[kind][1])], immediate_size: 0 })),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_sprites"), compilation_options: Default::default(), buffers: &[] },
                 fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some("fs_sprites_slabs"), compilation_options: Default::default(), targets: &vec![slab; vector::SLABS] }),
                 primitive: wgpu::PrimitiveState::default(),
@@ -1298,7 +1307,7 @@ impl Gpu {
                 sprites: compositing(&based, "vs_sprites", "fs_sprites_base", true, C::GreaterEqual),
                 slabs,
             }
-        });
+        };
         let pipelines = Pipelines {
             stroke: [stroke("vs_stroke", "fs_stroke"), stroke("vs_stroke", "fs_stroke_gradient")],
             points: p("vs_points", Some("fs_points"), Stencil::Ignore, true, true),
@@ -1313,7 +1322,7 @@ impl Gpu {
     /// raster pipeline's shader is made by then).
     fn shadow_pass(&mut self, slot: usize) -> &wgpu::RenderPipeline {
         let (device, raster) = (&self.device, &self.raster);
-        let shader = self.blend.as_ref().expect("the raster pipeline's shader");
+        let shader = self.blend.iter().flatten().next().expect("the raster pipeline's shader");
         self.shadow_passes.entry(slot).or_insert_with(|| {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene)], immediate_size: 0 });
             let constants = [("shadow_light", slot as f64)];
@@ -1421,8 +1430,8 @@ enum Depth {
 /// opaque depth) and its slab bounds (as its sprites read them: into the base; into the slabs, with the opaque depth).
 struct RasterLayouts {
     scene: wgpu::BindGroupLayout,
-    lists: wgpu::BindGroupLayout,
-    slabs: [wgpu::BindGroupLayout; 2],
+    lists: [wgpu::BindGroupLayout; 2],
+    slabs: [[wgpu::BindGroupLayout; 2]; 2],
     shadows: wgpu::BindGroupLayout, // what the lit passes read: the shadow maps and their comparison, the DFG table
 }
 
@@ -1465,7 +1474,7 @@ impl Canvas {
     }
 
     /// Give it a 3D view's slabs (once; it has the raster pipeline's attachments).
-    fn attach_slabs(&mut self, gpu: &Gpu) {
+    fn attach_slabs(&mut self, gpu: &Gpu, samples: u32) {
         let attached = self.raster.as_mut().expect("the raster pipeline's attachments");
         if attached.slabs.is_some() {
             return;
@@ -1478,7 +1487,8 @@ impl Canvas {
         let read = wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&bounds) };
         let depth = wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) };
         let group = |layout, entries: &[wgpu::BindGroupEntry]| gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("slab bounds"), layout, entries });
-        let groups = [group(&gpu.raster.slabs[0], std::slice::from_ref(&read)), group(&gpu.raster.slabs[1], &[read, depth])];
+        let layouts = &gpu.raster.slabs[(samples > 1) as usize];
+        let groups = [group(&layouts[0], std::slice::from_ref(&read)), group(&layouts[1], &[read, depth])];
         let slabs = slabs.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         attached.slabs = Some(Slabs { bounds, layers, slabs, groups });
     }
@@ -2121,14 +2131,11 @@ impl Player {
                     [x0, y0, x1 - x0, y1 - y0]
                 };
                 let listed = pixels(listed);
-                // its see-through points are sprites, unless the listed layers need lists it
-                // cannot have (one sample): then everything is drawn as given
-                let at = sprites.len() as u32;
-                let sprites_here = if samples > 1 || !draws.iter().any(Draw::listed) { self.sprites(&instances[offset as usize..], &draws, offset, &mut sprites) } else { at..at };
-                // its listed layers are composited per pixel, in depth order, through the lists (with multisamples),
-                // by its composite; and among them and its paths in the scene, its sprites, through slabs
-                let lists = samples > 1 && draws.iter().any(Draw::listed);
-                let slabs = samples > 1 && !sprites_here.is_empty() && (lists || !casting.is_empty());
+                // Transparency has the same depth ordering at every sample count. Point sprites
+                // blend between the other layers through slabs; mesh fragments use lists.
+                let sprites_here = self.sprites(&instances[offset as usize..], &draws, offset, &mut sprites);
+                let lists = draws.iter().any(Draw::listed);
+                let slabs = !sprites_here.is_empty() && (lists || !casting.is_empty());
                 // its lit meshes' light, kept apart from its paint in its base and shown once by its composite (a
                 // camera's integration of what is lit)
                 let light = draws.iter().any(|d| d.lit && !d.overlay);
@@ -2194,11 +2201,11 @@ impl Player {
                     let canvas = if f.key == 0 { &mut self.targets.as_mut().expect("targets").frame } else { self.canvases.get_mut(&f.key).expect("canvas") };
                     canvas.attach(gpu, samples, *light);
                     if *slabs {
-                        canvas.attach_slabs(gpu);
+                        canvas.attach_slabs(gpu, samples);
                     }
                     // and where its ambient occlusion is found, if it has some
                     if occlusion_of(&f.view).is_some() && canvas.occluded.is_none() {
-                        let occlusion = gpu.occlusion.get_or_insert_with(|| occlusion::Occlusion::new(&gpu.device, gpu.blend.as_ref().expect("the raster pipeline's shader"), &gpu.raster.scene));
+                        let occlusion = gpu.occlusion.get_or_insert_with(|| occlusion::Occlusion::new(&gpu.device, gpu.blend[(samples > 1) as usize].as_ref().expect("the raster pipeline's shader"), &gpu.raster.scene));
                         canvas.occluded = Some(occlusion.occluded(&gpu.device, [canvas.width, canvas.height]));
                     }
                     // and where its glow is made, if it has some
@@ -2229,7 +2236,7 @@ impl Player {
                 if attached.append.as_ref().is_none_or(|(generation, _)| *generation != lists.generation) {
                     let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("append"),
-                        layout: &gpu.raster.lists,
+                        layout: &gpu.raster.lists[(samples > 1) as usize],
                         entries: &[whole(0, &lists.heads), whole(1, &lists.nodes), whole(2, &lists.appended), wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) }],
                     });
                     attached.append = Some((lists.generation, group));
@@ -2390,7 +2397,7 @@ impl Player {
                             gpu.bloom.as_ref().expect("the bloom's passes").encode(&gpu.queue, encoder, b, strength, tone);
                         }
                     };
-                    let (Some(appends), true) = (pipelines.appends.as_ref(), *listing || *slabs) else {
+                    if !(*listing || *slabs) {
                         if rasterized || plan.is_none() {
                             let mut pass = canvas.pass(&mut encoder, Some((cleared, true)), if plan.is_some() { Depth::Kept } else { Depth::Fresh }, base.as_ref(), base_light.as_ref());
                             pass.set_bind_group(0, buffers.group.as_ref(), &slot);
@@ -2410,7 +2417,8 @@ impl Player {
                         }
                         layered(&mut encoder, &mut gpu.vector, None, None);
                         continue;
-                    };
+                    }
+                    let appends = &pipelines.appends;
                     // the opaque layers, their samples and depth kept
                     {
                         let mut pass = canvas.pass(&mut encoder, Some((cleared, false)), Depth::Kept, base.as_ref(), base_light.as_ref());
@@ -2419,9 +2427,9 @@ impl Player {
                         self.draw(&mut pass, pipelines, indices, draws, *offset, Phase::Opaque);
                     }
                     let attached = canvas.raster.as_ref().expect("the raster pipeline's attachments");
-                    let colors = attached.msaa.as_ref().expect("multisamples");
+                    let colors = attached.msaa.as_ref().or(base.as_ref()).expect("base samples");
                     let [_, y, _, h] = *listed;
-                    let listed = lists.filter(|_| *listing).map(|l| vector::Listed { heads: &l.heads, nodes: &l.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref() });
+                    let listed = lists.filter(|_| *listing).map(|l| vector::Listed { heads: &l.heads, nodes: &l.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref().or(base_light.as_ref()) });
                     // the listed see-through layers appended to the lists (only in their rows are heads cleared and read)
                     if let Some(l) = &listed {
                         let row = canvas.width as u64 * 4;
@@ -2527,7 +2535,7 @@ impl Player {
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.set_stencil_reference(0);
         let mut current: *const wgpu::RenderPipeline = std::ptr::null();
-        let appends = pipelines.appends.as_ref().filter(|_| phase == Phase::SeeThrough);
+        let appends = (phase == Phase::SeeThrough).then_some(&pipelines.appends);
         for (k, draw) in draws.iter().enumerate() {
             if phase != Phase::All && draw.overlay != (phase == Phase::Overlay) {
                 continue;

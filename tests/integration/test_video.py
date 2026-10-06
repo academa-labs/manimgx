@@ -93,12 +93,13 @@ def test_video_and_pixel_sinks_share_one_draw(
 
 
 @pytest.mark.parametrize("queued_layers", [False, True])
+@pytest.mark.parametrize("samples", [1, 4])
 def test_captured_exports_preserve_pixels_and_video_across_pending_draws(
-    tmp_path: Path, queued_layers: bool
+    tmp_path: Path, queued_layers: bool, samples: int
 ) -> None:
     # RGBA rows require padding; NV12 edges are partial macroblocks.
     width, height = 130, 74
-    capture, plain, direct = (Player(width, height) for _ in range(3))
+    capture, plain, direct = (Player(width, height, samples) for _ in range(3))
     feeders = [Feeder(width, height, player) for player in (capture, plain, direct)]
     camera = m.Camera(three_d=True)
     # Cover the picture in see-through mesh layers: the first draw must grow its fragment

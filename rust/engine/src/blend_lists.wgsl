@@ -47,7 +47,7 @@ struct Node {
 @group(2) @binding(0) var<storage, read_write> heads: array<atomic<u32>>;
 @group(2) @binding(1) var<storage, read_write> nodes: array<Node>;
 @group(2) @binding(2) var<storage, read_write> appended: atomic<u32>;
-@group(2) @binding(3) var opaque_depth: texture_depth_multisampled_2d;
+@group(2) @binding(3) var opaque_depth: SampleDepth;
 
 // Where sample s of n lies from its pixel's center (the standard patterns; others: the center).
 fn sample_offset(n: u32, s: u32) -> vec2<f32> {

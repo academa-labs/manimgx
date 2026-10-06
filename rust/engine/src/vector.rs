@@ -589,10 +589,11 @@ struct GroupBuffers {
 pub(crate) struct Vector {
     limit: u32, // the largest texture side
     shader: wgpu::ShaderModule,
+    single_shader: Option<wgpu::ShaderModule>, // the same composite with single-sample textures
     write_layout: wgpu::BindGroupLayout,
     flatten: wgpu::ComputePipeline,
-    composite: [Option<[wgpu::ComputePipeline; 2]>; 16], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
-    crossing: [Option<[wgpu::ComputePipeline; 2]>; 16], // where depths cross: the count, the pixels (alike)
+    composite: [Option<[wgpu::ComputePipeline; 2]>; 32], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
+    crossing: [Option<[wgpu::ComputePipeline; 2]>; 32], // where depths cross: the count, the pixels (alike)
     crossings: (wgpu::Buffer, wgpu::Buffer, u64),      // their list, the second pass's workgroups; pixels it holds
     groups_layout: wgpu::BindGroupLayout,              // the workgroups, as the count writes them
     records: Option<(wgpu::Buffer, wgpu::Buffer, [u32; 2])>, // fill, stroke records' slots; how many they hold
@@ -600,12 +601,12 @@ pub(crate) struct Vector {
     depth_resolve: [wgpu::ComputePipeline; 2],
     nothing: wgpu::Buffer,                      // a view's lists when it has none (and strokes' depths)
     stroke_depths: Option<(wgpu::Buffer, u64)>, // a non-planar path's strokes' depths, per pixel of the atlas
-    no_samples: [wgpu::TextureView; 2],         // its base's samples when it has none (color, depth)
+    no_samples: [[wgpu::TextureView; 2]; 2],         // its base's samples when it has none (color, depth)
     nearest: Option<(wgpu::BindGroupLayout, [wgpu::RenderPipeline; 2])>, // a light's map, a view's opaque depth, from its paths (made when first needed)
     bounds: Option<([wgpu::BindGroupLayout; 2], wgpu::ComputePipeline)>, // a 3D view's slab bounds: what they read, where they go (made when first needed)
     no_slabs: wgpu::TextureView, // a view's slabs when it has none: 1x1, one layer
     scene_layout: wgpu::BindGroupLayout,
-    image_layout: wgpu::BindGroupLayout,
+    image_layout: [wgpu::BindGroupLayout; 2],
     read_layout: wgpu::BindGroupLayout,
     fill: wgpu::RenderPipeline,
     stroke: wgpu::RenderPipeline,
@@ -624,9 +625,13 @@ pub(crate) struct Vector {
 }
 
 impl Vector {
+    fn shader(device: &wgpu::Device, multisampled: bool) -> wgpu::ShaderModule {
+        super::sampled_shader(device, "vector", &[include_str!("vector.wgsl"), include_str!("light.wgsl"), include_str!("vector_buffers.wgsl"), include_str!("vector_compute.wgsl")].concat(), multisampled)
+    }
+
     pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let limits = device.limits();
-        let shader = super::shader(device, "vector", &[include_str!("vector.wgsl"), include_str!("light.wgsl"), include_str!("vector_buffers.wgsl"), include_str!("vector_compute.wgsl")].concat());
+        let shader = Self::shader(device, true);
         let (vertex, fragment, compute) = (wgpu::ShaderStages::VERTEX, wgpu::ShaderStages::FRAGMENT, wgpu::ShaderStages::COMPUTE);
         // where the composite runs, and the accumulate pass
         let (composing, all) = (compute, wgpu::ShaderStages::VERTEX_FRAGMENT | compute);
@@ -635,7 +640,7 @@ impl Vector {
         let layout = |label, entries: &[wgpu::BindGroupLayoutEntry]| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries });
         let scene_layout = layout("vector scene", &[entry(0, all, wgpu::BufferBindingType::Uniform), entry(1, all, read), entry(2, all, read), entry(3, all, read), entry(4, all, read), entry(5, all, read)]);
         let texture = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None };
-        let multisampled = |binding, sample_type| wgpu::BindGroupLayoutEntry { binding, visibility: compute, ty: wgpu::BindingType::Texture { sample_type, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true }, count: None };
+        let sampled = |binding, sample_type, multisampled| wgpu::BindGroupLayoutEntry { binding, visibility: compute, ty: wgpu::BindingType::Texture { sample_type, view_dimension: wgpu::TextureViewDimension::D2, multisampled }, count: None };
         let target = |format| wgpu::BindingType::StorageTexture { access: wgpu::StorageTextureAccess::WriteOnly, format, view_dimension: wgpu::TextureViewDimension::D2 };
         // what its paths with a material are lit with: a 3D view's lights' shadow maps and their comparison, the DFG
         // table and its bilinear reads, its environment's cube, its ambient occlusion
@@ -646,10 +651,10 @@ impl Vector {
         let cube = wgpu::BindGroupLayoutEntry { binding: 15, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::Cube, multisampled: false }, count: None };
         // and a 3D view's see-through points' slabs, as many layers as `SLABS`
         let slabs = wgpu::BindGroupLayoutEntry { binding: 21, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false }, count: None };
-        let image_layout = layout(
+        let image_layout = [false, true].map(|multisampled| layout(
             "vector images",
-            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), multisampled(7, wgpu::TextureSampleType::Float { filterable: false }), multisampled(8, wgpu::TextureSampleType::Depth), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), multisampled(18, wgpu::TextureSampleType::Float { filterable: false }), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }, texture(20), slabs],
-        );
+            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), sampled(7, wgpu::TextureSampleType::Float { filterable: false }, multisampled), sampled(8, wgpu::TextureSampleType::Depth, multisampled), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), sampled(18, wgpu::TextureSampleType::Float { filterable: false }, multisampled), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }, texture(20), slabs],
+        ));
         let read_layout = layout("records in", &[entry(0, vertex, read), entry(1, vertex, read), entry(2, fragment, rw)]);
         let pipeline_layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
         let accumulate = pipeline_layout(&[Some(&scene_layout), None, None, Some(&read_layout)]);
@@ -681,19 +686,19 @@ impl Vector {
         // workgroup memory is written before it is read: zeroing it would only cost time
         let options = wgpu::PipelineCompilationOptions { zero_initialize_workgroup_memory: false, ..Default::default() };
         let flatten = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("flatten"), layout: Some(&pipeline_layout(&[Some(&scene_layout), None, Some(&write_layout)])), module: &shader, entry_point: Some("flatten"), compilation_options: options, cache: None });
-        let no_samples = [(super::COLOR, None), (super::DEPTH, Some(wgpu::TextureAspect::DepthOnly))].map(|(format, aspect)| {
+        let no_samples = [1, 4].map(|samples| [(super::COLOR, None), (super::DEPTH, Some(wgpu::TextureAspect::DepthOnly))].map(|(format, aspect)| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("no samples"),
                 size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
                 mip_level_count: 1,
-                sample_count: 4,
+                sample_count: samples,
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
             texture.create_view(&wgpu::TextureViewDescriptor { aspect: aspect.unwrap_or_default(), ..Default::default() })
-        });
+        }));
         let far = {
             let t = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("far"),
@@ -711,6 +716,7 @@ impl Vector {
         Self {
             limit: limits.max_texture_dimension_2d,
             shader,
+            single_shader: None,
             write_layout,
             flatten,
             composite: Default::default(),
@@ -1062,13 +1068,15 @@ impl Vector {
         if self.composite[key].is_some() {
             return;
         }
+        let kind = (key & SINGLE == 0) as usize;
+        let shader = if kind == 0 { self.single_shader.get_or_insert_with(|| Self::shader(device, false)) } else { &self.shader };
         let constants = [("lighting", (key & LIT) as f64), ("rasters", (key & RASTERS != 0) as u8 as f64), ("lists", (key & LISTS != 0) as u8 as f64), ("points", (key & POINTS != 0) as u8 as f64)];
         let layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
-        let (composing, counting) = (layout(&[Some(&self.scene_layout), Some(&self.image_layout)]), layout(&[Some(&self.scene_layout), Some(&self.image_layout), Some(&self.groups_layout)]));
+        let (composing, counting) = (layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind])]), layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind]), Some(&self.groups_layout)]));
         // workgroup memory is written before it is read: zeroing it would only cost time
         let make = |entry: &str, layout: &wgpu::PipelineLayout| {
             let options = wgpu::PipelineCompilationOptions { constants: &constants, zero_initialize_workgroup_memory: false };
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(layout), module: &self.shader, entry_point: Some(entry), compilation_options: options, cache: None })
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(layout), module: shader, entry_point: Some(entry), compilation_options: options, cache: None })
         };
         self.composite[key] = Some([make("composite", &composing), make("keep", &composing)]);
         self.crossing[key] = Some([make("count_crossings", &counting), make("settle_crossings", &composing)]);
@@ -1158,7 +1166,8 @@ impl Vector {
         }
         // its composite's pipeline: with the code of what the group lays alone (`vector.wgsl`'s overrides)
         let rastered = !group.rasters.is_empty() || (g == 0 && base.is_some());
-        let key = lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
+        let kind = (!listed.is_some_and(|l| l.samples == 1)) as usize;
+        let key = (kind == 0) as usize * SINGLE | lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
         match out {
             Out::Color { .. } => self.composite(device, key),
             Out::Bounds { .. } => self.bounds(device),
@@ -1279,8 +1288,8 @@ impl Vector {
                 }
                 encoder.clear_buffer(&self.crossings.0, 0, Some(4));
                 let (heads, nodes) = listed.map_or((&self.nothing, &self.nothing), |l| (l.heads, l.nodes));
-                let [colors, sample_depths] = listed.map_or([&self.no_samples[0], &self.no_samples[1]], |l| [l.colors, l.depths]);
-                let lights = listed.and_then(|l| l.lights).unwrap_or(&self.no_samples[0]);
+                let [colors, sample_depths] = listed.map_or([&self.no_samples[kind][0], &self.no_samples[kind][1]], |l| [l.colors, l.depths]);
+                let lights = listed.and_then(|l| l.lights).unwrap_or(&self.no_samples[kind][0]);
                 // the light under the group (the raster base's, or what the group before left), and where it leaves its own
                 let carried = self.carried.as_ref().map(|(c, _)| c);
                 let light_in = if g == 0 { light.unwrap_or(&self.empty) } else { carried.map_or(&self.empty, |c| &c[(g - 1) % 2]) };
@@ -1290,7 +1299,7 @@ impl Vector {
                     None => &self.no_light_out,
                 };
                 let images = bind(
-                    &self.image_layout,
+                    &self.image_layout[kind],
                     &[(0, view(atlas)), (1, view(rasters.unwrap_or(&self.empty))), (2, view(under)), (3, view(written)), (4, view(depth)), (5, heads.as_entire_binding()), (6, nodes.as_entire_binding()), (7, view(colors)), (8, view(sample_depths)), (9, depths.as_entire_binding()), (10, view(lighting.maps)), (11, wgpu::BindingResource::Sampler(lighting.compare)), (12, view(lighting.dfg)), (13, wgpu::BindingResource::Sampler(lighting.linear)), (14, self.crossings.0.as_entire_binding()), (15, view(lighting.environment)), (16, view(lighting.occlusion)), (17, view(light_in)), (18, view(lights)), (19, view(light_out)), (20, view(slabs.map_or(&self.empty, |s| s[0]))), (21, view(slabs.map_or(&self.no_slabs, |s| s[1])))],
                 );
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes: None });
@@ -1337,6 +1346,7 @@ const LIT: usize = 1;
 const RASTERS: usize = 2;
 const LISTS: usize = 4;
 const POINTS: usize = 8;
+const SINGLE: usize = 16; // single-sample texture bindings, with the same compositing code
 
 /// What group `g` of `groups` lies over and writes: each lies over what the ones before it made (the first over
 /// `first`); the last writes the target, the others alternate with the scratch image behind it.

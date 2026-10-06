@@ -11,9 +11,9 @@
 @group(1) @binding(6) var<storage, read> nodes: array<Node>;
 
 // where it has see-through fragments, its raster base sample by sample: color (premultiplied), depth
-@group(1) @binding(7) var base_samples: texture_multisampled_2d<f32>;
-@group(1) @binding(18) var base_light_samples: texture_multisampled_2d<f32>; // (its light: `base_at`)
-@group(1) @binding(8) var base_sample_depths: texture_depth_multisampled_2d;
+@group(1) @binding(7) var base_samples: SampleColor;
+@group(1) @binding(18) var base_light_samples: SampleColor; // (its light: `base_at`)
+@group(1) @binding(8) var base_sample_depths: SampleDepth;
 
 // the depth of a non-planar path's strokes per pixel of their atlas (as `stroke_depths` keeps it)
 @group(1) @binding(9) var<storage, read> stroke_depths_in: array<u32>;
