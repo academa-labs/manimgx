@@ -1,31 +1,26 @@
-"""The README and docs share six GIF previews, three a row, each linked to its film.
+"""The README and docs share six small animated AVIF previews, each linked to its film.
 
 `uv run --frozen python -m scripts.showcase.wall` runs each film in `CLIPS` and keeps
 five seconds at 50 fps, cropped around what moves and without fixed titles or readouts.
-It writes `docs/content/showcase/<name>.gif`, each at 480 × 270 pixels and strictly below
-12 MB. GIF delays are whole centiseconds: 20 ms gives evenly timed frames in browsers,
-where a 60 fps GIF's 10 ms frames can instead be clamped to 100 ms.
+Each preview is 320 × 180 pixels on #0d1117. Premultiplied pixels are resized before
+compositing, keeping translucent edges intact while avoiding an alpha channel to decode.
 
-The renderer's premultiplied pixels are resized before compositing onto #0d1117. GIF
-cannot preserve partial transparency, so this dark background belongs to the image on
-both light and dark pages. FFmpeg's global palette and Sierra dithering keep gradients
-and translucent surfaces readable. Install FFmpeg and put `ffmpeg` on PATH before
-regenerating. Each file replaces its predecessor only after its size, dimensions, frame
-count, timing and loop setting pass validation. The rendered GIFs are committed; both
-pages use those same files. `scripts/showcase/logo.py` draws their SVG logo.
+Pillow encodes AVIF at quality 50 and speed 6, with 4:4:4 color for thin lines. All six images
+together must stay strictly below 1.2 MB, and each below 500 KB. The complete set is staged and its dimensions,
+frame count, timing, opacity and budgets are validated before any published file is
+replaced. The rendered images are committed and used unchanged by both pages.
+`scripts/showcase/logo.py` draws their SVG logo.
 """
 
 import importlib.util
 import math
-import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
-from PIL import Image
-from PIL.GifImagePlugin import GifImageFile
+from PIL import Image, features
+from PIL.AvifImagePlugin import AvifImageFile
 
 import manimgx as m
 from manimgx.rendering.film import Cut, Frame
@@ -34,10 +29,12 @@ ROOT = Path(__file__).parents[2]
 EXAMPLES = ROOT / "examples"
 SHOWCASE = ROOT / "docs" / "content" / "showcase"
 FILM = 1920, 1080  # the films' size, in which the clips' boxes are
-TILE = 480, 270  # one image size, shared by the README and the docs
+TILE = 320, 180  # one image size, shared by the README and the docs
 FPS, SECONDS = 50, 5
 BACKGROUND = 13, 17, 23  # #0d1117
-MAX_BYTES = 12_000_000  # strictly less, in decimal MB
+QUALITY, SPEED = 50, 6
+MAX_BYTES = 500_000  # each image, strictly less
+MAX_TOTAL_BYTES = 1_200_000  # the complete wall, strictly less
 
 
 @dataclass(frozen=True)
@@ -86,7 +83,7 @@ def scene(name: str) -> type[m.Scene]:
 
 
 def composite(crop: Image.Image) -> Image.Image:
-    """Resize premultiplied pixels, then put them on the GIF's opaque background."""
+    """Resize premultiplied pixels, then put them on the preview's opaque background."""
     if crop.mode != "RGBa":
         raise ValueError("the renderer's pixels must be premultiplied RGBa")
     small = np.asarray(crop.resize(TILE, Image.Resampling.LANCZOS), dtype=np.float32)
@@ -96,7 +93,7 @@ def composite(crop: Image.Image) -> Image.Image:
 
 
 def frames(clip: Clip) -> list[Image.Image]:
-    """Render directly at the GIF's frame rate, crop, resize and composite each frame."""
+    """Render directly at the preview's frame rate, crop, resize and composite each frame."""
     first = math.ceil(clip.start * FPS - 1e-9)
     last = first + SECONDS * FPS
     m.config.frame_rate = FPS
@@ -128,87 +125,74 @@ def frames(clip: Clip) -> list[Image.Image]:
 
 
 def name(clip: Clip) -> str:
-    """The single GIF used by both pages for a film."""
-    return f"{clip.name}.gif"
+    """The single animated image used by both pages for a film."""
+    return f"{clip.name}.avif"
 
 
 def validate(path: Path) -> None:
-    """Reject a GIF that exceeds the budget or changes the preview's playback."""
+    """Reject an AVIF that exceeds the budget or changes the preview's playback."""
     if path.stat().st_size >= MAX_BYTES:
         raise ValueError(f"{path.name}: must be below {MAX_BYTES:,} bytes")
     with Image.open(path) as image:
-        if not isinstance(image, GifImageFile) or image.size != TILE:
-            raise ValueError(f"{path.name}: must be a {TILE[0]} × {TILE[1]} GIF")
-        if image.n_frames != FPS * SECONDS or image.info.get("loop") != 0:
-            raise ValueError(f"{path.name}: must loop {FPS * SECONDS} frames forever")
+        if not isinstance(image, AvifImageFile) or image.size != TILE:
+            raise ValueError(f"{path.name}: must be a {TILE[0]} × {TILE[1]} AVIF")
+        if image.n_frames != FPS * SECONDS:
+            raise ValueError(f"{path.name}: must contain {FPS * SECONDS} frames")
+        if image.mode != "RGB":
+            raise ValueError(f"{path.name}: must be opaque RGB")
         for index in range(image.n_frames):
             image.seek(index)
+            image.load()  # AVIF timing is populated by decoding, not by seek().
             if image.info.get("duration") != 1000 // FPS:
                 raise ValueError(
                     f"{path.name}: frame {index} must last {1000 // FPS} ms"
                 )
+            if image.info.get("timestamp") != index * 1000 // FPS:
+                raise ValueError(f"{path.name}: frame {index} starts at the wrong time")
 
 
-def encode(tiles: list[Image.Image], path: Path, ffmpeg: str) -> None:
-    """Encode a global palette with Sierra dithering and unchanged-pixel compression."""
-    result = subprocess.run(
-        [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "rawvideo",
-            "-pixel_format",
-            "rgb24",
-            "-video_size",
-            f"{TILE[0]}x{TILE[1]}",
-            "-framerate",
-            str(FPS),
-            "-i",
-            "pipe:0",
-            "-filter_complex_threads",
-            "1",
-            "-filter_complex",
-            "split[a][b];[a]palettegen=max_colors=256:reserve_transparent=1[p];"
-            "[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
-            "-loop",
-            "0",
-            str(path),
-        ],
-        input=b"".join(image.tobytes() for image in tiles),
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(f"FFmpeg failed: {result.stderr.decode(errors='replace')}")
+def validate_set(paths: list[Path]) -> None:
+    """Validate every image and the combined budget before publishing any of them."""
+    for path in paths:
+        validate(path)
+    total = sum(path.stat().st_size for path in paths)
+    if total >= MAX_TOTAL_BYTES:
+        raise ValueError(f"the complete wall must be below {MAX_TOTAL_BYTES:,} bytes")
 
 
-def tile(clip: Clip, ffmpeg: str) -> None:
-    """Render and validate a GIF before replacing its committed predecessor."""
-    path = SHOWCASE / name(clip)
-    tiles = frames(clip)
-    with TemporaryDirectory(prefix=".wall-", dir=SHOWCASE) as directory:
-        temporary = Path(directory) / path.name
-        encode(tiles, temporary, ffmpeg)
-        validate(temporary)
-        temporary.replace(path)
-    print(
-        f"{path.name}: {len(tiles)} frames, {path.stat().st_size / 1e6:.2f} MB",
-        flush=True,
+def encode(tiles: list[Image.Image], path: Path) -> None:
+    """Encode opaque animated AVIF with evenly timed frames."""
+    first, *rest = tiles
+    first.save(
+        path,
+        format="AVIF",
+        save_all=True,
+        append_images=rest,
+        duration=1000 // FPS,
+        quality=QUALITY,
+        speed=SPEED,
+        subsampling="4:4:4",
+        max_threads=2,
     )
 
 
 def main() -> None:
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise RuntimeError(
-            "Install FFmpeg and put ffmpeg on PATH to regenerate the GIFs"
-        )
+    if not features.check("avif"):
+        raise RuntimeError("Pillow must have AVIF support to regenerate the previews")
     SHOWCASE.mkdir(parents=True, exist_ok=True)
-    for clip in CLIPS:
-        tile(clip, ffmpeg)
+    with TemporaryDirectory(prefix=".wall-", dir=SHOWCASE) as directory:
+        paths = []
+        for clip in CLIPS:
+            path = Path(directory) / name(clip)
+            encode(frames(clip), path)
+            paths.append(path)
+        validate_set(paths)
+        for path in paths:
+            destination = SHOWCASE / path.name
+            path.replace(destination)
+            print(
+                f"{destination.name}: {destination.stat().st_size:,} bytes", flush=True
+            )
 
 
 if __name__ == "__main__":

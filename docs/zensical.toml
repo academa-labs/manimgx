@@ -14,15 +14,9 @@ repo_name = "academa-labs/manimgx"
 docs_dir = "content"
 site_dir = "site"
 watch = ["templates"]
-extra_css = [
-  "stylesheets/manimgx.css",
-  "https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.css",
-]
-extra_javascript = [
-  "https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/katex.min.js",
-  "https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/contrib/auto-render.min.js",
-  "javascripts/manimgx.js",
-]
+extra_css = ["stylesheets/manimgx.css"]
+# manimgx.js loads KaTeX only when a page has mathematics.
+extra_javascript = ["javascripts/manimgx.js"]
 
 [project.theme]
 custom_dir = "overrides"

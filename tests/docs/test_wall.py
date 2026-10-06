@@ -1,10 +1,10 @@
-"""Shared GIF previews: correct compositing, bounded files and evenly timed playback."""
+"""Shared AVIF previews: correct compositing, bounded files and evenly timed playback."""
 
 from pathlib import Path
 
 import pytest
 from PIL import Image
-from PIL.GifImagePlugin import GifImageFile
+from PIL.AvifImagePlugin import AvifImageFile
 from scripts.showcase import wall
 
 README = Path(__file__).parents[2] / "README.md"
@@ -46,27 +46,32 @@ def test_resize_filters_premultiplied_pixels_before_compositing(
 
 
 @pytest.mark.parametrize("clip", wall.CLIPS, ids=lambda clip: clip.name)
-def test_committed_gif_has_even_timing_and_stays_below_12_mb(clip: wall.Clip) -> None:
+def test_committed_avif_has_even_timing_and_stays_below_budget(clip: wall.Clip) -> None:
     path = wall.SHOWCASE / wall.name(clip)
     wall.validate(path)
     with Image.open(path) as image:
-        assert isinstance(image, GifImageFile)
+        assert isinstance(image, AvifImageFile)
         total = 0
         for index in range(image.n_frames):
             image.seek(index)
+            image.load()
+            assert image.info["timestamp"] == total
             total += image.info["duration"]
-            # FFmpeg uses transparency for unchanged pixels; decoded frames stay opaque.
-            assert image.convert("RGBA").getchannel("A").getextrema() == (255, 255)
+            assert image.mode == "RGB"
         assert total == 5000
 
 
+def test_the_complete_committed_wall_stays_below_budget() -> None:
+    wall.validate_set([wall.SHOWCASE / wall.name(clip) for clip in wall.CLIPS])
+
+
 @pytest.mark.parametrize(
-    ("size", "frame_count", "duration", "loop", "message"),
+    ("size", "frame_count", "duration", "mode", "message"),
     [
-        ((3, 2), 50, 20, 0, "must be a"),
-        ((2, 2), 49, 20, 0, "must loop"),
-        ((2, 2), 50, 20, 1, "must loop"),
-        ((2, 2), 50, 40, 0, "must last 20 ms"),
+        ((3, 2), 50, 20, "RGB", "must be a"),
+        ((2, 2), 49, 20, "RGB", "must contain"),
+        ((2, 2), 50, 40, "RGB", "must last 20 ms"),
+        ((2, 2), 50, 20, "RGBA", "must be opaque RGB"),
     ],
 )
 def test_validation_rejects_changed_playback(
@@ -75,50 +80,90 @@ def test_validation_rejects_changed_playback(
     size: tuple[int, int],
     frame_count: int,
     duration: int,
-    loop: int,
+    mode: str,
     message: str,
 ) -> None:
     monkeypatch.setattr(wall, "TILE", (2, 2))
     monkeypatch.setattr(wall, "SECONDS", 1)
-    images = [Image.new("RGB", size, (index, 50, 100)) for index in range(frame_count)]
-    path = tmp_path / "invalid.gif"
+    images = [
+        Image.new(
+            mode, size, (index, 50, 100, 128) if mode == "RGBA" else (index, 50, 100)
+        )
+        for index in range(frame_count)
+    ]
+    path = tmp_path / "invalid.avif"
     images[0].save(
         path,
         save_all=True,
         append_images=images[1:],
         duration=duration,
-        loop=loop,
+        max_threads=2,
     )
     with pytest.raises(ValueError, match=message):
         wall.validate(path)
 
 
-def test_oversized_gif_never_replaces_the_existing_asset(
+def test_the_per_file_budget_is_strict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clip = wall.CLIPS[0]
-    path = tmp_path / wall.name(clip)
-    path.write_bytes(b"previous asset")
-    monkeypatch.setattr(wall, "SHOWCASE", tmp_path)
+    path = tmp_path / "too-large.avif"
+    path.write_bytes(b"1234")
     monkeypatch.setattr(wall, "MAX_BYTES", 4)
-    monkeypatch.setattr(wall, "frames", lambda _clip: [])
-
-    def oversized(_tiles: list[Image.Image], destination: Path, _ffmpeg: str) -> None:
-        destination.write_bytes(b"1234")  # even exactly the limit is refused
-
-    monkeypatch.setattr(wall, "encode", oversized)
-    with pytest.raises(ValueError, match="must be below"):
-        wall.tile(clip, "ffmpeg")
-    assert path.read_bytes() == b"previous asset"
-    assert list(tmp_path.iterdir()) == [path]
+    with pytest.raises(ValueError, match="must be below 4 bytes"):
+        wall.validate(path)
 
 
-def test_missing_ffmpeg_is_reported_before_rendering(
+def test_the_combined_budget_is_checked_before_replacing_any_image(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(wall.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(wall, "SHOWCASE", tmp_path)
+    monkeypatch.setattr(wall, "TILE", (2, 2))
+    monkeypatch.setattr(wall, "SECONDS", 1)
+    monkeypatch.setattr(wall, "CLIPS", wall.CLIPS[:2])
+    images = [Image.new("RGB", (2, 2), (index, 50, 100)) for index in range(50)]
+    monkeypatch.setattr(wall, "frames", lambda _clip: images)
+    reference = tmp_path / "reference.avif"
+    wall.encode(images, reference)
+    wall.validate(reference)
+    monkeypatch.setattr(wall, "MAX_TOTAL_BYTES", reference.stat().st_size * 2)
+    reference.unlink()
+    paths = [tmp_path / wall.name(clip) for clip in wall.CLIPS]
+    for path in paths:
+        path.write_bytes(b"previous asset")
+    with pytest.raises(ValueError, match="the complete wall must be below"):
+        wall.main()  # Individually valid images, whose sum equals the strict limit.
+    assert all(path.read_bytes() == b"previous asset" for path in paths)
+    assert set(tmp_path.iterdir()) == set(paths)
+
+
+def test_a_failed_later_encode_does_not_publish_an_earlier_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wall, "SHOWCASE", tmp_path)
+    monkeypatch.setattr(wall, "CLIPS", wall.CLIPS[:2])
+    monkeypatch.setattr(wall, "frames", lambda _clip: [])
+    paths = [tmp_path / wall.name(clip) for clip in wall.CLIPS]
+    for path in paths:
+        path.write_bytes(b"previous asset")
+
+    def fail_later(_tiles: list[Image.Image], path: Path) -> None:
+        if path.name == paths[-1].name:
+            raise RuntimeError("encoder failed")
+        path.write_bytes(b"new asset")
+
+    monkeypatch.setattr(wall, "encode", fail_later)
+    with pytest.raises(RuntimeError, match="encoder failed"):
+        wall.main()
+    assert all(path.read_bytes() == b"previous asset" for path in paths)
+    assert set(tmp_path.iterdir()) == set(paths)
+
+
+def test_missing_avif_support_is_reported_before_rendering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(wall.features, "check", lambda _name: False)
     monkeypatch.setattr(wall, "SHOWCASE", tmp_path / "not-created")
-    with pytest.raises(RuntimeError, match="Install FFmpeg"):
+    with pytest.raises(RuntimeError, match="Pillow must have AVIF support"):
         wall.main()
     assert not wall.SHOWCASE.exists()
 

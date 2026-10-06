@@ -31,6 +31,54 @@
     }
   }
 
+  // Most pages need no math renderer. Load it once on the first page with math, with its
+  // stylesheet beside the scripts in the persistent body: instant navigation replaces
+  // the head and page container, but keeps these assets. A failed download can be retried
+  // on the next navigation, while successfully loaded dependencies remain available.
+  const KATEX = "https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/"
+  const mathAssets = new Map()
+  function mathAsset(path) {
+    if (!mathAssets.has(path)) {
+      const style = path.endsWith(".css")
+      const asset = document.createElement(style ? "link" : "script")
+      if (style) {
+        asset.rel = "stylesheet"
+        asset.href = KATEX + path
+      } else asset.src = KATEX + path
+      mathAssets.set(path, new Promise((resolve, reject) => {
+        asset.onload = resolve
+        asset.onerror = () => {
+          asset.remove()
+          mathAssets.delete(path)
+          reject(new Error(`Could not load ${path}`))
+        }
+        document.body.appendChild(asset)
+      }))
+    }
+    return mathAssets.get(path)
+  }
+
+  function mathematics() {
+    const roots = document.querySelectorAll(".arithmatex")
+    if (!roots.length) return
+    Promise.all([
+      mathAsset("katex.min.css"),
+      mathAsset("katex.min.js").then(() => mathAsset("contrib/auto-render.min.js")),
+    ]).then(() => {
+      for (const math of roots) {
+        if (!math.isConnected) continue // the reader navigated away while assets loaded
+        renderMathInElement(math, {
+          delimiters: [
+            { left: "\\(", right: "\\)", display: false },
+            { left: "\\[", right: "\\]", display: true },
+          ],
+        })
+      }
+    }).catch(() => {
+      // Keep the readable source if the CDN is unavailable; a later page can retry.
+    })
+  }
+
   // A rate function explorer, <div class="mx-rates" data-rates="smooth linear …">: a button for
   // each function named, its curve with a dot that rides it as time passes, and under it a
   // square that the function moves, beside a faint one that keeps one speed. It plays while it
@@ -248,14 +296,7 @@
     pictures()
     films.disconnect()
     for (const film of document.querySelectorAll("video.mx-film")) films.observe(film)
-    for (const math of document.querySelectorAll(".arithmatex")) {
-      renderMathInElement(math, {
-        delimiters: [
-          { left: "\\(", right: "\\)", display: false },
-          { left: "\\[", right: "\\]", display: true },
-        ],
-      })
-    }
+    mathematics()
     explorers.disconnect()
     const roots = document.querySelectorAll(".mx-rates")
     if (!roots.length) return
