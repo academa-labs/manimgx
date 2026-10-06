@@ -139,6 +139,33 @@ impl Drop for StartupTimer {
         "                    gpu.queue.submit(Some(command));\n"
         '                    eprintln!("native-phase\\t{}\\tsubmit\\tframe\\t{:.9}", std::process::id(), trace.elapsed().as_secs_f64());',
     )
+    export = rust / "engine" / "src" / "export.rs"
+    for indent in ("        ", "                    "):
+        lines = [
+            "let trace = std::time::Instant::now();",
+            "let command = command.finish();",
+            'eprintln!("native-phase\\t{}\\tfinish\\texport\\t{:.9}", std::process::id(), trace.elapsed().as_secs_f64());',
+            "let trace = std::time::Instant::now();",
+            "gpu.queue.submit(Some(command));",
+            'eprintln!("native-phase\\t{}\\tsubmit\\texport\\t{:.9}", std::process::id(), trace.elapsed().as_secs_f64());',
+        ]
+        edit(
+            export,
+            f"\n{indent}gpu.queue.submit(Some(command.finish()));",
+            "".join(f"\n{indent}{line}" for line in lines),
+        )
+    edit(
+        export,
+        "        while !self.mapped[slot].load(Ordering::Acquire) {",
+        "        let trace = std::time::Instant::now();\n"
+        "        while !self.mapped[slot].load(Ordering::Acquire) {",
+    )
+    edit(
+        export,
+        "        self.mapped[slot].store(false, Ordering::Release);",
+        '        eprintln!("native-phase\\t{}\\twait-map\\texport\\t{:.9}", std::process::id(), trace.elapsed().as_secs_f64());\n'
+        "        self.mapped[slot].store(false, Ordering::Release);",
+    )
     manifest = rust / "Cargo.toml"
     before = manifest.read_text(encoding="utf-8")
     assert "[patch.crates-io]" not in before
