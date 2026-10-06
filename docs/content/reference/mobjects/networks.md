@@ -49,5 +49,6 @@ Graph and DiGraph are both made from GenericGraph, which holds what they can do.
 ::: manimgx.mobjects.graph.GenericGraph
     options:
       heading_level: 3
-      members_only: true
+      extra:
+        members_only: true
       members: [vertices, edges, add_vertices, remove_vertices, add_edges, remove_edges, change_layout, from_networkx, update_edges]

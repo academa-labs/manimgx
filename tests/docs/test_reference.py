@@ -15,9 +15,12 @@ key, the ones its bases give it too.
 """
 
 import re
+import tomllib
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
+import yaml
 
 griffe = pytest.importorskip("griffe")  # the docs group's
 
@@ -27,6 +30,30 @@ DIRECTIVE = re.compile(r"^:::\s+(\S+)\s*\n((?:[ \t]+.*\n|\n)*)", re.MULTILINE)
 CARDS = re.compile(
     r'<div class="grid cards mx-cards" markdown>\n(.*?)\n</div>', re.DOTALL
 )
+
+
+def test_reference_options_are_accepted_by_the_installed_handler() -> None:
+    handler = pytest.importorskip("mkdocstrings_handlers.python")
+    config = tomllib.loads((ROOT / "docs/zensical.toml").read_text(encoding="utf-8"))
+    defaults = config["project"]["plugins"]["mkdocstrings"]["handlers"]["python"][
+        "options"
+    ]
+    accepted = {field.name for field in fields(handler.PythonOptions)}
+    handler.PythonOptions.from_data(**defaults)
+    for page in sorted(PAGES.rglob("*.md")):
+        for directive in DIRECTIVE.finditer(page.read_text(encoding="utf-8")):
+            local = yaml.safe_load(directive[2]) or {}
+            options = defaults | local.get("options", {})
+            # With optional Pydantic installed the handler silently drops unknown keys;
+            # the docs-only environment rejects them. Both must receive the same schema.
+            assert not (unknown := options.keys() - accepted), (
+                f"{page.relative_to(PAGES)}: {directive[1]}: unknown options {unknown}"
+            )
+            try:
+                handler.PythonOptions.from_data(**options)
+            except (TypeError, ValueError) as error:
+                pytest.fail(f"{page.relative_to(PAGES)}: {directive[1]}: {error}")
+
 
 # What the package documents for its own developers, and the reference leaves out
 UNDOCUMENTED = {
