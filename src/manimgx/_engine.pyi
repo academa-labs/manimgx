@@ -101,6 +101,27 @@ class Player:
         bits a second. Returns (seconds, of which in x264, share of macroblocks converted,
         bytes)."""
 
+class Replay:
+    """One complete, successful take, using the native player's decoder and renderer."""
+
+    def __init__(self, data: bytes) -> None: ...
+    @property
+    def size(self) -> tuple[int, int]:
+        """The recorded width and height, in pixels."""
+
+    @property
+    def frames(self) -> int:
+        """The frame count, including repeated frames."""
+
+    @property
+    def fps(self) -> float: ...
+    @property
+    def timeline(self) -> list[tuple[int, int]]:
+        """Each recorded shot's first frame and repeat count."""
+
+    def render(self, frame: int) -> bytes:
+        """A zero-based frame, in any order, as RGBA8 bytes; out-of-range indices fail."""
+
 def start_gpu() -> bool:
     """Start bringing the GPU up, on a thread of its own, unless that has begun; whether this
     call began it (natively only). What draws first waits for it, and so does Python as it
