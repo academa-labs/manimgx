@@ -97,3 +97,12 @@ def test_consumers_wait_for_the_font_packages() -> None:
     assert "pypi-fonts" in JOBS["pypi"]["needs"]
     for job in ["npm", "docker", "publish"]:
         assert "pypi" in JOBS[job]["needs"]
+
+
+def test_wheel_jobs_expand_platform_in_the_same_shell_on_every_os() -> None:
+    wheel = yaml.safe_load((ROOT / ".github/workflows/create-wheels.yaml").read_text())[
+        "jobs"
+    ]["wheel"]
+    assert wheel["defaults"]["run"]["shell"] == "bash"
+    build = next(step for step in wheel["steps"] if "PLATFORM" in step.get("env", {}))
+    assert "${PLATFORM}" in build["run"]

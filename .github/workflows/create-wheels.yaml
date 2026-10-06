@@ -28,6 +28,9 @@ jobs:
           - { platform: windows-x86_64, runner: windows-2025 }
           - { platform: pyodide, runner: ubuntu-24.04, archs: wasm32 }
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 90
     permissions:
       contents: read
