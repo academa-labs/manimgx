@@ -26,6 +26,11 @@ on:
         description: Space-separated case names (empty compares the entire corpus)
         required: false
         type: string
+      startup:
+        description: Also measure fresh-process and reused GPU startup
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -96,6 +101,10 @@ jobs:
             negative-source basic_usage --negative-source \
             --wheel "${wheel[0]}" --sha256 "${sha}" --lock baseline/uv.lock
 
+      - name: Measure fresh and reused GPU startup
+        if: ${{ inputs.startup }}
+        run: uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-probe --fresh
+
       - name: Compare every scene on the same adapter
         run: |
           wheel=(baseline/*.whl)
@@ -132,6 +141,7 @@ jobs:
         with:
           name: frozen-comparison-${{ matrix.os }}
           path: |
+            startup-probe/
             frozen-comparison/
             !frozen-comparison/reference-wheel/**
             negative-source/
