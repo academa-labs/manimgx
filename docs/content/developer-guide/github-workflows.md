@@ -193,8 +193,11 @@ builds the wheels first.
 **What it does:** a job per platform takes the platform's wheel and runs
 `just create-executable`
 ([`scripts/release/create_executable.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/create_executable.py)),
-which renders a scene with the executable before it keeps it: on Linux with Mesa's
-lavapipe, which the job installs (macOS has Metal, Windows WARP). Each executable is kept as
+which renders a scene with the executable before it keeps it. Linux builds the launcher
+inside the wheel's manylinux SDK, so both require glibc 2.28 or newer. A fresh glibc 2.28
+container then runs the executable without Python, a GPU driver, network access, or an
+installation cache: it uses its embedded Python and bundled lavapipe. macOS uses Metal and
+Windows uses WARP. Each executable is kept as
 `executable-<platform>`: `manimgx-<os>-<arch>.tar.gz`, or a `.zip` on Windows.
 
 ### 7. [`ai.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/ai.yaml): Claude on issues and pull requests
