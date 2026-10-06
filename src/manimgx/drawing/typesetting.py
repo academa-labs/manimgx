@@ -74,7 +74,11 @@ class Layout:
 # Reuse under disjoint native (<2^48) or content (>=2^52) keys. The bound counts
 # aliases; either can be forgotten independently. Live layouts own their records.
 _GLYPHS: Memo[int, Glyph] = Memo(1 << 12)
-_CACHE = Path(tempfile.gettempdir()) / "manimgx-layouts"
+_CACHE = (
+    Path(directory) / "layouts"
+    if (directory := _engine.cache_directory()) is not None
+    else None
+)
 # what made a layout, part of its key: the entry's format, and the engine's own file (a rebuilt
 # engine never reads a layout an older one made)
 _ENGINE = Path(_engine.__file__).stat()
@@ -118,9 +122,9 @@ def typeset(
 
     The document is set in the fonts manimgx ships (Typst's own and the Noto faces),
     after those in `font_paths`; a system font is read only for a family the document
-    names that none of them has. A layout is kept on disk, under the system's temporary
-    directory (`manimgx-layouts`): the same document, with the same fonts and packages,
-    is read back, not typeset again, in any process.
+    names that none of them has. A layout is kept in the current user's cache directory
+    (the browser's private filesystem in a page): the same document, with the same fonts
+    and packages, is read back, not typeset again, in any process.
 
     Args:
         body: The document's body: Typst markup.
@@ -137,11 +141,12 @@ def typeset(
     packages = None if package_path is None else str(package_path)
     depends = _files(fonts if packages is None else (*fonts, packages))
     key = _engine.digest(_VERSION, b"\0", source.encode(), b"\0", depends)
-    path = _CACHE / f"{key:016x}.layout"
-    stored = _read(path)
+    path = None if _CACHE is None else _CACHE / f"{key:016x}.layout"
+    stored = None if path is None else _read(path)
     if stored is None:
         stored = _typeset(source, fonts, packages)
-        _write(path, stored)
+        if path is not None:
+            _write(path, stored)
     rows, shapes, labels, _, glyphs = stored
     records = {
         key: _glyph(key, points, carets) for key, (points, carets) in glyphs.items()
@@ -190,11 +195,12 @@ def _read(path: Path) -> Stored | None:
 
 def _write(path: Path, stored: Stored) -> None:
     """Store a layout: written whole, then renamed, so a reader never sees half of one."""
-    partial = path.with_suffix(f".{os.getpid()}.tmp")
     try:
-        _CACHE.mkdir(parents=True, exist_ok=True)
-        partial.write_bytes(pickle.dumps(stored, protocol=5))
-        os.replace(partial, path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=path.parent) as own:
+            partial = Path(own) / "layout"
+            partial.write_bytes(pickle.dumps(stored, protocol=5))
+            os.replace(partial, path)
     except OSError:
         pass
 

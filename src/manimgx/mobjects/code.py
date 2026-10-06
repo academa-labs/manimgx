@@ -1,6 +1,6 @@
-"""Code: a highlighted listing laid out as CE lays it out, set by Typst's `raw` (its grammars
-find the tokens; a theme colors each scope as the pygments style colors the token there; each
-advance is rounded to a whole Pango unit, as Pango places glyphs)."""
+"""Code: a highlighted listing set by Typst's `raw`. Its grammars find the tokens; a theme
+colors each scope as the pygments style colors the token there. With a monospaced font and
+one glyph per character, column advances are rounded to whole Pango units."""
 
 import math
 import re
@@ -8,7 +8,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import ClassVar, Literal, TypedDict
+from typing import ClassVar, Literal
+
+from typing_extensions import TypedDict
 
 from manimgx.caches import forgets
 from manimgx.constants import LEFT, ORIGIN, RIGHT, SCALE_FACTOR_PER_FONT_POINT, UP
@@ -31,8 +33,6 @@ _SCENE_PER_UNIT = 0.05
 _POINT = _SCENE_PER_UNIT / SCALE_FACTOR_PER_FONT_POINT
 _LINE_SPACING = 0.3  # CE's Text's, for a line_spacing of -1
 
-# CE's "Monospace", as Pango finds it: Menlo on macOS; elsewhere DejaVu Sans Mono, Typst's own
-_MONOSPACE = ("Menlo", "DejaVu Sans Mono")
 _PYTHON = frozenset({"python", "py", "python3", "py3"})
 _LINE = "line"  # a line's label: "line1" the first
 # pygments' Python lexer: these are builtins wherever they stand, parameters too
@@ -109,9 +109,8 @@ class CodeText(TypedDict, total=False):
     keywords that apply to a listing."""
 
     font: str
-    """The font family: "Monospace", the default, is Menlo where the system has it, and
-    elsewhere DejaVu Sans Mono, which manimgx ships; any other family is one manimgx
-    ships, or else the system's."""
+    """The font family: "Monospace", the default, is the bundled DejaVu Sans Mono on
+    every platform; any other family is one manimgx ships, or else the system's."""
     font_size: float
     """The size of the text: an em is `font_size / 72` scene units (default 24)."""
     line_spacing: float
@@ -154,8 +153,8 @@ def _typeset(
     language: str | None = None,
     suffix: str = "",
 ) -> list[VGroup]:
-    """Each line's glyphs as Pango sets them (advances rounded to whole units, a fixed pitch
-    between baselines), highlighted in `style` if given; `suffix` closes the first and last lines.
+    """Each line's glyphs, with fixed baseline spacing and adjusted monospaced columns,
+    highlighted in `style` if given; `suffix` closes the first and last lines.
     """
     size = text.get("font_size", 24)
     spacing = text.get("line_spacing", -1)
@@ -163,10 +162,8 @@ def _typeset(
     pitch = size * (1 + (_LINE_SPACING if spacing == -1 else spacing))
     pitch *= _PANGO_PER_FONT_SIZE
     font = text.get("font", "Monospace")
-    fonts = "".join(
-        f"{typst_string(f)}, " for f in (_MONOSPACE if font == "Monospace" else (font,))
-    )
-    face = f"font: ({fonts}), size: {em}pt"
+    family = "DejaVu Sans Mono" if font == "Monospace" else font
+    face = f"font: {typst_string(family)}, size: {em}pt"
     ligatures = "false" if text.get("disable_ligatures", True) else "true"
     closing = (
         f"; if it.number in (1, it.count) {{ {typst_string(suffix)} }}"
@@ -228,11 +225,11 @@ class Code(VMobject):
     r"""A listing of source code, highlighted: its lines, their numbers, and a rectangle
     or a window behind them.
 
-    The code is highlighted by Typst's grammars, in the colors of `formatter_style`, and
-    set on a fixed grid, each character a column. The parts are
+    The code is highlighted by Typst's grammars, in the colors of `formatter_style`, with
+    a monospaced font by default. The parts are
     [background][manimgx.Code.background], [line_numbers][manimgx.Code.line_numbers] (if
     the lines are numbered) and [code_lines][manimgx.Code.code_lines], whose i-th part is
-    the i-th line, a group of its glyphs, spaces excluded. Tabs are expanded, and blank
+    the i-th line, a group of its glyphs, spaces excluded. Tabs are expanded, and empty
     lines at the start and at the end are dropped.
 
     Args:
@@ -316,7 +313,7 @@ class Code(VMobject):
             raise ValueError("Either a code file or a code string must be specified.")
         style = _STYLES[formatter_style]
         text = self.default_paragraph_config | (paragraph_config or {})
-        # the lines as pygments hands them to CE: tabs expanded, blank lines trimmed off
+        # tabs expanded, empty lines trimmed off
         code = (
             code_string.expandtabs(tab_width).replace("\r\n", "\n").replace("\r", "\n")
         )

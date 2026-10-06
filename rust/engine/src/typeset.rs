@@ -8,7 +8,7 @@
 //! y up. Python scales points to scene units.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use typst::diag::{FileError, FileResult, Severity, SourceDiagnostic};
@@ -110,6 +110,18 @@ type Cached = (PathBuf, u32, String, FontVariant, FontFlags, Vec<FontAxis>, Cove
 /// What made a cached scan, in its file's name: bump it with Typst, or when `Cached` changes.
 const SCAN: &str = "typst-0.15.1";
 
+/// MANIMGX_CACHE_DIR when set, otherwise the current user's native cache or the browser
+/// runtime's private filesystem. A missing native root disables disk reuse, with no shared-temp fallback.
+pub fn cache_directory() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("MANIMGX_CACHE_DIR").filter(|root| !root.is_empty()) {
+        return Some(root.into());
+    }
+    #[cfg(target_os = "emscripten")]
+    return Some(std::env::temp_dir().join("manimgx"));
+    #[cfg(not(target_os = "emscripten"))]
+    dirs::cache_dir().map(|root| root.join("manimgx"))
+}
+
 /// The fonts under `dirs`, as Typst finds them (`find`: typst-kit's scan of them), read from a
 /// cache on disk while no file under them has changed: scanning parses every font (~50 ms for the
 /// system's, ~15 ms for a CJK collection); checking the files' sizes and times costs a few
@@ -121,10 +133,13 @@ fn cached_scan(
     if dirs.is_empty() {
         return Vec::new();
     }
-    let dir = std::env::temp_dir().join("manimgx-fonts");
     let key = fingerprint(dirs);
-    let cache = dir.join(format!("{SCAN}-{key:016x}.bin"));
-    let entries: Vec<Cached> = match std::fs::read(&cache).ok().and_then(|b| bincode::deserialize(&b).ok()) {
+    let cache = cache_directory().map(|root| root.join("fonts").join(format!("{SCAN}-{key:016x}.bin")));
+    read_scan(cache.as_deref(), find)
+}
+
+fn read_scan(cache: Option<&Path>, find: impl FnOnce() -> Vec<(FontPath, FontInfo)>) -> Vec<(Mapped, FontInfo)> {
+    let entries: Vec<Cached> = match cache.and_then(|path| std::fs::read(path).ok()).and_then(|b| bincode::deserialize(&b).ok()) {
         Some(entries) => entries,
         None => {
             let entries: Vec<Cached> = find()
@@ -134,12 +149,14 @@ fn cached_scan(
                     (path.path, path.index, family, variant, flags, axes, coverage)
                 })
                 .collect();
-            if let Ok(bytes) = bincode::serialize(&entries) {
+            if let Some(cache) = cache
+                && let Ok(bytes) = bincode::serialize(&entries)
+            {
                 // written whole, then renamed: a reader never sees half a file
-                let partial = dir.join(format!("{SCAN}-{key:016x}.{}.tmp", std::process::id()));
-                let _ = std::fs::create_dir_all(&dir)
+                let partial = cache.with_extension(format!("{}.tmp", std::process::id()));
+                let _ = std::fs::create_dir_all(cache.parent().expect("cache directory"))
                     .and_then(|()| std::fs::write(&partial, bytes))
-                    .and_then(|()| std::fs::rename(&partial, &cache));
+                    .and_then(|()| std::fs::rename(&partial, cache));
             }
             entries
         }
@@ -733,4 +750,19 @@ pub fn mitex_math(latex: &str) -> Result<String, String> {
 /// LaTeX text as Typst markup (mitex's conversion; its default command spec).
 pub fn mitex_text(latex: &str) -> Result<String, String> {
     mitex::convert_text(latex, None)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unavailable_cache_root_scans_each_time() {
+        let calls = std::cell::Cell::new(0);
+        for _ in 0..2 {
+            assert!(super::read_scan(None, || {
+                calls.set(calls.get() + 1);
+                Vec::new()
+            }).is_empty());
+        }
+        assert_eq!(calls.get(), 2);
+    }
 }

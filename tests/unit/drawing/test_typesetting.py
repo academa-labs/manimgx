@@ -18,10 +18,18 @@
 """
 
 import gc
+import json
+import os
+import pickle
 import re
+import shutil
+import subprocess
+import sys
 import weakref
 from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from typing import ClassVar, NamedTuple
 
 import numpy as np
@@ -37,6 +45,118 @@ from manimgx.mobjects.text import TypstGlyph, _cut
 
 type Document = m.Typst | m.Paragraph
 type Answer = tuple[bytes, list[bytes], list[tuple[str, list[int]]], bool]
+
+
+def test_shared_temporary_cache_cannot_replace_fonts_or_layouts(tmp_path: Path) -> None:
+    """Benign, valid empty entries in the old shared location must have no authority."""
+    font = next(
+        p for p in Path(tc.FONTS[0]).glob("*.ttf") if p.name.startswith("NotoSans[")
+    )
+    fonts = tmp_path / "fonts"
+    fonts.mkdir()
+    shutil.copy2(font, fonts / font.name)
+    program = r"""
+import hashlib, json, sys, tempfile
+from pathlib import Path
+import numpy as np
+from manimgx import _engine
+from manimgx.drawing import typesetting as t
+root = getattr(_engine, 'cache_directory', lambda: None)()
+scans = Path(tempfile.gettempdir()) / 'manimgx-fonts' if root is None else Path(root) / 'fonts'
+layouts = t._CACHE
+before_scans = set(scans.glob('*.bin'))
+before_layouts = set(layouts.glob('*.layout'))
+rows, _, _, system = _engine.typeset('#set text(font:"Noto Sans")\nHello Ω', [sys.argv[1]])
+table = np.frombuffer(rows).reshape(-1, 23)
+keys = sorted(set(int(row[1]) for row in table if row[0] == 0))
+native = hashlib.sha256(rows + b''.join(_engine.glyph_outlines(keys))).hexdigest()
+layout = t.typeset('Hello Ω', font_paths=[sys.argv[1]])
+print(json.dumps({'native': native, 'layout': hashlib.sha256(layout.rows.tobytes()).hexdigest(),
+                  'scans': [p.name for p in set(scans.glob('*.bin')) - before_scans],
+                  'layouts': [p.name for p in set(layouts.glob('*.layout')) - before_layouts]}))
+"""
+    env = dict(
+        os.environ,
+        TMPDIR=str(tmp_path),
+        TMP=str(tmp_path),
+        TEMP=str(tmp_path),
+        PYTHONPATH=str(Path(m.__file__).resolve().parent.parent),
+    )
+    env.pop("MANIMGX_CACHE_DIR", None)
+
+    def run() -> dict[str, str | list[str]]:
+        result = subprocess.run(
+            [sys.executable, "-c", program, str(fonts)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        return json.loads(result.stdout)
+
+    before = run()
+    assert before["scans"]
+    assert before["layouts"]
+    for folder, names, payload in (
+        ("manimgx-fonts", before["scans"], bytes(8)),  # bincode's empty Vec
+        (
+            "manimgx-layouts",
+            before["layouts"],
+            pickle.dumps((np.empty((0, tc.ROW)), [], [], 0, {}), protocol=5),
+        ),
+    ):
+        target = tmp_path / folder
+        target.mkdir(exist_ok=True)
+        for name in names:
+            (target / name).write_bytes(payload)
+    after = run()
+    assert (after["native"], after["layout"]) == (
+        before["native"],
+        before["layout"],
+    )
+
+
+def test_concurrent_cache_writers_publish_complete_owned_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "entry.layout"
+    stored: tc.Stored = (np.zeros((100, tc.ROW)), [], [], 0, {})
+    expected = pickle.dumps(stored, protocol=5)
+    first_written, second_half, published = Event(), Event(), Event()
+    write_bytes, replace = Path.write_bytes, os.replace
+    observed: list[bytes] = []
+
+    def write(partial: Path, data: bytes) -> int:
+        if not first_written.is_set():
+            count = write_bytes(partial, data)
+            first_written.set()
+            assert second_half.wait(3)
+            return count
+        with partial.open("wb") as stream:
+            stream.write(data[: len(data) // 2])
+            stream.flush()
+            second_half.set()
+            assert published.wait(3)
+            observed.append(path.read_bytes())
+            stream.write(data[len(data) // 2 :])
+        return len(data)
+
+    def publish(source: Path, destination: Path) -> None:
+        replace(source, destination)
+        published.set()
+
+    monkeypatch.setattr(Path, "write_bytes", write)
+    monkeypatch.setattr(os, "replace", publish)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(tc._write, path, stored)
+        assert first_written.wait(3)
+        second = pool.submit(tc._write, path, stored)
+        first.result(timeout=5)
+        second.result(timeout=5)
+    assert observed == [expected]
+    assert path.read_bytes() == expected
+    assert list(tmp_path.iterdir()) == [path]
 
 
 class Engine:
@@ -79,6 +199,19 @@ class Engine:
         """Change what it answered: the made-up font's carets."""
         for carets in self.carets.values():
             carets[:] = [900.0] * len(carets)
+
+
+def test_unavailable_cache_root_typesets_without_disk_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = Engine(monkeypatch, made_up=True)
+    monkeypatch.setattr(tc, "_CACHE", None)
+    first = tc.typeset("first second")
+    caches.clear()
+    second = tc.typeset("first second")
+    assert engine.asked == 2
+    assert first.rows.tobytes() == second.rows.tobytes()
+    assert first.glyphs.keys() == second.glyphs.keys()
 
 
 class Case(NamedTuple):
