@@ -2,7 +2,6 @@ name: Question
 description: Ask how to do something with manimgx.
 labels: [question]
 body:
-  # TODO: the docs domain
   - type: markdown
     attributes:
       value: >-

@@ -7,7 +7,7 @@ body:
     attributes:
       label: Page
       description: The page's address, if the problem is on a page.
-      placeholder: https://manimgx.academa.ai/guide/quickstart/ # TODO: the docs domain
+      placeholder: https://manimgx.academa.ai/user-guide/quickstart/
   - type: textarea
     id: problem
     attributes:

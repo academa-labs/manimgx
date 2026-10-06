@@ -1,5 +1,5 @@
-# One pull request per ecosystem, grouping its updates. A release waits a week first: most
-# compromised releases are caught within days. Security updates don't wait.
+# One pull request per ecosystem, grouping its updates. Version updates wait a week;
+# security updates do not wait.
 version: 2
 updates:
   # The workflows pin their actions by commit; Dependabot moves the pins to new releases. A

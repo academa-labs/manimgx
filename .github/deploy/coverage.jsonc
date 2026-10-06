@@ -8,8 +8,8 @@
   // Academa's internal/manimgx-hosting Terraform unit owns the domain and Worker identity.
   "workers_dev": false,
   // each commit's report is a deployment in the preview "main" or "pr-<number>", at
-  // <preview>-manimgx-coverage.<account subdomain>.workers.dev; a Worker keeps its 100 most
-  // recently used previews, and each preview its last 100 deployments
+  // <preview>-manimgx-coverage.<account subdomain>.workers.dev; Cloudflare retains their
+  // deployment history within the account plan's preview limits
   "preview_urls": true,
   "previews": {}
 }

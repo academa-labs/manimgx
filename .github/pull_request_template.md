@@ -16,4 +16,5 @@ https://github.com/academa-labs/manimgx/blob/main/.github/CONTRIBUTING.md
 <!-- Which AI tools helped, and with what. Write "None" if none did. -->
 
 - [ ] I have reviewed every line of this change, and I can explain it.
-- [ ] A user-visible change has a line under "Unreleased" in `docs/content/changelog.md`.
+- [ ] After the first release, a user-visible change has a line under "Unreleased" in
+      `docs/content/changelog.md`.
