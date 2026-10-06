@@ -304,8 +304,18 @@ def _spectral_layout(
         group = 0
         while group + 1 < len(cuts):
             start, end = cuts[group : group + 2]
-            space = vectors[:, start:end]
+            # A space and its orthogonal complement define the same projector. Use the
+            # smaller basis: a full space is exactly I, independent of a solver's axes.
+            complement = end - start > n // 2
+            space = (
+                np.concatenate((vectors[:, :start], vectors[:, end:]), axis=1)
+                if complement
+                else vectors[:, start:end]
+            )
             projection = space @ space.T
+            if complement:
+                projection = np.eye(n) - projection
+            orthogonality = np.linalg.norm(space.T @ space - np.eye(space.shape[1]))
             constant = bool(np.any(np.abs(values[start:end]) <= error))
             if constant:
                 projection -= np.full((n, n), 1 / n)
@@ -314,7 +324,7 @@ def _spectral_layout(
                 values[end] - values[end - 1] if end < n else np.inf,
             )
             # Residual/gap estimates the uncertainty of a space, not just its eigenvalue.
-            uncertainty = rounding + error / (gap - error)
+            uncertainty = rounding + orthogonality + error / (gap - error)
             wanted = min(end - start - int(constant), dim - len(columns))
             basis: list[np.ndarray] = []
             projection -= projection.mean(axis=0)

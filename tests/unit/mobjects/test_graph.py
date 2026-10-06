@@ -309,6 +309,7 @@ TestGraphs.settings = settings(stateful_step_count=20, max_examples=60)
 @pytest.mark.parametrize(
     ("graph", "groups"),
     [
+        (nx.empty_graph(2), [(0, 2)]),
         (nx.empty_graph(6), [(0, 6)]),
         (nx.complete_graph(6), [(0, 1), (1, 6)]),
         (nx.cycle_graph(6), [(0, 1), (1, 3), (3, 5), (5, 6)]),
@@ -323,7 +324,7 @@ TestGraphs.settings = settings(stateful_step_count=20, max_examples=60)
             [(0, 1), (1, 3), (3, 4), (4, 6)],
         ),
     ],
-    ids=["isolated", "complete", "cycle", "disconnected", "corpus"],
+    ids=["isolated-pair", "isolated", "complete", "cycle", "disconnected", "corpus"],
 )
 def test_axes_do_not_depend_on_the_eigensolvers_basis(
     graph: nx.Graph, groups: list[tuple[int, int]], monkeypatch: pytest.MonkeyPatch
@@ -340,7 +341,7 @@ def test_axes_do_not_depend_on_the_eigensolvers_basis(
         return values, vectors
 
     monkeypatch.setattr(np.linalg, "eigh", other_basis)
-    for _ in range(20):
+    for _ in range(64):
         found = np.array(list(_spectral_layout(graph).values()))
         np.testing.assert_allclose(found, expected, rtol=0, atol=1e-13)
 
