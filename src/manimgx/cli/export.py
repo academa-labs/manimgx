@@ -1,19 +1,23 @@
-"""Offline scene exports: video, stills, checks and presentations."""
+"""Offline scene exports: video, inspections and presentations."""
 
 import json
-import math
 import os
+import re
 import time
 import webbrowser
 from fractions import Fraction
+from html import escape
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
+from urllib.parse import quote
 
 import typer
 from PIL import Image
 
+from manimgx.animation import clock
 from manimgx.animation.timeline import Animation
+from manimgx.cli.diagnostics import Names, names, written_frame
 from manimgx.cli.scenes import (
     File,
     Format,
@@ -24,10 +28,14 @@ from manimgx.cli.scenes import (
     scene,
     take,
 )
-from manimgx.cli.storyboard import PER_SHEET, Sheets, Watch, caption, tile
+from manimgx.cli.storyboard import Sheets, Watch, line
 from manimgx.config import config
 from manimgx.rendering.film import Cut, Film, Frame, Play, X264Preset
 from manimgx.scene import Scene
+
+if TYPE_CHECKING:
+    from manimgx.animation.transform import Transform
+    from manimgx.drawing.geometry import Path as MotionPath
 
 
 def render(
@@ -56,7 +64,7 @@ def render(
     """Render a scene to an MP4 video, with its sound.
 
     Also writes a storyboard beside the video (the frame at each play's end, layout problems
-    outlined and numbered) and lists those problems — see `manimgx check` — and, if the
+    outlined and numbered) and lists those problems — see `manimgx inspect` — and, if the
     scene speaks or has subcaptions, its subtitles (.srt)."""
     kind = scene(file, name)
     video = output or file.with_name(f"{kind.__name__}.mp4")
@@ -65,8 +73,10 @@ def render(
     look = Format.own(resolution, fps)
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
-    made, _ = take(kind, look, video=video, plays=watch, preset=preset, crf=crf)
-    sheets = watch.close()
+    try:
+        made, _ = take(kind, look, video=video, plays=watch, preset=preset, crf=crf)
+    finally:
+        sheets = watch.storyboard.close()
     took = time.perf_counter() - started
     megabytes = video.stat().st_size / 1e6
     typer.echo(
@@ -82,83 +92,27 @@ def render(
     typer.echo(watch.report(timeline=False, film=made.film))
 
 
-def check(
-    file: File,
-    name: SceneName = None,
-    storyboard: Annotated[
-        Path | None,
-        typer.Option(
-            "--storyboard",
-            "-s",
-            help=(
-                "The storyboard (.png). [default: <Scene>.storyboard.png beside the"
-                " file]"
-            ),
-        ),
-    ] = None,
-) -> None:
-    """Check a scene: timeline, storyboard, layout.
-
-    Runs the scene without video. Prints its timeline (each play: when, the line of code,
-    what it played) and the layout problems a viewer would see when each play ends: anything
-    the frame cuts off, texts that overlap, lines through or touching a text, fills over a
-    text, text too small to read. Writes a storyboard: the frame at each play's end, problems
-    outlined and numbered. Exits 1 if there are problems (notes, such as a graph leaving the
-    frame, do not count)."""
-    kind = scene(file, name)
-    watch = Watch(
-        Sheets(storyboard or file.with_name(f"{kind.__name__}.storyboard.png"))
-    )
-    # the take a render makes (its frames computed, none drawn): a scene whose updaters count
-    # frames is the same world here as in its video
-    made, film = take(kind, Format.own(), plays=watch)
-    sheets = watch.close()
-    typer.echo(
-        f"{file}: {kind.__name__}, {float(made.clock):.2f} s, {len(film.plays)} plays"
-    )
-    typer.echo(f"storyboard: {', '.join(str(s) for s in sheets)}")
-    typer.echo(watch.report(film=film))
-    if watch.problems():
-        raise typer.Exit(1)
-
-
-END = "end"
-
-
-def moments(given: list[str]) -> list[str]:
-    """The times asked for, in order, once each: seconds or `end`; `-t 1,2` is `-t 1 -t 2`."""
-    out: list[str] = []
+def moments(given: list[str]) -> set[Fraction | None]:
+    """Distinct times in seconds; None means `end`. `-t 1,2` is `-t 1 -t 2`."""
+    out: set[Fraction | None] = set()
     for part in (p.strip() for text in given for p in text.split(",")):
         if not part:
             continue
-        if part != END:
-            try:
-                seconds = float(part)
-            except ValueError:
-                raise fail(
-                    f"error: {part!r} is not a time: seconds (e.g. 2.5) or 'end'"
-                ) from None
-            if not math.isfinite(seconds) or seconds < 0:
-                raise fail(
-                    f"error: {part!r} is not a time: seconds from the start, or 'end'"
-                )
-            part = f"{seconds:g}"
-        if part not in out:
-            out.append(part)
-    return out or [END]
+        try:
+            moment = None if part == "end" else Fraction(part)
+            if moment is not None and moment < 0:
+                raise ValueError
+        except (ValueError, ZeroDivisionError):
+            raise fail(
+                f"error: {part!r} is not a time: non-negative seconds or 'end'"
+            ) from None
+        out.add(moment)
+    if given and not out:
+        raise fail("error: --time needs seconds from the start, or 'end'")
+    return out
 
 
-def on_screen(plays: list[Play], time: Fraction) -> Play | None:
-    """The play whose frames show `time`: the last to begin by then (after the last play: it,
-    as it left the world)."""
-    shown = None
-    for play in plays:
-        if play.start <= time:
-            shown = play
-    return shown
-
-
-def still(
+def inspect(
     file: File,
     name: SceneName = None,
     time: Annotated[
@@ -171,7 +125,7 @@ def still(
                 "Seconds from the start, or 'end'; several: repeat -t or separate with"
                 " commas."
             ),
-            show_default="end",
+            show_default=False,
         ),
     ] = None,
     output: Annotated[
@@ -179,64 +133,91 @@ def still(
         typer.Option(
             "--output",
             "-o",
-            help="The sheet (.png). [default: <Scene>.png beside the file]",
+            help="The storyboard (.png). [default: <Scene>.storyboard.png beside the file]",
         ),
     ] = None,
 ) -> None:
-    """Draw the frames on screen at given times, on one sheet (PNG).
+    """Inspect a scene: annotated PNGs, timeline and 2D layout checks, without video.
 
-    The frame at t seconds is the one on screen then (what a video player shows at t); `end` is
-    the scene's last frame. Each is captioned `#play t=… file:line`: the play on screen and the
-    line of code that played it. Six to a sheet (more go on `<name>-2.png`, …). Only the
-    frames asked for are drawn, and the scene runs no further than the play showing the last.
+    Samples play and wait endings by default. With -t, inspects the frames a video player
+    shows at those times; 'end' is the last frame. Checks for clipped content, overlapping
+    text, lines or fills over text, and small labels. 3D scenes get pictures and a timeline;
+    layout checks are skipped. Only sampled moments are checked.
+
+    Pictures are chronological, captioned #play t=… file:line, with problems outlined and
+    numbered. Six fit on each sheet (more go on `<name>-2.png`, …). Default sampling omits
+    consecutive identical pictures. With -t, only the requested frames are drawn, and the
+    scene stops after the last requested frame's play unless 'end' is included.
+
+    Exits 1 for layout problems; notes, such as a graph leaving the frame, do not count.
     """
     kind = scene(file, name)
     wanted = moments(time or [])
-    target = output or file.with_name(f"{kind.__name__}.png")
+    target = output or file.with_name(f"{kind.__name__}.storyboard.png")
     if target.suffix.lower() != ".png":
-        raise fail(f"error: {target}: a still is a PNG image; name the output *.png")
-    look = (
-        Format.own()
-    )  # the frames the video shows (drawn at its size, reduced to tiles)
-    fps = Fraction(look.fps).limit_denominator(1000)
-    # the frame on screen at t shows time ⌊t·fps⌋ / fps
-    at = {m: math.floor(float(m) * look.fps + 1e-9) for m in wanted if m != END}
-    through = Fraction(max(at.values(), default=0)) / fps
-    drawn: dict[int, Image.Image] = {}
-    last: list[Frame] = []
+        raise fail(
+            f"error: {target}: a storyboard is a PNG image; name the output *.png"
+        )
+    look = Format.own()
+    fps = clock.rational(look.fps)
+    # The last sample no later than the requested observed instant.
+    pending = sorted(
+        ((clock.frame_at(t, fps, after=True) - 1, t) for t in wanted if t is not None),
+        reverse=True,
+    )
+    known: Names | None = None
+    watch = Watch(Sheets(target))
 
-    def keep(frame: Frame) -> None:
-        span = range(frame.index, frame.index + frame.repeat)
-        if hits := [k for k in at.values() if k in span and k not in drawn]:
-            picture = tile(frame.pixels(), look.width, look.height)
-            drawn.update(dict.fromkeys(hits, picture))
-        last[:] = [frame]
+    class Sampling(Scene):
+        """Observe selected frames through the scene's existing evaluation methods."""
 
-    def enough(_: Scene, play: Play, __: tuple[Animation, ...]) -> None:
-        if END not in wanted and play.end > through:
+        def _emit(self, repeat: int = 1) -> None:
+            while pending and pending[-1][0] < self.frame + repeat:
+                when = Fraction(pending.pop()[0]) / fps
+                watch.see(self, when, known=known)
+            super()._emit(repeat)
+
+        def _pure_tweens(
+            self, anim: Animation, alpha: list[float]
+        ) -> "tuple[list[tuple[Transform, MotionPath]], set[int]] | None":
+            if pending and pending[-1][0] < self.frame + len(alpha):
+                return None  # this play needs its mutable world at the selected frames
+            return super()._pure_tweens(anim, alpha)
+
+    def ended(made: Scene, play: Play, animations: tuple[Animation, ...]) -> None:
+        nonlocal known
+        if not made.three_d:
+            known = names(made, written_frame())
+        watch.lines.append(line(play, animations))
+        if None not in wanted and not pending:
             raise Cut  # the play showing the last frame asked for is over
 
-    made, film = take(kind, look, frames=keep, plays=enough)
-    if END in wanted and last:  # the film's last frame: nothing was sent after it
-        drawn[-1] = tile(last[0].pixels(), look.width, look.height)
-    frames = {m: -1 if m == END else at[m] for m in wanted}
-    if missing := [m for m, k in frames.items() if k not in drawn]:
-        raise fail(
-            f"error: the scene ends at {float(made.clock):.2f} s; there is no frame at"
-            f" {missing[0]} s",
-            1,
+    try:
+        # Only an inspection with selected frames uses the adapter. Scene and render
+        # keep their ordinary evaluation path, including subclasses' overrides.
+        observed = (
+            type(kind.__name__, (kind, Sampling), {"__module__": kind.__module__})
+            if pending
+            else kind
         )
-    sheets = Sheets(target)
-    captions: list[str] = []
-    for moment, k in frames.items():
-        shown = made.clock if k == -1 else Fraction(k) / fps
-        when = f"{float(made.clock):.2f}s (end)" if k == -1 else f"{moment}s"
-        captions.append(caption(on_screen(film.plays, shown), when))
-        sheets.add(captions[-1], drawn[k])
-    for n, sheet in enumerate(sheets.close()):  # each sheet, and what is on it
-        typer.echo(
-            f"{sheet}  {'; '.join(captions[n * PER_SHEET : (n + 1) * PER_SHEET])}"
-        )
+        made, film = take(observed, look, plays=ended if wanted else watch)
+        if pending:
+            raise fail(
+                f"error: the scene ends at {float(made.clock):.2f} s; there is no frame at"
+                f" {pending[-1][1]} s",
+                1,
+            )
+        if None in wanted or (not wanted and not film.plays):
+            watch.see(made, Fraction(film.frame_count - 1) / fps, known=known)
+    finally:
+        sheets = watch.storyboard.close()
+    typer.echo(
+        f"{file}: {kind.__name__}, {float(made.clock):.2f} s, {len(film.plays)} plays"
+    )
+    typer.echo(f"storyboard: {', '.join(str(s) for s in sheets)}")
+    typer.echo(watch.report(film=film if not wanted or None in wanted else None))
+    if watch.layout.numbers:
+        raise typer.Exit(1)
 
 
 def present(
@@ -288,7 +269,7 @@ def present(
     if pdf and last:
         pictures.append(last[0].pixels())  # the film's last picture ends the last slide
     html = video.with_suffix(".html")
-    html.write_text(page(film, video.name, kind.__name__), encoding="utf-8")
+    html.write_text(page(film, Path(video.name), kind.__name__), encoding="utf-8")
     slides = len(film.sections)
     typer.echo(
         f"{video}  {float(made.clock):.2f} s, {look}, {slides} slides (rendered in"
@@ -311,7 +292,8 @@ def page(film: Film, video: str | os.PathLike[str], title: str = "manimgx") -> s
 
     Args:
         film: The film, rendered.
-        video: Where the page finds its video.
+        video: Where the page finds its video: a URL string, or a filesystem path
+            (relative to the page, unless absolute).
         title: The page's title.
 
     Returns:
@@ -327,8 +309,12 @@ def page(film: Film, video: str | os.PathLike[str], title: str = "manimgx") -> s
         "captions": [[c.start, c.end, c.text] for c in film.captions()],
     }
     html = (files("manimgx") / "cli" / "present.html").read_text(encoding="utf-8")
-    return (
-        html.replace("DECK_TITLE", title)
-        .replace("DECK_VIDEO", Path(video).as_posix())
-        .replace("DECK_JSON", json.dumps(deck).replace("</", "<\\/"))
-    )
+    if not isinstance(video, str):
+        path = Path(video)
+        video = path.as_uri() if path.is_absolute() else quote(path.as_posix())
+    values = {
+        "DECK_TITLE": escape(title),
+        "DECK_VIDEO": escape(video),
+        "DECK_JSON": json.dumps(deck).replace("</", "<\\/"),
+    }
+    return re.sub(r"DECK_(?:TITLE|VIDEO|JSON)", lambda match: values[match[0]], html)

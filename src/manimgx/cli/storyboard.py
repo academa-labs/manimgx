@@ -4,6 +4,7 @@ import math
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -12,10 +13,18 @@ from manimgx.animation.timeline import Animation, AnimationGroup, Succession, Wa
 from manimgx.animation.transform import Animate
 from manimgx.audio import Speech
 from manimgx.audio.sound import Sound
-from manimgx.cli.diagnostics import Layout, Problem, View, report, text_of, view
+from manimgx.cli.diagnostics import (
+    Layout,
+    Names,
+    Problem,
+    View,
+    report,
+    text_of,
+    view,
+)
 from manimgx.config import config
 from manimgx.rendering.film import Film, Play
-from manimgx.scene import Scene
+from manimgx.scene import Scene, _written
 
 # a tile's area: 1080p halved each way (reduced exactly: sharp text), two to a sheet's row — in
 # the scene's shape, so a sheet costs the same image tokens whatever the shape
@@ -40,15 +49,6 @@ def tile(rgba: bytes, width: int, height: int) -> Image.Image:
     return image
 
 
-def caption(play: Play | None, time: str) -> str:
-    """`#play t=… file:line`: a moment, and the play on screen then — where the code played
-    it."""
-    if play is None:
-        return f"t={time}"
-    where = "" if play.where is None else f" {Path(play.where[0]).name}:{play.where[1]}"
-    return f"#{play.index} t={time}{where}"
-
-
 @dataclass
 class Sheets:
     """Captioned tiles, six to a sheet, each sheet written as it fills: `path`, `…-2`, …"""
@@ -69,11 +69,11 @@ class Sheets:
 
     def close(self) -> list[Path]:
         """The last sheet out; every sheet written."""
-        if self._tiles:
-            self._flush()
-        for write in self._writes:
-            write.result()
-        self._writer.shutdown()
+        with self._writer:
+            if self._tiles:
+                self._flush()
+            for write in self._writes:
+                write.result()
         return self.written
 
     def _flush(self) -> None:
@@ -112,11 +112,10 @@ RED = (255, 64, 64)
 
 @dataclass
 class Watch:
-    """The plays of a take as it runs (its `plays` hook). With a `storyboard`, the picture at
-    each play's end (a wait that changes nothing left out), captioned `#play t=end file:line`,
-    its problems outlined in red with their numbers."""
+    """A take's timeline, annotated pictures and layout report. As a `plays` hook it samples
+    play endings; `see` inspects the live scene at any moment."""
 
-    storyboard: Sheets | None = None
+    storyboard: Sheets
     layout: Layout = field(default_factory=Layout)
     lines: list[str] = field(default_factory=list[str])
     checked: int = 0
@@ -127,25 +126,42 @@ class Watch:
         self, made: Scene, play: Play, animations: tuple[Animation, ...]
     ) -> None:
         self.lines.append(line(play, animations))
+        self.see(made, play.end, play=play, distinct=True)
+
+    def see(
+        self,
+        made: Scene,
+        time: Fraction,
+        *,
+        play: Play | None = None,
+        distinct: bool = False,
+        known: Names | None = None,
+    ) -> None:
+        """Check and draw the scene now; optionally omit a consecutive identical picture."""
+        play = play or (made.film.plays[-1] if made.film.plays else None)
+        index = None if play is None else play.index
+        where = None if play is None else play.where
+        # Inside a play that has not ended yet, its source is still on the stack.
+        if made.num_plays > len(made.film.plays):
+            index, where = made.num_plays - 1, _written()
         self.three_d = made.three_d
-        seen = None if made.three_d else view(made)
-        marked = [] if seen is None else self.layout.see(play, seen)
+        seen = None if made.three_d else view(made, known)
+        marked = [] if seen is None else self.layout.see((time, where), seen)
         self.checked += seen is not None
-        if self.storyboard is None:
-            return
         rgba = made.film.picture(made.camera, made.display_list())
         picture = tile(rgba, config.pixel_width, config.pixel_height)
         pixels = picture.tobytes()
-        if pixels == self._last:
+        if distinct and pixels == self._last:
             return
         self._last = pixels
-        if seen is not None:
+        if seen is not None and marked:
             _mark(picture, seen, marked)
-        self.storyboard.add(caption(play, f"{float(play.end):.1f}s"), picture)
-
-    def close(self) -> list[Path]:
-        """The storyboard's sheets, every one written."""
-        return [] if self.storyboard is None else self.storyboard.close()
+        caption = f"t={float(time):g}s"
+        if index is not None:
+            caption = f"#{index} {caption}"
+        if where is not None:
+            caption += f" {Path(where[0]).name}:{where[1]}"
+        self.storyboard.add(caption, picture)
 
     def report(self, *, timeline: bool = True, film: "Film | None" = None) -> str:
         """The timeline (if asked), then the layout, then the sounds the film's end cuts
@@ -162,9 +178,6 @@ class Watch:
             for clip, lost in cut
         ]
         return "\n".join([*(self.lines if timeline else []), layout, *sounds])
-
-    def problems(self) -> list[Problem]:
-        return [p for p in self.layout.found.values() if not p.note]
 
 
 def _mark(picture: Image.Image, seen: View, marked: list[tuple[int, Problem]]) -> None:
