@@ -179,6 +179,8 @@ fn a_source_that_temporarily_refuses_connections_recovers() {
         loop {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    // Winsock inherits the listener's mode; request reads are blocking.
+                    stream.set_nonblocking(false).unwrap();
                     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
                     let mut request = Vec::new();
                     while !request.ends_with(b"\r\n\r\n") {
