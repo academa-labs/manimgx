@@ -132,6 +132,7 @@ def work_change(base: Work, head: Work) -> str:
 
 
 @pytest.mark.parametrize("name", list(WORKLOADS))
+@pytest.mark.timeout(0)  # The harness owns each child's deadline and kills/reaps it.
 def test_speed(
     name: str,
     trees: tuple[Tree, Tree] | None,
