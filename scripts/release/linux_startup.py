@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import faulthandler
+import hashlib
 import io
 import json
 import os
@@ -61,9 +62,19 @@ def pipeline(output: Path, project: Path, case: str) -> None:
             print(_engine.adapter_info(), flush=True)
         with phase("first_draw"):
             replay = _engine.Replay(take)
-            replay.render(0)
+            first = replay.render(0)
+        (output / "first.rgba").write_bytes(first)
+        print(
+            json.dumps(
+                {"size": replay.size, "rgba_sha256": hashlib.sha256(first).hexdigest()}
+            ),
+            flush=True,
+        )
         with phase("warm_draw"):
-            replay.render(0)
+            repeated = replay.render(0)
+        (output / "warm.rgba").write_bytes(repeated)
+        if first != repeated:
+            raise RuntimeError("cold and warm draws differ; retained both RGBA frames")
         return
     with phase("wav_decode"):
         pcm = io.BytesIO()

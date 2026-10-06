@@ -15,6 +15,10 @@ permissions: {}
 jobs:
   diagnose:
     if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [1, 2, 3, 4]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -65,7 +69,12 @@ jobs:
               uv venv --python /opt/python/cp313-cp313/bin/python /tmp/probe
               uv pip install --python /tmp/probe/bin/python /work/retained/retained-wheels/*.whl /work/source/fonts/manimgx-fonts /work/source/fonts/manimgx-fonts-cjk
               result=0
-              for variant in baseline commands symbols perf nopt vector128 no-cache; do
+              variants="baseline commands symbols perf nopt vector128 no-cache"
+              if ! grep -qw avx512f /proc/cpuinfo; then
+                echo "No AVX512: preserving the baseline as a CPU control."
+                variants=baseline
+              fi
+              for variant in $variants; do
                 set -- LVP_CMD_DEBUG=1
                 case "$variant" in
                   baseline) set -- ;;
@@ -86,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: linux-retained-${{ inputs.diagnostic_run }}
+          name: linux-retained-${{ inputs.diagnostic_run }}-${{ matrix.replica }}
           path: diagnostic/
           retention-days: 7
           if-no-files-found: error
