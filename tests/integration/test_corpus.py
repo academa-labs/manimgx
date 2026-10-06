@@ -6,36 +6,30 @@
 2. `test_types`: the scene is type safe as written for manimgx — `ty` with every rule, no
    escape from the checker, and no value manimgx leaves `Any` or `Unknown`.
 3. `test_regression`: the scene renders and the product exports it; today's manimgx holds
-   exactly to its stored frames, duration and timeline, regardless of CE's result or the
-   case's review status.
+   exactly to its frozen authoring package on this host, including every pixel, frame and
+   time, regardless of CE's result or the case's review status.
 
 This module only checks. `python -m tests.integration.corpus` renders and reviews.
 """
 
 import ast
-import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
-from PIL import Image
-from tests.integration.corpus import compare, engines, typecheck
+from tests.integration.corpus import baseline, typecheck
 from tests.integration.corpus.case import (
     FPS,
-    METRICS,
     SIZE,
     Case,
     Failure,
     Frames,
     discover,
-    frames_to_json,
-    settings,
 )
-from tests.integration.corpus.frames import decode
 
 CASES = discover()
 IDS = [case.name for case in CASES]
-SETTINGS = settings()
 DIFFS = Path(__file__).resolve().parent / "_diffs"
 
 
@@ -99,78 +93,34 @@ def test_types(case: Case, type_report: typecheck.TypeReport) -> None:
         pytest.fail("\n".join(problems), pytrace=False)
 
 
+@pytest.fixture(scope="session")
+def references(tmp_path_factory: pytest.TempPathFactory) -> baseline.References:
+    return baseline.References(
+        baseline.Catalog.load(), tmp_path_factory.mktemp("reference-packages")
+    )
+
+
 @pytest.mark.parametrize("case", CASES, ids=IDS)
 @pytest.mark.timeout(0)  # engines.run owns each child's deadline and kills/reaps it.
-def test_regression(case: Case) -> None:
-    result = engines.run(case, "manimgx", mp4=True)
+def test_regression(case: Case, references: baseline.References) -> None:
+    output = DIFFS / case.name
+    try:
+        result = references.compare(case, output)
+    except ValueError as error:
+        pytest.fail(str(error), pytrace=False)
     if isinstance(result.frames, Failure):
-        pytest.fail(f"the scene does not render: {result.frames.error}", pytrace=False)
-    assert result.mp4_frames == result.film_frames, (
-        f"the product's MP4 shows {result.mp4_frames} frames of the film's "
-        f"{result.film_frames}"
-    )
-    facts = case.facts()
-    assert facts is not None
-    expected = facts.manimgx
-    assert isinstance(expected, Frames)
-    if result.frames != expected:
-        pytest.fail(_explain(case, expected, result.frames), pytrace=False)
-
-
-def _explain(case: Case, expected: Frames, fresh: Frames) -> str:
-    """What changed in the film (the worst frame pair is written under `_diffs/`)."""
-    was, now = expected.hashes(), fresh.hashes()
-    changed = [i for i, (a, b) in enumerate(zip(was, now, strict=False)) if a != b]
-    lines = [f"{case.name}: today's manimgx differs from its reference"]
-    if fresh.duration != expected.duration:
-        lines.append(f"  duration {fresh.duration}s instead of {expected.duration}s")
-    if fresh.timeline != expected.timeline:
-        lines.append(f"  timeline {fresh.timeline!r} instead of {expected.timeline!r}")
-    if len(was) != len(now):
-        lines.append(f"  {len(now)} frames instead of {len(was)}")
-    if changed:
-        lines.append(
-            f"  {len(changed)} frames differ, first {changed[0]}, last {changed[-1]}"
+        pytest.fail(
+            f"{case.name}: {result.frames.error}; evidence: {output}", pytrace=False
         )
-    if changed:
-        out = DIFFS / case.name
-        out.mkdir(parents=True, exist_ok=True)
-        video = out / "fresh.mkv"
-        repeated = engines.run(case, "manimgx", video=video)
-        (out / "frames.json").write_text(
-            json.dumps(frames_to_json(repeated.frames)), encoding="utf-8"
+    if result.differences:
+        changes = result.differences
+        changed = sum(d.repeat for d in changes)
+        worst = max(changes, key=lambda d: d.max_channel_difference)
+        pytest.fail(
+            f"{case.name}: {changed} frames differ from the frozen package on this host; "
+            f"first {changes[0].first}, last {changes[-1].first + changes[-1].repeat - 1}; "
+            f"maximum RGB difference {worst.max_channel_difference} at frame {worst.first}; "
+            f"evidence: {output}",
+            pytrace=False,
         )
-        lines.append(f"  rendered film: {video}")
-        if repeated.frames != fresh:
-            lines.append("  a second render differs from the first on this same host")
-            return "\n".join(lines)
-    if changed and case.video("manimgx").exists():
-        wanted = set(changed)
-        column = METRICS.index(SETTINGS.metric)
-        largest, worst, pair = -1.0, -1, None
-        for i, (old, new) in enumerate(
-            zip(decode(case.video("manimgx"), SIZE), decode(video, SIZE))
-        ):
-            if i in wanted:
-                error = compare.measure(old, new)[column]
-                if error > largest:
-                    largest, worst, pair = error, i, (old, new)
-        assert pair is not None
-        lines.append(
-            f"  largest change {largest:.1f} ({SETTINGS.metric}) at frame {worst}"
-        )
-        sheet = Image.new("RGB", (SIZE[0] * 2, SIZE[1]))
-        sheet.paste(Image.fromarray(pair[0]), (0, 0))
-        sheet.paste(Image.fromarray(pair[1]), (SIZE[0], 0))
-        sheet.save(out / f"reference_vs_today_{worst:04d}.png")
-        lines.append(
-            f"  reference | today: {out / f'reference_vs_today_{worst:04d}.png'}"
-        )
-    elif changed:
-        lines.append(
-            "  restore the reviewed reference video to inspect the pixel differences"
-        )
-    lines.append(
-        f"  intended? just corpus render {case.name} (its review then needs renewing)"
-    )
-    return "\n".join(lines)
+    shutil.rmtree(output)

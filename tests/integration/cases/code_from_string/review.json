@@ -1,0 +1,8 @@
+{
+  "verdict": null,
+  "note": "Reviewed the code panel and glyphs: accept the bundled DejaVu Sans Mono font (94705a7).",
+  "source": "sha256:86353c75fffdb4507bb2ebac6cbbadfa298a2b31359fcd9a3a7d7a81303895bb",
+  "manimgx": "sha256:2e664fe96f26523d0a26771d0d537c5bebe4a92a15e92b4c9a6a740bcd875177",
+  "ce": "sha256:4a6fb71365eed864fe6056fd2f76fc97954f7ce80c9406eca92d72a28af4725e",
+  "at": "2026-10-06"
+}

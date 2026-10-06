@@ -1,8 +1,8 @@
 """The corpus's tools hold to their rules.
 
 - A stored manimgx film is a baseline whatever CE did and however the case was reviewed:
-  `test_regression` fails exactly when today's film differs from it (its frames, duration or
-  timeline), and never skips; a difference of timing alone is explained without rendering.
+  `test_regression` fails when its frozen package and today's film differ on the same host,
+  and never skips; the first comparison supplies the diagnostics without another render.
 - A type report's imprecision is manimgx's: an untyped value from another package is not
   manimgx's output, but manimgx's outputs stay imprecise however untyped their inputs, each
   named by the call or attribute it comes from (a generic class's inherited methods too).
@@ -21,29 +21,23 @@ from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
-import numpy as np
 import pytest
 from tests.integration import test_corpus as corpus
-from tests.integration.corpus import case, engines, typecheck
+from tests.integration.corpus import baseline, case, engines, typecheck
 from tests.integration.corpus.case import (
     FPS,
     METRICS,
     SIZE,
     Case,
     Comparison,
-    Engine,
     Facts,
     Failure,
     Frames,
+    frames_to_json,
 )
+from tests.integration.corpus.frozen import Difference
 
 STORED = Frames((("before", 2),), Fraction(1, 5), ((Fraction(0), 2),))
-CHANGES = {
-    "same": STORED,
-    "pixels": replace(STORED, runs=(("after", 2),)),
-    "duration": replace(STORED, duration=Fraction(3, 10)),
-    "timeline": replace(STORED, timeline=((Fraction(1, 10), 2),)),
-}
 
 
 def test_render_deadlines_reap_the_child_and_report_without_killing_pytest(
@@ -156,113 +150,95 @@ def made(name: str, scene: str) -> Case:
 
 
 @pytest.mark.usefixtures("cases")
+def test_render_evidence_keeps_the_original_complete_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    example = made("evidence", "import manimgx\n")
+    record = {
+        "source": example.source_hash(),
+        "render": frames_to_json(STORED),
+        "duration_exact": "1/5",
+        "adapter": {"backend": "test"},
+        "differences": [
+            {
+                "first": 201,
+                "repeat": 1,
+                "changed_pixels": 7,
+                "max_channel_difference": 255,
+            }
+        ],
+    }
+
+    def render(
+        command: list[str], **_options: object
+    ) -> subprocess.CompletedProcess[str]:
+        output = Path(command[command.index("--out") + 1])
+        output.write_text(json.dumps(record), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "original render log\n", "")
+
+    monkeypatch.setattr(subprocess, "run", render)
+    log = tmp_path / "actual.log"
+    result = engines.run(example, "manimgx", log=log)
+    assert result.duration == Fraction(1, 5)
+    assert log.read_text(encoding="utf-8") == "original render log\n"
+    assert (
+        json.loads(log.with_suffix(".result.json").read_text(encoding="utf-8"))
+        == record
+    )
+
+
+@pytest.mark.usefixtures("cases")
 @pytest.mark.parametrize("ce", ["same", "different", "failure"])
-@pytest.mark.parametrize("change", CHANGES)
+@pytest.mark.parametrize("change", ["same", "pixels", "duration", "timeline"])
 def test_a_stored_film_holds_whatever_ce_did(
-    ce: str, change: str, monkeypatch: pytest.MonkeyPatch
+    ce: str, change: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     example = made("baseline", "import manimgx\n")
     theirs = {"same": STORED, "different": replace(STORED, runs=(("ce", 2),))}
     error = 0.0 if ce == "same" else 255.0
     compared = Comparison(((0, 0, (error,) * len(METRICS)),), ())
     ce_render = theirs.get(ce, Failure("CE cannot render this scene"))
-    facts = Facts(example.source_hash(), SIZE, FPS, STORED, ce_render, "", compared)
-    example.write_facts(facts)
-    assert example.state(corpus.SETTINGS) == (
-        "working" if ce == "same" else "not_matching"
+    example.write_facts(
+        Facts(example.source_hash(), SIZE, FPS, STORED, ce_render, "", compared)
     )
-
-    def render(
-        _: Case, engine: Engine, *, video: Path | None = None, mp4: bool = False
-    ) -> engines.Result:
-        assert (engine, video, mp4) == ("manimgx", None, True)
-        return engines.Result(
-            example.source_hash(), CHANGES[change], film_frames=2, mp4_frames=2
-        )
-
-    monkeypatch.setattr(engines, "run", render)
-    monkeypatch.setattr(corpus, "_explain", lambda *_: "the stored film changed")
-    try:
-        if change == "same":
-            corpus.test_regression(example)
-        else:
-            with pytest.raises(pytest.fail.Exception, match="the stored film changed"):
-                corpus.test_regression(example)
-    except pytest.skip.Exception as skipped:
-        pytest.fail(f"a stored baseline cannot be skipped: {skipped}", pytrace=False)
-
-
-@pytest.mark.parametrize("change", ["duration", "timeline"])
-def test_a_change_of_timing_alone_is_explained_without_rendering(
-    change: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def render(*_: object, **__: object) -> engines.Result:
-        pytest.fail("timing diagnostics should not render or decode unchanged pixels")
-
-    monkeypatch.setattr(engines, "run", render)
-    message = corpus._explain(Case("timing"), STORED, CHANGES[change])
-    said = {
-        "duration": ("3/10s", "1/5s"),
-        "timeline": ("Fraction(1, 10)", "Fraction(0, 1)"),
-    }
-    assert all(part in message for part in (change, "instead of", *said[change]))
-
-
-@pytest.mark.usefixtures("cases")
-@pytest.mark.parametrize("repeatable", [True, False])
-def test_diagnostics_keep_actual_frames_without_a_local_reference(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repeatable: bool
-) -> None:
-    example = made("changed", "import manimgx\n")
     output = tmp_path / "diagnostics"
     monkeypatch.setattr(corpus, "DIFFS", output)
-    fresh = CHANGES["pixels"]
-    repeated = fresh if repeatable else STORED
+    calls = []
 
-    def render(
-        _: Case, engine: Engine, *, video: Path | None = None, mp4: bool = False
+    def compare(
+        _self: baseline.References, selected: Case, directory: Path
     ) -> engines.Result:
-        assert engine == "manimgx"
-        assert video is not None
-        assert not mp4
-        video.write_bytes(b"actual rendered film")
-        return engines.Result(example.source_hash(), repeated)
+        assert selected == example
+        calls.append(selected)
+        directory.mkdir(parents=True)
+        (directory / "actual.log").write_text(
+            "first render's evidence", encoding="utf-8"
+        )
+        # Host pixels may differ from the canonical movie. Only the frozen package's
+        # complete comparison on this same host decides pixel equality.
+        frames = replace(STORED, runs=(("host-specific", 2),))
+        differences = ()
+        if change == "pixels":
+            differences = (Difference(201, 1, 7, 255),)
+        elif change != "same":
+            frames = Failure(f"the candidate changed the reference {change}")
+        return engines.Result(example.source_hash(), frames, differences=differences)
 
-    monkeypatch.setattr(engines, "run", render)
-    message = corpus._explain(example, STORED, fresh)
-    assert (output / example.name / "fresh.mkv").read_bytes() == b"actual rendered film"
-    recorded = json.loads(
-        (output / example.name / "frames.json").read_text(encoding="utf-8")
-    )
-    assert case.frames_from_json(recorded) == repeated
-    assert ("a second render differs" in message) != repeatable
-
-
-@pytest.mark.usefixtures("cases")
-def test_diagnostics_inspect_the_whole_film(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    example = made("long_film", "import manimgx\n")
-    example.video("manimgx").touch()
-    monkeypatch.setattr(corpus, "DIFFS", tmp_path / "diagnostics")
-    expected = replace(STORED, runs=(("before", 202),))
-    fresh = replace(expected, runs=(("after", 202),))
-    monkeypatch.setattr(
-        engines, "run", lambda *_, **__: engines.Result(example.source_hash(), fresh)
-    )
-
-    def decode(path: Path, _: tuple[int, int]):
-        for i in range(202):
-            value = 0 if path == example.video("manimgx") else 255 if i == 201 else 1
-            yield np.full((7, 7, 3), value, dtype=np.uint8)
-
-    monkeypatch.setattr(corpus, "decode", decode)
-    message = corpus._explain(example, expected, fresh)
-    assert "largest change 255.0" in message
-    assert "at frame 201" in message
-    assert (
-        tmp_path / "diagnostics" / example.name / "reference_vs_today_0201.png"
-    ).is_file()
+    monkeypatch.setattr(baseline.References, "compare", compare)
+    references = baseline.References(baseline.Catalog({}, {}), tmp_path / "packages")
+    if change == "same":
+        corpus.test_regression(example, references)
+        assert not (output / example.name).exists()
+    else:
+        match = (
+            "maximum RGB difference 255 at frame 201" if change == "pixels" else change
+        )
+        with pytest.raises(pytest.fail.Exception, match=match):
+            corpus.test_regression(example, references)
+        assert (output / example.name / "actual.log").read_text(encoding="utf-8") == (
+            "first render's evidence"
+        )
+    assert calls == [example]
 
 
 @pytest.mark.usefixtures("cases")

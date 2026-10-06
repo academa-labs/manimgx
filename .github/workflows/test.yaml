@@ -189,22 +189,8 @@ jobs:
         id: runtime
         run: uv run --frozen --no-sync python -m scripts.release.smoke_test
 
-      - name: Capture cross-platform rendering evidence
-        if: matrix.python-version == '3.13'
-        run: >-
-          uv run --frozen --no-sync python -m tests.integration.corpus.probe render-probe
-          basic_usage gradient_example image_interpolation_ex text_ligature_colors_example
-          apply_matrix_example solid_of_revolution_bell three_d_light_source_position
-          sphere_stereographic_3d_rotation cube_rotations_via_permutations
-          pile_of_see_through_points_on_a_line spectral_layout lorenz_attractor_dual_trajectory
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
-        with:
-          name: probe-${{ matrix.os }}
-          path: render-probe/
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Acquire the verified corpus baseline
+        run: uv run --frozen --no-sync python -m tests.integration.corpus baseline acquire
 
       - name: Test
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}

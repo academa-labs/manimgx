@@ -106,6 +106,8 @@ def run(
         if proc.returncode != 0 or not out.exists():
             return Result(None, Failure(_error(proc.stderr, proc.returncode)))
         data = json.loads(out.read_text(encoding="utf-8"))
+        if log is not None:
+            log.with_suffix(".result.json").write_bytes(out.read_bytes())
     return Result(
         source=str(data["source"]),
         frames=frames_from_json(data["render"]),
