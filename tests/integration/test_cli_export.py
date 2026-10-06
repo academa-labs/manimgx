@@ -5,8 +5,10 @@ import sys
 from pathlib import Path
 
 import pytest
+import typer
 from PIL import Image
 
+from manimgx.cli import export
 from manimgx.cli.export import inspect
 from manimgx.cli.storyboard import Sheets
 
@@ -52,3 +54,31 @@ def test_inspections_distinguish_adjacent_times_and_finish_coincident_events(
     assert pictures[0] != pictures[1] == pictures[2]
     assert captions[0].startswith("#0 ")
     assert all(caption.startswith("#2 ") for caption in captions[1:])
+
+
+def test_a_scene_error_finishes_its_storyboard_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "broken_scene.py"
+    source.write_text(
+        "import manimgx as m\n"
+        "m.config.pixel_width = m.config.pixel_height = 16\n"
+        "class Only(m.Scene):\n"
+        "    def construct(self):\n"
+        "        self.wait(0.1)\n"
+        "        raise ValueError('scene failed')\n",
+        encoding="utf-8",
+    )
+    sheets = Sheets(tmp_path / "partial.png")
+    monkeypatch.setattr(export, "Sheets", lambda _: sheets)
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    try:
+        with pytest.raises(typer.Exit):
+            export.render(source)
+        assert sheets.written == [tmp_path / "partial.png"]
+        assert sheets.written[0].is_file()
+        with pytest.raises(RuntimeError, match="after shutdown"):
+            sheets._writer.submit(lambda: None)
+    finally:
+        sheets._writer.shutdown()
+        sys.modules.pop(source.stem, None)

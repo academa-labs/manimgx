@@ -69,11 +69,11 @@ class Sheets:
 
     def close(self) -> list[Path]:
         """The last sheet out; every sheet written."""
-        if self._tiles:
-            self._flush()
-        for write in self._writes:
-            write.result()
-        self._writer.shutdown()
+        with self._writer:
+            if self._tiles:
+                self._flush()
+            for write in self._writes:
+                write.result()
         return self.written
 
     def _flush(self) -> None:

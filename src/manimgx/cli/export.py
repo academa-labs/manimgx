@@ -73,8 +73,10 @@ def render(
     look = Format.own(resolution, fps)
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
-    made, _ = take(kind, look, video=video, plays=watch, preset=preset, crf=crf)
-    sheets = watch.storyboard.close()
+    try:
+        made, _ = take(kind, look, video=video, plays=watch, preset=preset, crf=crf)
+    finally:
+        sheets = watch.storyboard.close()
     took = time.perf_counter() - started
     megabytes = video.stat().st_size / 1e6
     typer.echo(
