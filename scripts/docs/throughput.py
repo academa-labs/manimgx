@@ -108,7 +108,7 @@ def measure(name: str, output: Path, count: int) -> dict[str, object]:
             player.begin_export(str(video), FPS, "slow", 28)
             for _ in range(count):
                 for obj in objects:
-                    obj.rotate(0.02)
+                    obj.shift((0.03, 0, 0))
                 v, records, cameras = feeder.frame(camera, objects)
                 player.push(v, records, cameras=cameras)
             result["encoder_stats"] = player.end_export()
