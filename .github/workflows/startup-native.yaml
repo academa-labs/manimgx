@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      trace_phases:
+        description: Temporarily time pinned DXC, D3D12 pipeline creation, and readback stages
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -69,6 +74,17 @@ jobs:
             -p manimgx-engine --no-default-features --features render,player,export \
             area_contract
 
+      - name: Trace the compiler and driver separately
+        if: ${{ inputs.trace_phases }}
+        run: uv run --no-project --python 3.13 scripts/engine/trace_startup.py
+
+      - name: Record the host's CPU and operating system
+        run: |
+          powershell.exe -NoProfile -Command '
+            @{cpu = @(Get-CimInstance Win32_Processor | Select-Object Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors);
+              os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, TotalVisibleMemorySize} |
+            ConvertTo-Json -Depth 4' > startup-host.json
+
       - name: Build the candidate wheel and frozen runtime
         run: |
           uv build --wheel --python 3.13 --out-dir dist
@@ -117,6 +133,8 @@ jobs:
               "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
               "patch_sha256": hashlib.sha256(Path("startup-area.patch").read_bytes()).hexdigest()
                   if mode == "production" and Path("startup-area.patch").exists() else None,
+              "trace_sha256": hashlib.sha256(Path("startup-trace.patch").read_bytes()).hexdigest()
+                  if mode == "production" and Path("startup-trace.patch").exists() else None,
               "package": str(package),
           }, indent=2), encoding="utf-8")
           PYTHON
@@ -161,6 +179,10 @@ jobs:
             startup-*.log
             startup-*-wheel.json
             startup-area.patch
+            startup-trace.patch
+            startup-trace.json
+            startup-trace-Cargo.lock
+            startup-host.json
             !startup-*/recording.take
           if-no-files-found: error
           retention-days: 7
