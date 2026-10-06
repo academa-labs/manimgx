@@ -111,6 +111,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("project", type=Path)
     parser.add_argument("--child", action="store_true")
+    parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument(
         "--case", choices=("smoke", "square", "line", "text", "glyph"), default="smoke"
     )
@@ -134,7 +135,7 @@ def main() -> None:
             command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
         )
         try:
-            code = child.wait(timeout=120)
+            code = child.wait(timeout=args.timeout)
         except subprocess.TimeoutExpired:
             os.kill(child.pid, signal.SIGUSR1)
             (output / "maps.txt").write_text(
@@ -174,6 +175,10 @@ def main() -> None:
                 "            print('ACTIVE JIT THREAD', thread.num, hex(pc), hex(start), hex(end))\n"
                 "            gdb.execute('info symbol $pc')\n"
                 "            gdb.execute('info all-registers')\n"
+                "            try:\n"
+                "                gdb.execute('x/4096wx $rsp')\n"
+                "            except gdb.error as error:\n"
+                "                print(error)\n"
                 "            gdb.execute('x/100i $pc-128')\n"
                 "            gdb.execute('disassemble /r %s,%s' % (start, end))\n"
                 "end\ndetach\n",

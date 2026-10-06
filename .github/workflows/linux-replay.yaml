@@ -56,6 +56,7 @@ jobs:
       - name: Reduce the draw and sample its generated instructions
         run: |
           mkdir -p diagnostic
+          lscpu > diagnostic/cpu.txt
           docker run --rm --cap-add=SYS_PTRACE --security-opt=seccomp=unconfined \
             -v "$GITHUB_WORKSPACE:/work" -v "$(command -v uv):/usr/local/bin/uv:ro" \
             -w /work quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c \
@@ -64,10 +65,21 @@ jobs:
               uv venv --python /opt/python/cp313-cp313/bin/python /tmp/probe
               uv pip install --python /tmp/probe/bin/python /work/retained/retained-wheels/*.whl /work/source/fonts/manimgx-fonts /work/source/fonts/manimgx-fonts-cjk
               result=0
-              for case in square line glyph text smoke; do
-                /tmp/probe/bin/python scripts/release/linux_startup.py "diagnostic/$case" source --case "$case" || result=1
+              for variant in baseline commands symbols perf nopt vector128 no-cache; do
+                set -- LVP_CMD_DEBUG=1
+                case "$variant" in
+                  baseline) set -- ;;
+                  symbols) set -- "$@" GALLIVM_DEBUG=symbols ;;
+                  perf) set -- "$@" GALLIVM_DEBUG=perf ;;
+                  nopt) set -- "$@" GALLIVM_PERF=nopt ;;
+                  vector128) set -- "$@" LP_NATIVE_VECTOR_WIDTH=128 ;;
+                  no-cache) set -- "$@" MESA_SHADER_CACHE_DISABLE=true ;;
+                esac
+                mkdir -p "diagnostic/$variant/cache"
+                env MESA_SHADER_CACHE_DIR="/work/diagnostic/$variant/cache" "$@" \
+                  /tmp/probe/bin/python scripts/release/linux_startup.py "diagnostic/$variant" source --case square --timeout 60 || result=1
+                rm -rf "diagnostic/$variant/cache"
               done
-              GALLIVM_DEBUG=symbols,perf /tmp/probe/bin/python scripts/release/linux_startup.py diagnostic/smoke-symbols source || result=1
               exit "$result"
             ' 2>&1 | tee diagnostic/probe.log
 
