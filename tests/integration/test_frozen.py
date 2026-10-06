@@ -102,7 +102,7 @@ def test_process_protocol_preserves_exact_duration_beyond_archival_rounding(
     frames = Frames((("pixels", 1),), duration, ((Fraction(0), 1),))
     path = tmp_path / "result.json"
     write_result(path, b"source", frames)
-    result = json.loads(path.read_text())
+    result = json.loads(path.read_text(encoding="utf-8"))
     assert result["render"]["duration"] == 0
     assert Fraction(result["duration_exact"]) == duration
 

@@ -140,9 +140,9 @@ def test_catalog_rejects_mutated_generation_identity(tmp_path: Path) -> None:
     path = tmp_path / "catalog.json"
     catalog.write(path)
     assert baseline.Catalog.load(path) == catalog
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["generations"][frozen.identity]["wheels"][0]["sha256"] = "0" * 64
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError, match="immutable identity"):
         baseline.Catalog.load(path)
 
@@ -174,7 +174,7 @@ def canonical(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Case:
         )
     )
     case.video_hash("manimgx").write_text(
-        f"{baseline.digest(case.video('manimgx'))}  manimgx.mkv\n"
+        f"{baseline.digest(case.video('manimgx'))}  manimgx.mkv\n", encoding="ascii"
     )
     # Acquisition is tested separately; here the actual installed package is the frozen one.
     package = Path(manimgx.__file__).resolve().parent.parent
@@ -229,7 +229,9 @@ def test_selective_promotion_verifies_real_pixels_and_changes_only_the_proposal(
     assert set(original.cases) == {"untouched"}
     assert promoted.cases["untouched"] == original.cases["untouched"]
     evidence = json.loads(
-        (tmp_path / "promotion" / canonical.name / "result.json").read_text()
+        (tmp_path / "promotion" / canonical.name / "result.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert evidence["duration_exact"] == "1/5"
     assert {
@@ -257,7 +259,8 @@ def test_promotion_cannot_bless_a_package_that_differs_from_the_canonical_movie(
         different = replace(facts.manimgx, runs=recorder.close())
         canonical.write_facts(replace(facts, manimgx=different))
         canonical.video_hash("manimgx").write_text(
-            f"{baseline.digest(canonical.video('manimgx'))}  manimgx.mkv\n"
+            f"{baseline.digest(canonical.video('manimgx'))}  manimgx.mkv\n",
+            encoding="ascii",
         )
     elif changed == "timing":
         canonical.write_facts(
