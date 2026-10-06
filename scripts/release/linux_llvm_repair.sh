@@ -40,6 +40,11 @@ cp "$archive" original-CodeGen.a
 # All builds use the SDK's ABI flags, installed generated headers and static dependencies.
 # Rebuilding the unmodified object first detects any mismatch in that boundary.
 read -r -a cxxflags <<< "$(llvm-config --cxxflags)"
+case "$(llvm-config --assertion-mode)" in
+  OFF) cxxflags+=(-DNDEBUG) ;;
+  ON) cxxflags+=(-UNDEBUG) ;;
+  *) exit 1 ;;
+esac
 read -r -a ldflags <<< "$(llvm-config --link-static --ldflags --libs all --system-libs | tr '\n' ' ')"
 c++ "${cxxflags[@]}" -O2 -fPIC -c upstream/llvm/tools/llc/llc.cpp -o llc.o
 c++ "${cxxflags[@]}" -O2 -fPIC -c upstream/llvm/tools/llc/NewPMDriver.cpp -o NewPMDriver.o

@@ -9,6 +9,10 @@ on:
         type: string
         default: "37417950081"
         required: true
+      compiler_fix:
+        description: Test the register-class fix with unchanged optimization and CPU features
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -49,6 +53,14 @@ jobs:
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
           sha256sum retained/retained-wheels/*.whl
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: inputs.compiler_fix
+        with:
+          name: linux-mesa-37417950081-4
+          path: llvm-retained
+          run-id: 37425715254
+          github-token: ${{ github.token }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.source.outputs.revision }}
@@ -58,12 +70,15 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Rebuild the exact driver with independent compiler controls
+        env:
+          COMPILER_FIX: ${{ inputs.compiler_fix }}
         run: |
           mkdir -p diagnostic
           lscpu > diagnostic/cpu.txt
           git rev-parse HEAD > diagnostic/diagnostic-revision.txt
           cp retained/diagnostic/source-run.json diagnostic/
           docker run --rm --cap-add=SYS_PTRACE --security-opt=seccomp=unconfined \
+            -e COMPILER_FIX \
             -v "$GITHUB_WORKSPACE:/work" -v "$(command -v uv):/usr/local/bin/uv:ro" \
             -w /work quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c \
             bash -e -o pipefail -c '
@@ -72,9 +87,13 @@ jobs:
               uv pip install --python /tmp/probe/bin/python /work/retained/retained-wheels/*.whl /work/source/fonts/manimgx-fonts /work/source/fonts/manimgx-fonts-cjk
               result=0
               /tmp/probe/bin/python scripts/release/linux_startup.py diagnostic/original source --case square --timeout 60 || result=1
+              echo "$result" > diagnostic/original-status.txt
               if ! grep -qw avx512f /proc/cpuinfo || ! grep -qw AuthenticAMD /proc/cpuinfo; then
                 echo "Not AMD AVX512: preserving the original baseline as a CPU control."
                 exit "$result"
+              fi
+              if [[ "$COMPILER_FIX" == true ]]; then
+                bash scripts/release/linux_llvm_repair.sh llvm-retained diagnostic/compiler
               fi
               curl --proto "=https" --tlsv1.2 --silent --show-error --fail https://sh.rustup.rs | sh -s -- -y --profile minimal
               export PATH="$HOME/.cargo/bin:$PATH"
@@ -86,6 +105,17 @@ jobs:
               rpm -qa | sort > diagnostic/rpm-packages.txt
               sha256sum diagnostic/driver/libvulkan_lvp.so retained/retained-wheels/*.whl > diagnostic/artifact-hashes.txt
               cp diagnostic/driver/libvulkan_lvp.so /tmp/probe/lib/python3.13/site-packages/manimgx/lavapipe/libvulkan_lvp.so
+              if [[ "$COMPILER_FIX" == true ]]; then
+                result=0
+                for case in square line glyph text smoke; do
+                  mkdir -p "diagnostic/fixed-$case/bitcode"
+                  MANIMGX_DIAGNOSTIC_DUMP_DIR="/work/diagnostic/fixed-$case/bitcode" \
+                    /tmp/probe/bin/python scripts/release/linux_startup.py "diagnostic/fixed-$case" source --case "$case" --timeout 60 || result=1
+                done
+                printf "%s\n" "f39b6104c7bffb4bc8cdd11924a35e24f5b68a4335390d8fd608bbcf026c79ed  diagnostic/fixed-square/first.rgba" | sha256sum --check || result=1
+                sha256sum diagnostic/fixed-*/bitcode/*.bc > diagnostic/fixed-bitcode-hashes.txt
+                exit "$result"
+              fi
               for variant in default default-dump ir-o0 codegen-o0 both-o0; do
                 set -- MANIMGX_DIAGNOSTIC_DUMP_DIR="/work/diagnostic/$variant/bitcode"
                 case "$variant" in
