@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import manimgx as m
-from manimgx._engine import Player, Recorder, Replay
+from manimgx._engine import TAKE_VERSION, Player, Recorder, Replay
 from manimgx.rendering.feed import Feeder
 
 
@@ -106,3 +106,15 @@ def test_a_replay_rejects_incomplete_failed_and_multiple_takes() -> None:
     failed.end(failed=True)
     with pytest.raises(ValueError, match="successfully"):
         Replay(failed.drain())
+
+
+def test_take_versions_are_explicit_and_rejected_before_playback() -> None:
+    recorder = Recorder(32, 24, 30)
+    start = bytearray(recorder.drain())
+    assert int.from_bytes(start[5:9], "little") == TAKE_VERSION
+    start[5:9] = (TAKE_VERSION + 1).to_bytes(4, "little")
+    with pytest.raises(ValueError, match=f"unsupported take format {TAKE_VERSION + 1}"):
+        Replay(bytes(start))
+    # The old unversioned START: its length, opcode0, width, height and fps.
+    with pytest.raises(ValueError, match="unversioned takes are unsupported"):
+        Replay(bytes.fromhex("11000000 00 20000000 18000000 0000000000003e40"))

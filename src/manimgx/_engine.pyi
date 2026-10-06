@@ -9,6 +9,9 @@ its layout read off Typst's frames (see `manimgx.drawing.typesetting`).
 
 from collections.abc import Sequence
 
+TAKE_VERSION: int
+"""The take format written by Recorder and supported by Replay and the native/browser player."""
+
 # a camera's view, drawn into a texture that later views sample by its key:
 # (key, width, height, view, records)
 type CameraView = tuple[int, int, int, bytes, bytes]

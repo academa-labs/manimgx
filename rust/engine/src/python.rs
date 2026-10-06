@@ -495,6 +495,7 @@ fn window(py: Python<'_>, title: String, time: f64, fonts: Vec<String>) -> PyRes
 
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("TAKE_VERSION", take::VERSION)?;
     #[cfg(feature = "render")]
     {
         m.add_class::<Player>()?;

@@ -4,7 +4,8 @@
 //! reads it back and draws any of its frames on demand (`web`).
 //!
 //! A message is its length (u32), its op (u8), then its fields, little-endian; a byte string is
-//! its length (u32), then its bytes. A take begins with START and ends with END (whether its
+//! its length (u32), then its bytes. A take begins with START: its format version (u32), width
+//! and height (u32 each), and frame rate (f64). It ends with END (whether its
 //! scene failed: a take cut short has none); NOTE carries the director's notes (JSON: the plays,
 //! the sections, the captions) to whoever shows the take, and SOUND the film's sound, an audio
 //! file its player plays beside the frames.
@@ -26,7 +27,11 @@ use std::sync::Arc;
 #[cfg(any(feature = "python", test))]
 use crate::pack::{self, Kind};
 
-pub(crate) const START: u8 = 0;
+/// The wire contract, including the layouts of views, records, uploads and coded arrays.
+/// Bump when a writer's output can no longer be read with the same meaning by an older reader.
+pub(crate) const VERSION: u32 = 1;
+// Opcode 0 was the unversioned START. A different opcode makes old readers reject this one.
+pub(crate) const START: u8 = 14;
 pub(crate) const PATH: u8 = 1;
 pub(crate) const POINTS: u8 = 2;
 pub(crate) const MESH: u8 = 3;
@@ -99,6 +104,7 @@ impl Writer {
 
     pub(crate) fn start(&mut self, width: u32, height: u32, fps: f64) {
         let at = self.begin(START);
+        self.put(&VERSION.to_le_bytes());
         self.put(&width.to_le_bytes());
         self.put(&height.to_le_bytes());
         self.put(&fps.to_le_bytes());
@@ -378,7 +384,7 @@ mod tests {
         }
         assert!(decoded.values().any(|d| d[..] == pack::canonical(Kind::MeshPoints, &points(0.01))[..]));
         let mut s = Fields(messages[0]);
-        assert_eq!((s.u8().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.f64().unwrap()), (START, 960, 540, 30.0));
+        assert_eq!((s.u8().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.f64().unwrap()), (START, VERSION, 960, 540, 30.0));
     }
 
     #[test]

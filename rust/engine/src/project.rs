@@ -322,7 +322,12 @@ impl Projector {
     fn message(&mut self, message: &[u8], notes: &mut Vec<(u32, Note)>) -> Result<(), String> {
         let mut f = Fields(message);
         let op = f.u8()?;
+        if op == 0 {
+            return Err("unversioned takes are unsupported; record the scene again with this version of manimgx".into());
+        }
         if op == take::START {
+            let format = f.u32()?;
+            if format != take::VERSION { return Err(format!("unsupported take format {format}; this engine reads format {}", take::VERSION)); }
             let (width, height, fps) = (f.u32()?, f.u32()?, f.f64()?);
             self.takes += 1;
             let fresh = Take { number: self.takes, size: (width, height), player: Player::new(width, height, 4), pack: Pack::default(), recipes: HashMap::new(), shots: Vec::new(), used: HashMap::new(), draws: 0, frames: 0, fps, ended: false, failed: false };
@@ -513,6 +518,27 @@ mod tests {
         for bad in [take(0, Some(false)), take(2, None), take(2, Some(true)), [stream.clone(), stream].concat()] {
             assert!(Take::read(&bad).is_err());
         }
+    }
+
+    #[test]
+    fn an_unsupported_take_is_rejected_before_its_resources_are_read() {
+        let stream = take(2, Some(false));
+        for version in [0, take::VERSION + 1, u32::MAX] {
+            let mut unsupported = stream.clone();
+            unsupported[5..9].copy_from_slice(&version.to_le_bytes());
+            // Split even the length and version fields, as native and browser streams can be.
+            for chunk in [1, 3, unsupported.len()] {
+                let mut projector = Projector::default();
+                let result = unsupported.chunks(chunk).try_for_each(|bytes| projector.feed(bytes).map(|_| ()));
+                assert_eq!(result.unwrap_err(), format!("unsupported take format {version}; this engine reads format {}", take::VERSION));
+                assert!(projector.shown.is_none());
+            }
+        }
+        // The former START had no version, only width, height and fps (17 payload bytes).
+        let legacy = [17u32.to_le_bytes().as_slice(), &[0], &64u32.to_le_bytes(), &36u32.to_le_bytes(), &30f64.to_le_bytes()].concat();
+        let mut projector = Projector::default();
+        assert!(projector.feed(&legacy).err().unwrap().contains("unversioned takes are unsupported"));
+        assert!(projector.shown.is_none());
     }
 
     #[test]
