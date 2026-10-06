@@ -58,24 +58,26 @@ def run(*command: str, cwd: Path = ROOT) -> str:
     ).stdout
 
 
-def crates() -> dict[str, dict]:
-    """The packages compiled into any of the engine's builds, as `cargo tree` shows them: its
+def crates(
+    directory: Path = ENGINE, builds: tuple[tuple[str, list[str]], ...] = BUILDS
+) -> dict[str, dict]:
+    """The packages compiled into the selected builds, as `cargo tree` shows them: their
     normal dependencies, all the way down, with the features each build turns on (a build
     script's and a test's are not in it), the workspace's own among them."""
     metadata = json.loads(
         run(
             *("cargo", "metadata", "--format-version", "1", "--locked"),
             "--all-features",
-            cwd=ENGINE,
+            cwd=directory,
         )
     )
     packages = {(p["name"], p["version"]): p for p in metadata["packages"]}
     linked: dict[str, dict] = {}
-    for target, features in BUILDS:
+    for target, features in builds:
         tree = run(
             *("cargo", "tree", "--locked", "--edges", "normal", "--target", target),
             *(*features, "--prefix", "none", "--format", "{p}"),
-            cwd=ENGINE,
+            cwd=directory,
         )
         for name, version in re.findall(r"^(\S+) v(\S+)", tree, re.MULTILINE):
             linked[f"{name} {version}"] = packages[name, version]
@@ -202,7 +204,11 @@ def uncovered(licenses: dict[str, str | None]) -> list[str]:
 
 
 def write(
-    linked: dict[str, dict], theirs: dict[tuple[str, tuple[str, ...]], list[str]]
+    linked: dict[str, dict],
+    theirs: dict[tuple[str, tuple[str, ...]], list[str]],
+    *,
+    header: str | None = None,
+    include_local: bool = False,
 ) -> tuple[str, list[str]]:
     """The notice, and what LICENSES/ has no text for."""
     found: dict[str, list[str]] = {}
@@ -222,7 +228,7 @@ def write(
             written = clean(file.read_text(encoding="utf-8", errors="replace"))
             found.setdefault(written, []).append(f"{declared}: {file.name}")
         # the workspace's own code is manimgx's (LICENSE)
-        if not shipped and package["source"] is not None:
+        if not shipped and (include_local or package["source"] is not None):
             authors = [re.sub(r"\s*<.*?>", "", a) for a in package["authors"]]
             by = ", ".join(authors) or f"the {package['name']} authors"
             expression = package.get("license") or "?"
@@ -235,7 +241,7 @@ def write(
                 missing.append(declared)
                 continue
             found.setdefault(written, []).append(f"{declared}: no license file")
-    header = (
+    header = header or (
         "What manimgx's wheels hold that others hold the copyright in: modules of its"
         " Python package, and the crates compiled into the engine (the extension, on"
         " each platform, Pyodide's, and the player for a page, which the extension"
@@ -243,12 +249,14 @@ def write(
         " and notices they come with, each text once, after what it covers. FFmpeg is"
         " under the LGPL-2.1-or-later, and x264, in every wheel but Pyodide's, under"
         " the GPL-2.0-or-later, which makes such a wheel, as a whole, GPL-3.0-or-later."
-        " Its complete source, which builds it offline, is on the GitHub release of its"
+        " Its complete source and build recipes are on the GitHub release of its"
         " version, https://github.com/academa-labs/manimgx/releases/tag/vX.Y.Z for"
-        " manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's source distribution"
+        " manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's committed repository"
         " with every crate rust/Cargo.lock names and each archive a workspace's crate"
-        " fetches. The Linux wheels' lavapipe is in LICENSE-LAVAPIPE. Written by"
-        " scripts/release/licenses.py."
+        " fetches, with the Linux builds' Mesa/glslang archives and exact distribution"
+        " source RPMs. System build tools remain prerequisites. The Linux wheels' lavapipe"
+        " is in LICENSE-LAVAPIPE. Written by"
+        " scripts/release/licenses.py. The Windows wheels' DXC is in LICENSE-DXC."
     )
     parts = [textwrap.fill(header, 84, break_on_hyphens=False) + "\n"]
     for written, users in sorted(found.items(), key=lambda item: item[1][0]):
@@ -259,6 +267,21 @@ def write(
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["--crate"]:
+        directory, target, output = sys.argv[2:]
+        linked = crates(Path(directory), ((target, []),))
+        text, missing = write(
+            linked,
+            {},
+            header=f"The crates compiled into the executable's launcher for {target}, "
+            "as its own Cargo.lock and default features select them, with the license "
+            "and notice files they supply. Its sources and lockfile accompany the release.",
+            include_local=True,
+        )
+        if missing:
+            sys.exit(f"LICENSES/ has no text for {', '.join(missing)}")
+        Path(output).write_text(text, encoding="utf-8")
+        return
     linked = crates()
     theirs = others()
     text, missing = write(linked, theirs)
