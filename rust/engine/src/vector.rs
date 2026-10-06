@@ -12,7 +12,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::{Camera, Kind, Mat34, NONE, Paint, ROUND, Record, SQUARE, Store, compose};
+use super::{Camera, Kind, Mat34, NONE, Paint, ROUND, Record, SQUARE, Shape, Store, compose};
 
 const TILE: u32 = 16;
 const ATLAS_WIDTH: u32 = 4096;
@@ -246,6 +246,54 @@ struct Flats {
     points: Vec<[[f64; 3]; 3]>,                  // each flat's: three points of its plane in the world (a line's: on it)
 }
 
+/// Place plane witnesses without rounding their basis into a different plane. In-plane
+/// principal axes may rotate freely when their spreads coincide; only the plane matters.
+fn world_plane(a: &Shape, b: Option<&Shape>, record: &Record) -> [[f64; 3]; 3] {
+    let at = |m: &Mat34, p: [f64; 3], translate: bool| [0, 1, 2].map(|k| m[k][0] as f64 * p[0] + m[k][1] as f64 * p[1] + m[k][2] as f64 * p[2] + if translate { m[k][3] as f64 } else { 0.0 });
+    std::array::from_fn(|i| {
+        let first = at(&record.m1, a.plane[i], true);
+        let second = b.map_or([0.0; 3], |b| at(&record.m2, b.plane[i], false));
+        [0, 1, 2].map(|k| first[k] + second[k])
+    })
+}
+
+#[cfg(test)]
+mod plane_precision {
+    use super::*;
+
+    #[test]
+    fn a_planes_projection_does_not_depend_on_its_principal_axes() {
+        // Equal in-plane spreads have no preferred eigenbasis. Tiny changes can rotate
+        // the witnesses by a large angle, but must not rotate or translate their plane.
+        for perturbation in [-f64::EPSILON, 0.0, f64::EPSILON] {
+            let mut points = [[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]];
+            points[0][0] += perturbation;
+            let mut store = Store::default();
+            store.add_path(1, &points, &[[0, 1, 1, 0]], [0.0; 3], [0.0, 0.0, 1.0]);
+            let shape = store.shapes.get(&1).unwrap();
+            for offset in [0.0f32, 100.0, 100_000.0] {
+                let m = [[0.81, 0.24, 0.55, offset], [0.44, 0.93, -0.14, -offset], [0.37, -0.62, 0.89, offset]];
+                let record = Record::filled(1, 1, m, [1.0; 4]);
+                let placed = world_plane(shape, None, &record);
+                let actual = fit_plane(&placed);
+                let m = m.map(|row| row.map(f64::from));
+                let determinant = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+                let a = (m[2][0] * m[1][1] - m[2][1] * m[1][0]) / determinant;
+                let b = (m[0][0] * m[2][1] - m[0][1] * m[2][0]) / determinant;
+                // Evaluate the fitted plane where the shape actually lies. Intercepts
+                // alone are ill-conditioned for a plane translated far from the origin.
+                for x in [-1.0, 0.0, 1.0] {
+                    for y in [-1.0, 0.0, 1.0] {
+                        let wanted = m[2][3] + a * x + b * y;
+                        let found = actual[0] * (m[0][3] + x) + actual[1] * (m[1][3] + y) + actual[2];
+                        assert!((wanted - found).abs() <= 8.0 * f64::EPSILON * (1.0 + offset as f64), "{perturbation} {offset}: {wanted} != {found}");
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn flats(store: &Store, records: &[Record], order: &[usize]) -> Flats {
     type P = [f64; 3];
     let sub = |a: P, b: P| -> P { [a[0] - b[0], a[1] - b[1], a[2] - b[2]] };
@@ -279,8 +327,7 @@ fn flats(store: &Store, records: &[Record], order: &[usize]) -> Flats {
             continue; // in the frame, not the scene
         }
         let b = if r.key2 == 0 { None } else { store.shapes.get(&r.key2) };
-        let at = |m: &super::Mat34, p: [f32; 3], translate: bool| -> P { [0, 1, 2].map(|i| (m[i][0] * p[0] + m[i][1] * p[1] + m[i][2] * p[2] + if translate { m[i][3] } else { 0.0 }) as f64) };
-        let points: [P; 3] = std::array::from_fn(|i| add(at(&r.m1, a.plane[i], true), b.map_or([0.0; 3], |b| at(&r.m2, b.plane[i], false))));
+        let points = world_plane(a, b, r);
         let scale = points.iter().flat_map(|p| p.iter()).fold(1.0f64, |m, x| m.max(x.abs()));
         let (u, v) = (sub(points[1], points[0]), sub(points[2], points[0]));
         let n = cross(u, v);
@@ -896,18 +943,12 @@ impl Vector {
             // its fill lit by the view's lights: a 3D view's planar path with a material, in the scene (not fixed in
             // the frame); its plane's normal in the world (a morph's: both terms' plane points, summed, as its depth
             // plane takes them)
-            let world = |i: usize| -> [f32; 3] {
-                let (p1, p2) = (a.plane[i], b.map_or([0.0; 3], |b| b.plane[i]));
-                let at = |m: &super::Mat34, p: [f32; 3], translate: bool| [0, 1, 2].map(|k| m[k][0] * p[0] + m[k][1] * p[1] + m[k][2] * p[2] + if translate { m[k][3] } else { 0.0 });
-                let (q1, q2) = (at(&r.m1, p1, true), if b.is_some() { at(&r.m2, p2, false) } else { [0.0; 3] });
-                [0, 1, 2].map(|k| q1[k] + q2[k])
-            };
-            let (q0, q1, q2) = (world(0), world(1), world(2));
+            let [q0, q1, q2] = world_plane(a, b, r);
             let (u, v) = ([0, 1, 2].map(|k| q1[k] - q0[k]), [0, 1, 2].map(|k| q2[k] - q0[k]));
             let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
             let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             let lit = camera.three_d && r.material[3] > 0.0 && r.flags & super::OVERLAY == 0 && a.planar && b.is_none_or(|b| b.planar) && length > 1e-12;
-            let normal = if lit { n.map(|x| x / length) } else { [0.0; 3] };
+            let normal = if lit { n.map(|x| (x / length) as f32) } else { [0.0; 3] };
             // else lit as a whole, like CE (where it is shaded in 3D): solid colors here, gradients by the composite
             // (`place`)
             let light = if lit { 0.0 } else { store.light(camera, r)? };
@@ -917,7 +958,7 @@ impl Vector {
                 }
             }
             let [pa, pb, pc] = if camera.three_d {
-                let row = |t: &[f32; 4], p: [f32; 3]| [0, 1, 2].map(|j| t[j] as f64 * p[j] as f64).iter().sum::<f64>() + t[3] as f64;
+                let row = |t: &[f32; 4], p: [f64; 3]| [0, 1, 2].map(|j| t[j] as f64 * p[j]).iter().sum::<f64>() + t[3] as f64;
                 let points: Vec<[f64; 3]> = (0..3)
                     .filter_map(|i| {
                         let (p1, p2) = (a.plane[i], b.map_or([0.0; 3], |b| b.plane[i]));
@@ -966,11 +1007,11 @@ impl Vector {
                 let [p0, p1, p2] = a.plane;
                 let (u, v) = ([0, 1, 2].map(|k| p1[k] - p0[k]), [0, 1, 2].map(|k| p2[k] - p0[k]));
                 let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-                let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-                let z = [z1[0] + t1w[0], z1[1] + t1w[1], z1[2] + t1w[2]]; // clip z's
+                let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                let z = [0, 1, 2].map(|i| z1[i] as f64 + t1w[i] as f64); // clip z's
                 let g = if dot(n, n) > 1e-20 { [0, 1, 2].map(|k| z[k] - n[k] * dot(z, n) / dot(n, n)) } else { z };
                 let d = dot(z, g);
-                if d.abs() > 1e-20 { [g[0], g[1], g[2], 1.0 / d] } else { [z[0], z[1], z[2], 1.0 / dot(z, z).max(1e-20)] }
+                (if d.abs() > 1e-20 { [g[0], g[1], g[2], 1.0 / d] } else { [z[0], z[1], z[2], 1.0 / dot(z, z).max(1e-20)] }).map(|v| v as f32)
             } else {
                 [0.0; 4]
             };

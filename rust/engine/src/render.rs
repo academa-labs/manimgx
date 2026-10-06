@@ -180,7 +180,7 @@ struct Shape {
     lo: [f32; 3],       // bounds of what it draws in its own space (a path's control points: its curves lie within)
     hi: [f32; 3],
     middle: [f32; 3],     // the center of its bounds, by which a 3D view orders it
-    plane: [[f32; 3]; 3], // a path's: three points of the plane its control points lie nearest (`plane`)
+    plane: [[f64; 3]; 3], // a path's fitted plane; keep its precision through placement and projection
     planar: bool,         // a path's control points lie in that plane (a straight path's: on its line)
 }
 
@@ -274,7 +274,7 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// Three points of the plane that points lie nearest (least squares): their mean, and the mean moved by their spread
 /// along each of their two widest principal axes. A planar path's plane exactly; a straight path's line (its second
 /// spread is none: its third point is its mean). And whether they lie in it (to rounding).
-fn plane(points: &[[f64; 3]]) -> ([[f32; 3]; 3], bool) {
+fn plane(points: &[[f64; 3]]) -> ([[f64; 3]; 3], bool) {
     let n = points.len().max(1) as f64;
     let mean = [0, 1, 2].map(|i| points.iter().map(|p| p[i]).sum::<f64>() / n);
     let mut m = [[0.0f64; 3]; 3];
@@ -309,9 +309,9 @@ fn plane(points: &[[f64; 3]]) -> ([[f32; 3]; 3], bool) {
     }
     let mut axes = [0, 1, 2];
     axes.sort_by(|&a, &b| m[b][b].total_cmp(&m[a][a]));
-    let along = |k: usize| [0, 1, 2].map(|i| (mean[i] + m[k][k].max(0.0).sqrt() * v[i][k]) as f32);
+    let along = |k: usize| [0, 1, 2].map(|i| mean[i] + m[k][k].max(0.0).sqrt() * v[i][k]);
     let planar = m[axes[2]][axes[2]].max(0.0).sqrt() <= 1e-6 * m[axes[0]][axes[0]].max(0.0).sqrt() + 1e-12;
-    ([mean.map(|x| x as f32), along(axes[0]), along(axes[1])], planar)
+    ([mean, along(axes[0]), along(axes[1])], planar)
 }
 
 /// The largest second difference of a curve's control points (Wang's D, in its own units).
