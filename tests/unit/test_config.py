@@ -12,6 +12,7 @@
 import ast
 import dataclasses
 from pathlib import Path
+from typing import assert_type
 
 import pytest
 from hypothesis import given
@@ -21,6 +22,12 @@ import manimgx as m
 from manimgx.config import Config
 
 pixels = st.integers(16, 4096)
+
+
+def test_simulation_rate_has_the_same_typed_dictionary_access_as_other_fields() -> None:
+    config = Config()
+    config["simulation_rate"] = 120
+    assert assert_type(config["simulation_rate"], int) == config.simulation_rate == 120
 
 
 @given(width=pixels, height=pixels)
