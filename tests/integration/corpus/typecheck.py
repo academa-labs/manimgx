@@ -7,21 +7,23 @@ Three findings, all shown in full:
   never writes `@override`) and `deprecated` (CE code uses CE's names, some of which
   manimgx deprecates in favor of one of its own).
 - `escapes`: ways a scene could quiet the checker — suppression comments, `Any`, `cast`,
-  `TYPE_CHECKING`, and dynamic access (`vars`, `getattr` with a literal name, …).
+  `TYPE_CHECKING`, and dynamic access (`vars`, `getattr` with a literal name, …). One is
+  manimgx's limit, not the scene's: a method of the scene's own class, called through
+  `.animate` or `.always`, which manimgx's types can't name (they list the library's
+  methods), so its `# ty: ignore[unresolved-attribute]` is not an escape.
 - `imprecise`: expressions whose type manimgx leaves `Any` or `Unknown`. Every call and
   attribute in every scene is wrapped in `reveal_type` and checked in one run; a value counts
   when manimgx produced it — a manimgx function, or a method or attribute of a manimgx class.
   (numpy's and the standard library's own imprecision is theirs.)
 
-`ty` is given the files, never a directory: `[tool.ty.src]` includes only what it names, and
-a directory outside it is walked as empty and "passes". Each scene must also show up in the reveal run.
+`ty` receives an explicit file set in a response file, independent of OS command-line limits.
+Directories outside `[tool.ty.src]` are walked as empty and "pass", so file selection stays
+explicit. Each scene must also show up in the reveal run.
 """
 
 import ast
 import io
 import re
-import subprocess
-import sys
 import tempfile
 import tokenize
 from collections import defaultdict
@@ -29,7 +31,8 @@ from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
-from tests.integration.corpus.case import PACKAGE, ROOT, Case
+from tests.integration.corpus.case import PACKAGE, Case
+from tests.typecheck import check
 
 # every rule an error, but two: CE code overrides without the decorator, and uses CE's
 # names that manimgx deprecates (its examples are written with them, on purpose)
@@ -42,7 +45,6 @@ STRICT = (
     "deprecated",
 )
 
-_DIAGNOSTIC = re.compile(r"^(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): (?P<rest>.*)$")
 _REVEAL = re.compile(r"^info\[revealed-type\] Revealed type: `(?P<type>.*)`$")
 _SUPPRESSION = re.compile(r"#\s*(?:type|ty|pyright)\s*:\s*ignore")
 _IMPRECISE = re.compile(r"\bUnknown\b|\bAny\b|@Todo")
@@ -78,7 +80,7 @@ class TypeReport:
 def report(cases: list[Case]) -> TypeReport:
     result = TypeReport()
     by_path = {case.scene.resolve(): case for case in cases}
-    for path, line, rest in _ty([case.scene for case in cases], STRICT):
+    for path, line, _, rest in check([case.scene for case in cases], STRICT):
         case = by_path.get(path)
         if case is not None:
             result.diagnostics.setdefault(case.name, []).append(f"line {line}: {rest}")
@@ -90,39 +92,16 @@ def report(cases: list[Case]) -> TypeReport:
     return result
 
 
-def _ty(files: list[Path], flags: tuple[str, ...]) -> list[tuple[Path, int, str]]:
-    """(file, line, message) for every diagnostic `ty` reports on exactly these files."""
-    if not files:
-        return []
-    proc = subprocess.run(
-        [sys.executable, "-m", "ty", "check", "--output-format", "concise"]
-        + ["--no-progress", *flags, *map(str, files)],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
-    )
-    if "No python files found" in proc.stdout + proc.stderr:
-        msg = "ty checked no files"
-        raise RuntimeError(msg)
-    if proc.returncode not in (0, 1):
-        msg = f"ty failed ({proc.returncode}):\n{proc.stdout}{proc.stderr}"
-        raise RuntimeError(msg)
-    found: list[tuple[Path, int, str]] = []
-    for line in proc.stdout.splitlines():
-        match = _DIAGNOSTIC.match(line)
-        if match:
-            path = (ROOT / match["path"]).resolve()
-            found.append((path, int(match["line"]), match["rest"]))
-    return found
-
-
 def escapes(source: bytes) -> list[str]:
+    tree = ast.parse(source)
+    own = _own_methods_animated(tree)
     found: list[str] = []
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT and _SUPPRESSION.search(token.string):
+            if token.string == _OWN_METHOD and token.start[0] in own:
+                continue
             found.append(f"line {token.start[0]}: {token.string}")
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module in {
             "typing",
             "typing_extensions",
@@ -143,6 +122,50 @@ def escapes(source: bytes) -> list[str]:
             if name in _DYNAMIC_CALLS or (name in _NAMED_ACCESS and literal):
                 found.append(f"line {node.lineno}: {ast.unparse(node)[:80]}")
     return sorted(found, key=lambda s: int(s.split()[1].rstrip(":")))
+
+
+_OWN_METHOD = "# ty: ignore[unresolved-attribute]"
+
+
+def _own_methods(tree: ast.Module) -> frozenset[str]:
+    """The names of the methods the scene's own classes define."""
+    return frozenset(
+        item.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        for item in node.body
+        if isinstance(item, ast.FunctionDef)
+    )
+
+
+def _own_method_animated(node: ast.AST, own: frozenset[str]) -> bool:
+    """Whether an expression is a method of the scene's own class, through `.animate` or
+    `.always`: one that manimgx's types can't name."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in own
+        and _through_proxy(node.value)
+    )
+
+
+def _own_methods_animated(tree: ast.Module) -> set[int]:
+    """The lines that call a method of the scene's own classes through `.animate` or
+    `.always` (where a type checker reports it)."""
+    own = _own_methods(tree)
+    return {
+        node.end_lineno or node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and _own_method_animated(node, own)
+    }
+
+
+def _through_proxy(node: ast.expr) -> bool:
+    """Whether an expression is a mobject's `.animate` or `.always`, or calls on one."""
+    while isinstance(node, ast.Attribute | ast.Call):
+        if isinstance(node, ast.Attribute) and node.attr in {"animate", "always"}:
+            return True
+        node = node.value if isinstance(node, ast.Attribute) else node.func
+    return False
 
 
 # ── precision ─────────────────────────────────────────────────────────────────
@@ -255,10 +278,15 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
     classes = _manimgx_methods()
     found: dict[str, list[str]] = defaultdict(list)
     with tempfile.TemporaryDirectory() as tmp:
-        plans: list[tuple[Case, Path, str, list[tuple[str, int]], frozenset[str]]] = []
+        plans: list[
+            tuple[
+                Case, Path, str, list[tuple[str, int]], frozenset[str], frozenset[str]
+            ]
+        ] = []
         for case in cases:
             tree = ast.parse(case.scene.read_bytes())
             bound = _manimgx_names(tree)
+            own = _own_methods(tree)
             reveal = _Reveal()
             instrumented = reveal.visit(tree)
             sites = [reveal.site[id(w)] for w in _reveal_calls(instrumented)]
@@ -269,11 +297,11 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
             path = Path(tmp) / case.name / "scene.py"
             path.parent.mkdir()
             path.write_text(text, encoding="utf-8")
-            plans.append((case, path.resolve(), text, sites, bound))
+            plans.append((case, path.resolve(), text, sites, bound, own))
 
-        revealed = _reveal_positions([path for _, path, _, _, _ in plans])
+        revealed = _reveal_positions([plan[1] for plan in plans])
 
-        for case, path, text, sites, bound in plans:
+        for case, path, text, sites, bound, own in plans:
             lines = text.splitlines()
             wrappers = _reveal_calls(ast.parse(text))
             if len(wrappers) != len(sites):
@@ -297,6 +325,7 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
                     type_ is None
                     or _CALLABLE.match(type_)
                     or not _IMPRECISE.search(type_)
+                    or _own_method_animated(_strip(wrapper.args[0]), own)
                 ):
                     continue
                 producer = _producer(wrapper.args[0], types, classes, bound)
@@ -310,27 +339,11 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
 
 def _reveal_positions(files: list[Path]) -> dict[tuple[Path, int, int], str]:
     """Revealed types by (file, line, column of the revealed expression), from one ty run."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "ty", "check", "--output-format", "concise"]
-        + ["--no-progress", *map(str, files)],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
-    )
-    if proc.returncode not in (0, 1):
-        msg = f"ty failed ({proc.returncode}):\n{proc.stdout}{proc.stderr}"
-        raise RuntimeError(msg)
-    revealed: dict[tuple[Path, int, int], str] = {}
-    for line in proc.stdout.splitlines():
-        match = _DIAGNOSTIC.match(line)
-        if match is None:
-            continue
-        reveal = _REVEAL.match(match["rest"])
-        if reveal is not None:
-            path = Path(match["path"]).resolve()
-            revealed[(path, int(match["line"]), int(match["col"]))] = reveal["type"]
-    return revealed
+    return {
+        (path, line, column): match["type"]
+        for path, line, column, rest in check(files)
+        if (match := _REVEAL.match(rest))
+    }
 
 
 def _unwrap(node: ast.expr) -> ast.expr:
