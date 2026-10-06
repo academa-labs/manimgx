@@ -24,8 +24,11 @@ use std::ops::Range;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::{CameraView, environment, read};
+use crate::{CameraView, check_key, environment, mesh::Mesh, read};
 
+#[cfg(windows)]
+#[path = "dxc.rs"]
+mod dxc;
 #[path = "bloom.rs"]
 mod bloom;
 #[cfg(not(target_arch = "wasm32"))]
@@ -41,7 +44,9 @@ mod vector;
 pub(crate) const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// What a 3D view with lit meshes keeps their light in, beside its display paint (`blend.wgsl`'s `Base`).
 pub(crate) const RADIANCE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
+// Reversed Z keeps distant depth differences in a float's significant digits. Depth24Plus
+// may use fixed-point depth, where those differences vanish.
+const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32FloatStencil8;
 const NONE: u32 = u32::MAX;
 const OVERLAY: u64 = 1;
 const LIT: u64 = 4;
@@ -175,7 +180,7 @@ struct Shape {
     lo: [f32; 3],       // bounds of what it draws in its own space (a path's control points: its curves lie within)
     hi: [f32; 3],
     middle: [f32; 3],     // the center of its bounds, by which a 3D view orders it
-    plane: [[f32; 3]; 3], // a path's: three points of the plane its control points lie nearest (`plane`)
+    plane: [[f64; 3]; 3], // a path's fitted plane; keep its precision through placement and projection
     planar: bool,         // a path's control points lie in that plane (a straight path's: on its line)
 }
 
@@ -269,7 +274,7 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// Three points of the plane that points lie nearest (least squares): their mean, and the mean moved by their spread
 /// along each of their two widest principal axes. A planar path's plane exactly; a straight path's line (its second
 /// spread is none: its third point is its mean). And whether they lie in it (to rounding).
-fn plane(points: &[[f64; 3]]) -> ([[f32; 3]; 3], bool) {
+fn plane(points: &[[f64; 3]]) -> ([[f64; 3]; 3], bool) {
     let n = points.len().max(1) as f64;
     let mean = [0, 1, 2].map(|i| points.iter().map(|p| p[i]).sum::<f64>() / n);
     let mut m = [[0.0f64; 3]; 3];
@@ -304,9 +309,9 @@ fn plane(points: &[[f64; 3]]) -> ([[f32; 3]; 3], bool) {
     }
     let mut axes = [0, 1, 2];
     axes.sort_by(|&a, &b| m[b][b].total_cmp(&m[a][a]));
-    let along = |k: usize| [0, 1, 2].map(|i| (mean[i] + m[k][k].max(0.0).sqrt() * v[i][k]) as f32);
+    let along = |k: usize| [0, 1, 2].map(|i| mean[i] + m[k][k].max(0.0).sqrt() * v[i][k]);
     let planar = m[axes[2]][axes[2]].max(0.0).sqrt() <= 1e-6 * m[axes[0]][axes[0]].max(0.0).sqrt() + 1e-12;
-    ([mean.map(|x| x as f32), along(axes[0]), along(axes[1])], planar)
+    ([mean, along(axes[0]), along(axes[1])], planar)
 }
 
 /// The largest second difference of a curve's control points (Wang's D, in its own units).
@@ -371,6 +376,24 @@ impl Store {
         self.vertices.len() * VERTEX_BYTES + self.indices.len() * 4 + self.rows.len() * 16 + self.points.len() / 4 * CURVE_BYTES + self.ranges.len() * 16
     }
 
+    /// The arrays sent to the GPU, in binding order (the indices are only an index buffer).
+    fn arrays(&self) -> [&[u8]; 7] {
+        [bytemuck::cast_slice(&self.vertices), bytemuck::cast_slice(&self.links), bytemuck::cast_slice(&self.indices), bytemuck::cast_slice(&self.rows), bytemuck::cast_slice(&self.extras), bytemuck::cast_slice(&self.ctrl), bytemuck::cast_slice(&self.ranges)]
+    }
+
+    fn fits(&self, limits: &wgpu::Limits) -> bool {
+        self.arrays().iter().enumerate().all(|(k, bytes)| bytes.len() as u64 <= store_limit(limits, k))
+    }
+
+    fn rooms(&self, limits: &wgpu::Limits) -> Result<[u64; 7], String> {
+        let arrays = self.arrays();
+        let mut rooms = [0; 7];
+        for (k, name) in ["vertices", "vertex links", "indices", "paint rows", "vertex normals and UVs", "curve points", "subpath ranges"].iter().enumerate() {
+            rooms[k] = buffer_room(arrays[k].len() as u64, 1, 1024, store_limit(limits, k), name)?;
+        }
+        Ok(rooms)
+    }
+
     /// The bytes a shape holds in the arrays: a path's curves (with their room), a point cloud's or
     /// mesh's vertices and index codes.
     #[cfg(any(feature = "python", feature = "player"))]
@@ -391,48 +414,54 @@ impl Store {
         }
     }
 
-    /// Pack the living once most of the arrays is dead (and there is enough of it to matter).
-    fn pack_if_worthwhile(&mut self) {
-        if self.dead < 16 << 20 || self.dead * 2 < self.bytes() {
+    /// Pack the living once most of the arrays is dead, or a binding needs the space now.
+    fn pack_if_worthwhile(&mut self, pressed: bool) {
+        if self.dead == 0 || (!pressed && (self.dead < 16 << 20 || self.dead * 2 < self.bytes())) {
             return;
         }
-        let old = std::mem::take(self);
-        self.generation = old.generation + 1; // (a path loses its room: it moves when it grows)
-        let mut shapes: Vec<(&u64, &Shape)> = old.shapes.iter().collect();
+        *self = self.packed(|_| true);
+    }
+
+    /// A stable packing of selected resources; keys remain logical, offsets belong to this store.
+    fn packed(&self, keep: impl Fn(u64) -> bool) -> Self {
+        let old = self;
+        let mut packed = Self { generation: old.generation + 1, ..Default::default() };
+        let mut shapes: Vec<(&u64, &Shape)> = old.shapes.iter().filter(|(key, _)| keep(**key)).collect();
         shapes.sort_by_key(|(_, s)| (s.curves.first, s.base)); // keep their order: packing is a stable move
         for (&key, s) in shapes {
             let mut shape = Shape { base: 0, count: 0, raster: Raster::default(), ..*s };
             if s.kind == Kind::Path {
                 let c = s.curves;
                 let (a, b) = (4 * c.first as usize, 4 * (c.first + c.count) as usize);
-                let first = self.push_curves(&old.points[a..b], c.count as usize);
-                let first_subpath = self.ranges.len() as u32;
-                self.ranges.extend_from_slice(&old.ranges[c.first_subpath as usize..(c.first_subpath + c.subpaths) as usize]);
+                let first = packed.push_curves(&old.points[a..b], c.count as usize);
+                let first_subpath = packed.ranges.len() as u32;
+                packed.ranges.extend_from_slice(&old.ranges[c.first_subpath as usize..(c.first_subpath + c.subpaths) as usize]);
                 shape.curves = Curves { first, room: c.count, first_subpath, ..c };
             } else {
                 let (a, b) = (s.base as usize, (s.base + s.count) as usize);
-                let base = self.push_vertices(&old.vertices[a..b], Some(&old.extras[a..b]));
+                let base = packed.push_vertices(&old.vertices[a..b], Some(&old.extras[a..b]));
                 let moved = |v: u32| v - s.base + base;
                 let r = &s.raster;
                 let linked = s.kind == Kind::Mesh && !r.stroke.is_empty();
-                self.links.extend(old.links[a..b].iter().map(|l| if linked { [moved(l[0]), moved(l[1])] } else { [0, 0] }));
-                let fill_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[r.fill.start as usize..r.fill.end as usize].iter().map(|&i| moved(i)));
-                let stroke_start = self.indices.len() as u32;
-                self.indices.extend(old.indices[r.stroke.start as usize..r.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
-                let end = self.indices.len() as u32;
+                packed.links.extend(old.links[a..b].iter().map(|l| if linked { [moved(l[0]), moved(l[1])] } else { [0, 0] }));
+                let fill_start = packed.indices.len() as u32;
+                packed.indices.extend(old.indices[r.fill.start as usize..r.fill.end as usize].iter().map(|&i| moved(i)));
+                let stroke_start = packed.indices.len() as u32;
+                packed.indices.extend(old.indices[r.stroke.start as usize..r.stroke.end as usize].iter().map(|&code| (moved(code >> 3) << 3) | (code & 7)));
+                let end = packed.indices.len() as u32;
                 let raster = Raster { count: r.count, fill: fill_start..stroke_start, stroke: stroke_start..end };
                 shape = Shape { base, count: s.count, raster, ..shape };
             }
-            self.shapes.insert(key, shape);
+            packed.shapes.insert(key, shape);
         }
-        let mut brushes: Vec<(&u64, &Brush)> = old.brushes.iter().collect();
+        let mut brushes: Vec<(&u64, &Brush)> = old.brushes.iter().filter(|(key, _)| keep(**key)).collect();
         brushes.sort_by_key(|(_, b)| b.offset);
         for (&key, b) in brushes {
-            let offset = self.rows.len() as u32;
-            self.rows.extend_from_slice(&old.rows[b.offset as usize..(b.offset + b.count) as usize]);
-            self.brushes.insert(key, Brush { offset, count: b.count, see_through: b.see_through });
+            let offset = packed.rows.len() as u32;
+            packed.rows.extend_from_slice(&old.rows[b.offset as usize..(b.offset + b.count) as usize]);
+            packed.brushes.insert(key, Brush { offset, count: b.count, see_through: b.see_through });
         }
+        packed
     }
 
     /// A path: its control points (four per curve) and subpaths (its own curve ranges: first, end,
@@ -945,7 +974,7 @@ struct Pipelines {
     points: wgpu::RenderPipeline,
     sprites: wgpu::RenderPipeline, // a 3D view's see-through points, blended in the order listed
     mesh: wgpu::RenderPipeline,
-    appends: Option<Appends>, // with more than one sample
+    appends: Appends,
 }
 
 /// A 3D view's listed see-through layers, each appending its fragments to the lists once (see
@@ -979,7 +1008,7 @@ pub(crate) struct Gpu {
     occlusion: Option<occlusion::Occlusion>, // a 3D view's ambient occlusion's passes, made when a view first has it
     no_occlusion: wgpu::TextureView,         // what a view without it binds in its place: 1x1
     bloom: Option<bloom::Bloom>,             // a 3D view's bloom's passes, made when a view first has it
-    blend: Option<wgpu::ShaderModule>, // the raster pipeline's shader, once made (for the shadow passes too)
+    blend: [Option<wgpu::ShaderModule>; 2], // single/multisample texture forms (the shadow passes share either)
     shadow_passes: HashMap<usize, wgpu::RenderPipeline>, // by the light's slot in its view, made when first cast
 }
 
@@ -1012,6 +1041,13 @@ fn shader(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ShaderModul
     device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some(label), source: wgpu::ShaderSource::Wgsl(source.into()) })
 }
 
+/// One compositing algorithm; only its texture types differ at one sample. `textureLoad`'s
+/// last argument then names mip zero instead of sample zero.
+fn sampled_shader(device: &wgpu::Device, label: &str, source: &str, multisampled: bool) -> wgpu::ShaderModule {
+    let kind = if multisampled { "multisampled_2d" } else { "2d" };
+    shader(device, label, &format!("alias SampleColor = texture_{kind}<f32>;\nalias SampleDepth = texture_depth_{kind};\n{source}"))
+}
+
 fn entry(binding: u32, ty: wgpu::BindingType) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT, ty, count: None }
 }
@@ -1020,8 +1056,8 @@ fn storage(binding: u32) -> wgpu::BindGroupLayoutEntry {
     entry(binding, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None })
 }
 
-/// How a pass uses the stencil: count a stroke's coverage, cover once where counted (zeroing it,
-/// even where depth rejects), or leave it alone.
+/// How a pass uses the stencil: count a stroke's coverage, cover once where visible (zeroing it
+/// only when depth passes), or leave it alone.
 #[derive(Clone, Copy)]
 enum Stencil {
     Coverage,
@@ -1035,8 +1071,8 @@ pub(crate) fn blends_float32(adapter: &wgpu::Adapter) -> bool {
     adapter.get_texture_format_features(wgpu::TextureFormat::R32Float).flags.contains(wgpu::TextureFormatFeatureFlags::BLENDABLE)
 }
 
-/// An instance's high-performance adapter, which must blend float32 targets (a view adds its
-/// coverage in one).
+/// An instance's high-performance adapter: float32 coverage blending and floating-point depth
+/// with stencil, which its reversed-Z projection and stroke coverage require.
 async fn adapter(instance: &wgpu::Instance) -> Result<wgpu::Adapter, String> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() })
@@ -1048,6 +1084,9 @@ async fn adapter(instance: &wgpu::Instance) -> Result<wgpu::Adapter, String> {
     if !blends_float32(&adapter) {
         return Err("the GPU cannot blend float32 targets (a view adds its coverage in one)".into());
     }
+    if !adapter.features().contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) {
+        return Err("the GPU cannot use float32 depth with stencil (reversed-Z depth needs floating-point precision)".into());
+    }
     Ok(adapter)
 }
 
@@ -1055,7 +1094,13 @@ impl Gpu {
     /// The system's GPU, WebGPU's (Metal, Vulkan, DX12, the browser's): its device, and what draws on it.
     pub(crate) async fn new() -> Result<Self, String> {
         // the system's adapter; where none will do, the lavapipe a Linux wheel bundles
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let descriptor = wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() };
+        #[cfg(windows)]
+        let descriptor = wgpu::InstanceDescriptor {
+            backend_options: wgpu::BackendOptions { dx12: wgpu::Dx12BackendOptions { shader_compiler: dxc::compiler()?, ..Default::default() }, ..descriptor.backend_options },
+            ..descriptor
+        };
+        let instance = wgpu::Instance::new(descriptor);
         #[cfg(target_arch = "wasm32")]
         let adapter = adapter(&instance).await?;
         #[cfg(not(target_arch = "wasm32"))]
@@ -1074,7 +1119,7 @@ impl Gpu {
         #[cfg(not(feature = "player"))]
         drop(instance);
         let specific = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-        let required_features = adapter.features() & (specific | wgpu::Features::FLOAT32_BLENDABLE);
+        let required_features = (adapter.features() & (specific | wgpu::Features::FLOAT32_BLENDABLE)) | wgpu::Features::DEPTH32FLOAT_STENCIL8;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("manimgx"),
@@ -1118,9 +1163,10 @@ impl Gpu {
         let shadows = layout("lighting", &[maps, compare, dfg, linear, cube, occlusion]);
         // the scene's arrays; a 3D view's see-through lists, written (with the opaque depth), and its slab bounds
         let written = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None };
-        let depth = entry(3, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true });
+        let depth = [false, true].map(|multisampled| entry(3, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled }));
         let bounds = entry(0, wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false });
-        let (lists, slabs) = (layout("append", &[written(0), written(1), written(2), depth]), [layout("slab bounds", &[bounds]), layout("slab bounds and depth", &[bounds, depth])]);
+        let lists = depth.map(|depth| layout("append", &[written(0), written(1), written(2), depth]));
+        let slabs = depth.map(|depth| [layout("slab bounds", &[bounds]), layout("slab bounds and depth", &[bounds, depth])]);
         let raster = RasterLayouts { scene: layout("scene", &[view, storage(1), storage(2), storage(4), storage(5), storage(6), storage(7)]), lists, slabs, shadows };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("image"),
@@ -1153,7 +1199,7 @@ impl Gpu {
             instance,
             #[cfg(feature = "player")]
             adapter,
-            device, queue, raster, image_layout, sampler, pipelines: HashMap::new(), max_samples, vector, shadow_compare, dfg, linear, no_environment, prefilter: None, occlusion: None, no_occlusion, bloom: None, blend: None, shadow_passes: HashMap::new() })
+            device, queue, raster, image_layout, sampler, pipelines: HashMap::new(), max_samples, vector, shadow_compare, dfg, linear, no_environment, prefilter: None, occlusion: None, no_occlusion, bloom: None, blend: [None, None], shadow_passes: HashMap::new() })
     }
 
     /// The raster pipeline's passes at `samples`, made when a view first draws rasters with them.
@@ -1168,7 +1214,8 @@ impl Gpu {
         // the body, and its reads: from storage buffers, with the see-through lists
         let raster = &self.raster;
         let parts = [include_str!("blend.wgsl"), include_str!("light.wgsl"), include_str!("blend_buffers.wgsl"), include_str!("blend_lists.wgsl")].concat();
-        let shader = self.blend.get_or_insert_with(|| shader(device, "blend", &parts)).clone();
+        let kind = (samples > 1) as usize;
+        let shader = self.blend[kind].get_or_insert_with(|| sampled_shader(device, "blend", &parts, samples > 1)).clone();
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), Some(&self.image_layout), None, Some(&raster.shadows)], immediate_size: 0 });
         let face = |compare, pass_op, depth_fail_op| wgpu::StencilFaceState { compare, fail_op: Op::Keep, depth_fail_op, pass_op };
         // a view with lit meshes: two targets, its display paint and its light (`blend.wgsl`'s `Base`), each fragment
@@ -1189,7 +1236,7 @@ impl Gpu {
         let p = |vs: &str, fs: Option<&str>, stencil: Stencil, write: bool, color: bool| {
             let (front, back) = match stencil {
                 Stencil::Coverage => (face(C::Always, Op::IncrementClamp, Op::Keep), face(C::Always, Op::IncrementClamp, Op::Keep)),
-                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Zero), face(C::NotEqual, Op::Zero, Op::Zero)),
+                Stencil::Cover => (face(C::NotEqual, Op::Zero, Op::Keep), face(C::NotEqual, Op::Zero, Op::Keep)),
                 Stencil::Ignore => (face(C::Always, Op::Keep, Op::Keep), face(C::Always, Op::Keep, Op::Keep)),
             };
             let targets = targets_for(if color { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() });
@@ -1215,7 +1262,7 @@ impl Gpu {
             })
         };
         let stroke = |vs, fs| Passes {
-            count: p(vs, Some("fs_none"), Stencil::Coverage, false, false),
+            count: p(vs, Some("fs_none"), Stencil::Coverage, true, false),
             cover: p(vs, Some(fs), Stencil::Cover, true, true),
         };
         // the see-through layers' appends test the opaque depth themselves (read-only here) and
@@ -1237,15 +1284,15 @@ impl Gpu {
                 cache: None,
             })
         };
-        let appends = (samples > 1).then(|| {
-            let (append, based) = (group_layout(&raster.lists), group_layout(&raster.slabs[0]));
+        let appends = {
+            let (append, based) = (group_layout(&raster.lists[kind]), group_layout(&raster.slabs[kind][0]));
             let appended = |vs: &str, fs: &str| compositing(&append, vs, fs, false, C::Always);
             // the slabs, a target each, over the share of each pixel's samples in front of the opaque depth (their
             // pass tests it, on a single sample)
             let slab = Some(wgpu::ColorTargetState { format: COLOR, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL });
             let slabs = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("fs_sprites_slabs"),
-                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), None, Some(&raster.slabs[1])], immediate_size: 0 })),
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene), None, Some(&raster.slabs[kind][1])], immediate_size: 0 })),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_sprites"), compilation_options: Default::default(), buffers: &[] },
                 fragment: Some(wgpu::FragmentState { module: &shader, entry_point: Some("fs_sprites_slabs"), compilation_options: Default::default(), targets: &vec![slab; vector::SLABS] }),
                 primitive: wgpu::PrimitiveState::default(),
@@ -1260,7 +1307,7 @@ impl Gpu {
                 sprites: compositing(&based, "vs_sprites", "fs_sprites_base", true, C::GreaterEqual),
                 slabs,
             }
-        });
+        };
         let pipelines = Pipelines {
             stroke: [stroke("vs_stroke", "fs_stroke"), stroke("vs_stroke", "fs_stroke_gradient")],
             points: p("vs_points", Some("fs_points"), Stencil::Ignore, true, true),
@@ -1275,7 +1322,7 @@ impl Gpu {
     /// raster pipeline's shader is made by then).
     fn shadow_pass(&mut self, slot: usize) -> &wgpu::RenderPipeline {
         let (device, raster) = (&self.device, &self.raster);
-        let shader = self.blend.as_ref().expect("the raster pipeline's shader");
+        let shader = self.blend.iter().flatten().next().expect("the raster pipeline's shader");
         self.shadow_passes.entry(slot).or_insert_with(|| {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&raster.scene)], immediate_size: 0 });
             let constants = [("shadow_light", slot as f64)];
@@ -1383,8 +1430,8 @@ enum Depth {
 /// opaque depth) and its slab bounds (as its sprites read them: into the base; into the slabs, with the opaque depth).
 struct RasterLayouts {
     scene: wgpu::BindGroupLayout,
-    lists: wgpu::BindGroupLayout,
-    slabs: [wgpu::BindGroupLayout; 2],
+    lists: [wgpu::BindGroupLayout; 2],
+    slabs: [[wgpu::BindGroupLayout; 2]; 2],
     shadows: wgpu::BindGroupLayout, // what the lit passes read: the shadow maps and their comparison, the DFG table
 }
 
@@ -1427,7 +1474,7 @@ impl Canvas {
     }
 
     /// Give it a 3D view's slabs (once; it has the raster pipeline's attachments).
-    fn attach_slabs(&mut self, gpu: &Gpu) {
+    fn attach_slabs(&mut self, gpu: &Gpu, samples: u32) {
         let attached = self.raster.as_mut().expect("the raster pipeline's attachments");
         if attached.slabs.is_some() {
             return;
@@ -1440,7 +1487,8 @@ impl Canvas {
         let read = wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&bounds) };
         let depth = wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) };
         let group = |layout, entries: &[wgpu::BindGroupEntry]| gpu.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("slab bounds"), layout, entries });
-        let groups = [group(&gpu.raster.slabs[0], std::slice::from_ref(&read)), group(&gpu.raster.slabs[1], &[read, depth])];
+        let layouts = &gpu.raster.slabs[(samples > 1) as usize];
+        let groups = [group(&layouts[0], std::slice::from_ref(&read)), group(&layouts[1], &[read, depth])];
         let slabs = slabs.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         attached.slabs = Some(Slabs { bounds, layers, slabs, groups });
     }
@@ -1489,9 +1537,9 @@ impl Canvas {
 
 pub(crate) struct Targets {
     pub(crate) frame: Canvas,
-    #[cfg(feature = "python")]
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) readback: wgpu::Buffer, // the frame's pixels, then the lists' count (see `Lists`)
-    #[cfg(feature = "python")]
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) padded: u32,
 }
 
@@ -1703,6 +1751,18 @@ fn whole(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
     wgpu::BindGroupEntry { binding, resource: buffer.as_entire_binding() }
 }
 
+fn store_limit(limits: &wgpu::Limits, array: usize) -> u64 {
+    if array == 2 { limits.max_buffer_size } else { limits.max_storage_buffer_binding_size.min(limits.max_buffer_size) }
+}
+
+/// Geometric growth may use spare space, but a binding can never expose more than its limit.
+fn buffer_room(needed: u64, stride: u64, minimum: u64, limit: u64, name: &str) -> Result<u64, String> {
+    if needed > limit / stride {
+        return Err(format!("resident {name} requires {} bytes; the GPU's buffer limit is {limit} bytes", needed.saturating_mul(stride)));
+    }
+    Ok(needed.max(minimum).next_power_of_two().min(limit / stride))
+}
+
 /// Draw object `k`'s `range` with `pipeline` (set only when it changes).
 fn run(pass: &mut wgpu::RenderPass, current: &mut *const wgpu::RenderPipeline, pipeline: &wgpu::RenderPipeline, range: &Range<u32>, k: u32) {
     if !std::ptr::eq(*current, pipeline) {
@@ -1713,26 +1773,42 @@ fn run(pass: &mut wgpu::RenderPass, current: &mut *const wgpu::RenderPipeline, p
 }
 
 impl Player {
+    /// Copy the drawn frame's full-quality RGBA rows, independently of video conversion.
+    #[cfg(any(feature = "python", feature = "export"))]
+    pub(crate) fn copy_pixels(&self, encoder: &mut wgpu::CommandEncoder) {
+        let t = self.targets.as_ref().expect("targets");
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: t.frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &t.readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.padded), rows_per_image: Some(self.height) } },
+            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+        );
+    }
+
+    #[cfg(any(feature = "python", feature = "export"))]
+    pub(crate) fn map_pixels(&self, gpu: &Gpu) -> Result<(), String> {
+        self.targets.as_ref().expect("targets").readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        gpu.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Bring the GPU up to date: images made textures, the store's arrays sent — only what was
     /// appended since last time; everything when they were packed or outgrew their buffers — and
     /// room for `count` instances, `views` views and `sprites` sprites.
-    fn prepare(&mut self, gpu: &Gpu, count: usize, views: usize, sprites: usize) {
+    fn prepare(&mut self, gpu: &Gpu, count: usize, views: usize, sprites: usize) -> Result<(), String> {
         let device = &gpu.device;
+        let limits = device.limits();
         for (key, (w, h, rgba)) in self.images.drain() {
             self.image_groups.insert(key, gpu.image_group(w, h, &rgba));
         }
         self.image_groups.entry(0).or_insert_with(|| gpu.image_group(1, 1, &[255, 255, 255, 255]));
+        let rooms = self.store.rooms(&limits)?;
+        let capacity = buffer_room(count as u64, size_of::<Instance>() as u64, 1024, store_limit(&limits, 0), "instances")? as usize;
+        let room = buffer_room(sprites as u64, size_of::<[u32; 2]>() as u64, 1024, store_limit(&limits, 0), "sprites")? as usize;
+        let slots = buffer_room(views as u64, VIEW_STRIDE as u64, 4, limits.max_buffer_size, "views")? as usize;
+        // A rejected frame must leave pending in-place writes available for the next one.
         let dirty = std::mem::take(&mut self.store.dirty);
         let s = &self.store;
-        let arrays: [&[u8]; 7] = [
-            bytemuck::cast_slice(&s.vertices),
-            bytemuck::cast_slice(&s.links),
-            bytemuck::cast_slice(&s.indices),
-            bytemuck::cast_slice(&s.rows),
-            bytemuck::cast_slice(&s.extras),
-            bytemuck::cast_slice(&s.ctrl),
-            bytemuck::cast_slice(&s.ranges),
-        ];
+        let arrays = s.arrays();
         // (the passes read them as storage buffers; the indices are an index buffer too)
         let storage = wgpu::BufferUsages::STORAGE;
         let buffer = |size: u64| device.create_buffer(&wgpu::BufferDescriptor { label: Some("store"), size, usage: storage | wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
@@ -1741,7 +1817,6 @@ impl Player {
         let sprite_buffer = |room: usize| device.create_buffer(&wgpu::BufferDescriptor { label: Some("sprites"), size: (room * size_of::<[u32; 2]>()) as u64, usage: storage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let mut rebind = false;
         let buffers = self.buffers.get_or_insert_with(|| {
-            let (slots, capacity, room) = (views.max(4).next_power_of_two(), count.max(1024).next_power_of_two(), sprites.max(1024).next_power_of_two());
             let (views, instances, sprites, statics) = (view_buffer(slots), instances(capacity), sprite_buffer(room), [(); 7].map(|_| buffer(1024)));
             rebind = true;
             let shadow_maps = ShadowMaps::new(gpu, 1, 1, (None, &gpu.no_environment));
@@ -1758,7 +1833,7 @@ impl Player {
         }
         for (k, bytes) in arrays.iter().enumerate() {
             if bytes.len() as u64 > buffers.sizes[k] {
-                buffers.sizes[k] = (bytes.len() as u64).next_power_of_two();
+                buffers.sizes[k] = rooms[k];
                 buffers.statics[k] = buffer(buffers.sizes[k]);
                 buffers.sent[k] = 0;
                 rebind = true;
@@ -1769,41 +1844,42 @@ impl Player {
             }
         }
         if buffers.capacity < count {
-            buffers.capacity = count.next_power_of_two();
+            buffers.capacity = capacity;
             buffers.instances = instances(buffers.capacity);
             rebind = true;
         }
         if buffers.slots < views {
-            buffers.slots = views.next_power_of_two();
+            buffers.slots = slots;
             buffers.views = view_buffer(buffers.slots);
             rebind = true;
         }
         if buffers.room < sprites {
-            buffers.room = sprites.next_power_of_two();
+            buffers.room = room;
             buffers.sprites = sprite_buffer(buffers.room);
             rebind = true;
         }
         if rebind {
             buffers.group = Some(scene_group(gpu, buffers));
         }
+        Ok(())
     }
 
     pub(crate) fn targets(&mut self, gpu: &Gpu) -> &Targets {
         let (width, height) = (self.width, self.height);
         self.targets.get_or_insert_with(|| {
-            #[cfg(feature = "python")]
+            #[cfg(any(feature = "python", feature = "export"))]
             let padded = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
             Targets {
                 frame: Canvas::new(gpu, width, height),
                 // read back natively (`render`); in the browser a frame goes to its canvas
-                #[cfg(feature = "python")]
+                #[cfg(any(feature = "python", feature = "export"))]
                 readback: gpu.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("readback"),
                     size: (padded * height) as u64 + COUNT_BYTES,
                     usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                     mapped_at_creation: false,
                 }),
-                #[cfg(feature = "python")]
+                #[cfg(any(feature = "python", feature = "export"))]
                 padded,
             }
         })
@@ -1903,8 +1979,8 @@ impl Player {
         };
         // which passes change pixels
         let (fill, stroke) = a.raster.shown([r.params[0], r.params[1]]); // (a path has no raster form: nothing)
-        // a mesh's faces' edges blend and write depth once per pixel, by the stencil: even opaque,
-        // where blending twice is invisible, the first fragment's depth must be the one kept
+        // a mesh's edges first find their nearest covered depth, then blend once per sample:
+        // a hidden ribbon cannot consume another ribbon's visible coverage
         let stroked = a.kind == Kind::Mesh && !stroke.is_empty() && r.params[2] > 0.0 && (paint.stroke[3] > 0.0 || many_stroke);
         // a layer can be seen through where its color is, or a row of its brushes (a tween's
         // either paint); a textured mesh also where its picture can be
@@ -1959,7 +2035,29 @@ impl Player {
     /// composited in more than one group (its objects overflowed the atlases), and whether a 3D
     /// view composited see-through layers through the lists (whose count tells if they held).
     pub(crate) fn encode(&mut self, gpu: &mut Gpu, frames: &[Frame]) -> Result<(wgpu::CommandEncoder, bool, bool), String> {
-        self.store.pack_if_worthwhile(); // before anything reads where a shape is
+        self.with_working_set(&gpu.device.limits(), frames, |player| player.encode_frame(gpu, frames))
+    }
+
+    /// CPU residency includes nearby frames. Only the complete current frame must fit on the GPU.
+    /// A temporary packing never evicts logical keys, consumes their pending writes, or leaks its
+    /// offsets into the resident store; even a failed encoding restores that store unchanged.
+    fn with_working_set<T>(&mut self, limits: &wgpu::Limits, frames: &[Frame], draw: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<T, String> {
+        self.store.pack_if_worthwhile(!self.store.fits(limits));
+        if self.store.fits(limits) {
+            return draw(self);
+        }
+        let used: Keyed<()> = frames.iter().flat_map(|f| crate::take::slots(bytemuck::cast_slice(&f.records))).flatten().map(|key| (key, ())).collect();
+        let working = self.store.packed(|key| used.contains_key(&key));
+        working.rooms(limits)?;
+        let resident = std::mem::replace(&mut self.store, working);
+        let result = draw(self);
+        let generation = self.store.generation + 1;
+        self.store = resident;
+        self.store.generation = generation; // the next GPU upload cannot reuse temporary offsets
+        result
+    }
+
+    fn encode_frame(&mut self, gpu: &mut Gpu, frames: &[Frame]) -> Result<(wgpu::CommandEncoder, bool, bool), String> {
         let samples = self.samples.clamp(1, gpu.max_samples);
         let mut instances: Vec<Instance> = Vec::new();
         let mut sprites: Vec<[u32; 2]> = Vec::new();
@@ -1977,7 +2075,7 @@ impl Player {
             }
             let camera = Camera::new(&f.view);
             let drawing = if camera.three_d {
-                // its paths are exact vector layers over the raster base (its meshes and points), depth tested
+                // its paths are analytic vector layers over the raster base (its meshes and points), depth tested
                 // against it; everything else is the base
                 let order = self.order(&camera, &f.records)?;
                 let path = |k: &usize| self.store.shapes.get(&f.records[*k].key1).is_some_and(|s| s.kind == Kind::Path);
@@ -2033,14 +2131,11 @@ impl Player {
                     [x0, y0, x1 - x0, y1 - y0]
                 };
                 let listed = pixels(listed);
-                // its see-through points are sprites, unless the listed layers need lists it
-                // cannot have (one sample): then everything is drawn as given
-                let at = sprites.len() as u32;
-                let sprites_here = if samples > 1 || !draws.iter().any(Draw::listed) { self.sprites(&instances[offset as usize..], &draws, offset, &mut sprites) } else { at..at };
-                // its listed layers are composited per pixel, in depth order, through the lists (with multisamples),
-                // by its composite; and among them and its paths in the scene, its sprites, through slabs
-                let lists = samples > 1 && draws.iter().any(Draw::listed);
-                let slabs = samples > 1 && !sprites_here.is_empty() && (lists || !casting.is_empty());
+                // Transparency has the same depth ordering at every sample count. Point sprites
+                // blend between the other layers through slabs; mesh fragments use lists.
+                let sprites_here = self.sprites(&instances[offset as usize..], &draws, offset, &mut sprites);
+                let lists = draws.iter().any(Draw::listed);
+                let slabs = !sprites_here.is_empty() && (lists || !casting.is_empty());
                 // its lit meshes' light, kept apart from its paint in its base and shown once by its composite (a
                 // camera's integration of what is lit)
                 let light = draws.iter().any(|d| d.lit && !d.overlay);
@@ -2092,7 +2187,7 @@ impl Player {
                 }
             }
         }
-        self.prepare(gpu, instances.len(), frames.len(), sprites.len());
+        self.prepare(gpu, instances.len(), frames.len(), sprites.len())?;
         self.targets(gpu);
         for f in &frames[..frames.len() - 1] {
             self.canvas(gpu, f.key, f.width, f.height);
@@ -2106,11 +2201,11 @@ impl Player {
                     let canvas = if f.key == 0 { &mut self.targets.as_mut().expect("targets").frame } else { self.canvases.get_mut(&f.key).expect("canvas") };
                     canvas.attach(gpu, samples, *light);
                     if *slabs {
-                        canvas.attach_slabs(gpu);
+                        canvas.attach_slabs(gpu, samples);
                     }
                     // and where its ambient occlusion is found, if it has some
                     if occlusion_of(&f.view).is_some() && canvas.occluded.is_none() {
-                        let occlusion = gpu.occlusion.get_or_insert_with(|| occlusion::Occlusion::new(&gpu.device, gpu.blend.as_ref().expect("the raster pipeline's shader"), &gpu.raster.scene));
+                        let occlusion = gpu.occlusion.get_or_insert_with(|| occlusion::Occlusion::new(&gpu.device, gpu.blend[(samples > 1) as usize].as_ref().expect("the raster pipeline's shader"), &gpu.raster.scene));
                         canvas.occluded = Some(occlusion.occluded(&gpu.device, [canvas.width, canvas.height]));
                     }
                     // and where its glow is made, if it has some
@@ -2141,7 +2236,7 @@ impl Player {
                 if attached.append.as_ref().is_none_or(|(generation, _)| *generation != lists.generation) {
                     let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("append"),
-                        layout: &gpu.raster.lists,
+                        layout: &gpu.raster.lists[(samples > 1) as usize],
                         entries: &[whole(0, &lists.heads), whole(1, &lists.nodes), whole(2, &lists.appended), wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&attached.depth_only) }],
                     });
                     attached.append = Some((lists.generation, group));
@@ -2302,7 +2397,7 @@ impl Player {
                             gpu.bloom.as_ref().expect("the bloom's passes").encode(&gpu.queue, encoder, b, strength, tone);
                         }
                     };
-                    let (Some(appends), true) = (pipelines.appends.as_ref(), *listing || *slabs) else {
+                    if !(*listing || *slabs) {
                         if rasterized || plan.is_none() {
                             let mut pass = canvas.pass(&mut encoder, Some((cleared, true)), if plan.is_some() { Depth::Kept } else { Depth::Fresh }, base.as_ref(), base_light.as_ref());
                             pass.set_bind_group(0, buffers.group.as_ref(), &slot);
@@ -2322,7 +2417,8 @@ impl Player {
                         }
                         layered(&mut encoder, &mut gpu.vector, None, None);
                         continue;
-                    };
+                    }
+                    let appends = &pipelines.appends;
                     // the opaque layers, their samples and depth kept
                     {
                         let mut pass = canvas.pass(&mut encoder, Some((cleared, false)), Depth::Kept, base.as_ref(), base_light.as_ref());
@@ -2331,9 +2427,9 @@ impl Player {
                         self.draw(&mut pass, pipelines, indices, draws, *offset, Phase::Opaque);
                     }
                     let attached = canvas.raster.as_ref().expect("the raster pipeline's attachments");
-                    let colors = attached.msaa.as_ref().expect("multisamples");
+                    let colors = attached.msaa.as_ref().or(base.as_ref()).expect("base samples");
                     let [_, y, _, h] = *listed;
-                    let listed = lists.filter(|_| *listing).map(|l| vector::Listed { heads: &l.heads, nodes: &l.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref() });
+                    let listed = lists.filter(|_| *listing).map(|l| vector::Listed { heads: &l.heads, nodes: &l.nodes, rows: [y, y + h], samples, colors, depths: &attached.depth_only, lights: attached.msaa_light.as_ref().or(base_light.as_ref()) });
                     // the listed see-through layers appended to the lists (only in their rows are heads cleared and read)
                     if let Some(l) = &listed {
                         let row = canvas.width as u64 * 4;
@@ -2439,7 +2535,7 @@ impl Player {
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.set_stencil_reference(0);
         let mut current: *const wgpu::RenderPipeline = std::ptr::null();
-        let appends = pipelines.appends.as_ref().filter(|_| phase == Phase::SeeThrough);
+        let appends = (phase == Phase::SeeThrough).then_some(&pipelines.appends);
         for (k, draw) in draws.iter().enumerate() {
             if phase != Phase::All && draw.overlay != (phase == Phase::Overlay) {
                 continue;
@@ -2495,36 +2591,6 @@ impl Player {
     }
 }
 
-/// Area-weighted vertex normals: each triangle's (b − a) × (c − a) added to its corners — every
-/// triangle's first corner, then every second, then every third, so that each vertex sums its
-/// faces in one fixed order.
-fn smooth_normals(p: &[[f64; 3]], triangles: &[u32]) -> Vec<[f64; 3]> {
-    let faces: Vec<[f64; 3]> = triangles
-        .chunks_exact(3)
-        .map(|t| {
-            let (a, b, c) = (p[t[0] as usize], p[t[1] as usize], p[t[2] as usize]);
-            let (u, w) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
-            [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]]
-        })
-        .collect();
-    let mut out = vec![[0.0f64; 3]; p.len()];
-    for k in 0..3 {
-        for (t, f) in triangles.chunks_exact(3).zip(&faces) {
-            let o = &mut out[t[k] as usize];
-            o[0] += f[0];
-            o[1] += f[1];
-            o[2] += f[2];
-        }
-    }
-    out
-}
-
-
-/// `bytes` as whole items of `T`.
-pub(crate) fn check_key(key: u64) -> Result<(), String> {
-    if key == 0 { Err("key 0 is reserved".into()) } else { Ok(()) }
-}
-
 /// What every host asks of a player: shapes, brushes and images uploaded once under a key, then
 /// frames drawn from views and records (see `python` and `web`).
 impl Player {
@@ -2578,30 +2644,10 @@ impl Player {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) -> Result<(), String> {
         check_key(key)?;
-        let p = read::<[f64; 3]>(points, "points")?;
-        let uv = read::<[f64; 2]>(uvs, "uvs")?;
-        let t = read::<u32>(triangles, "triangles")?;
-        if uv.len() != p.len() || !t.len().is_multiple_of(3) || t.iter().any(|&i| i as usize >= p.len()) {
-            return Err("a mesh needs a (u, v) per point, and whole triangles of its points".into());
-        }
-        let n = if normals.is_empty() { smooth_normals(&p, &t) } else { read::<[f64; 3]>(normals, "normals")? };
-        if n.len() != p.len() {
-            return Err("a mesh needs a normal per point".into());
-        }
-        let block = if block == 0 { outline } else { block };
-        if outline > 2 && (block < outline || !p.len().is_multiple_of(block as usize)) {
-            return Err("an outlined mesh is whole faces of vertices, each beginning with its loop".into());
-        }
-        // a reveal shows a surface face by face (`Raster`): each face's triangles are its own, in its turn
-        let faces = (p.len() / block.max(1) as usize).max(1);
-        let own = |(k, face): (usize, &[u32])| face.iter().all(|&i| i as usize / block as usize == k);
-        if outline > 2 && (!t.len().is_multiple_of(3 * faces) || (!t.is_empty() && !t.chunks(t.len() / faces).enumerate().all(own))) {
-            return Err("an outlined mesh's triangles are its faces' own, face after face, as many each".into());
-        }
-        // what the shaders read: (x, y, z, v) and (normal, u)
-        let v: Vec<[f32; 4]> = p.iter().zip(&uv).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
-        let e: Vec<[f32; 4]> = n.iter().zip(&uv).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
-        self.store.add_mesh(key, &v, &e, &t, outline, block);
+        let mesh = Mesh::new(points, uvs, normals, triangles, outline, block)?;
+        let v: Vec<[f32; 4]> = mesh.points.iter().zip(&*mesh.uvs).map(|(p, uv)| [p[0] as f32, p[1] as f32, p[2] as f32, uv[1] as f32]).collect();
+        let e: Vec<[f32; 4]> = mesh.normals.iter().zip(&*mesh.uvs).map(|(n, uv)| [n[0] as f32, n[1] as f32, n[2] as f32, uv[0] as f32]).collect();
+        self.store.add_mesh(key, &v, &e, &mesh.triangles, mesh.outline, mesh.block);
         Ok(())
     }
 
@@ -2631,10 +2677,15 @@ impl Player {
     }
 
     #[cfg(feature = "python")]
-    /// (bytes in the store's arrays, of which dead): what the arrays sent to the GPU hold, which
-    /// must stay under wgpu's 4 GiB buffer limit (the feed evicts early past its budget).
+    /// (bytes in the store's arrays, of which dead).
     pub(crate) fn stored(&self) -> (usize, usize) {
         (self.store.bytes(), self.store.dead)
+    }
+
+    #[cfg(feature = "python")]
+    /// Whether retaining the current cache exceeds an individual GPU buffer's capacity.
+    pub(crate) fn pressured(&self, gpu: &Gpu) -> bool {
+        !self.store.fits(&gpu.device.limits())
     }
 
     #[cfg(feature = "player")]
@@ -2731,4 +2782,167 @@ pub(crate) const COUNT_BYTES: u64 = 4;
 
 pub(crate) fn count(bytes: &[u8]) -> u64 {
     bytemuck::pod_read_unaligned::<u32>(&bytes[..4]) as u64
+}
+
+#[cfg(test)]
+mod buffer_contract {
+    use super::*;
+
+    #[test]
+    fn growth_never_exposes_more_than_the_binding_allows() {
+        for stride in [1, 8, 16, size_of::<Instance>() as u64, VIEW_STRIDE as u64] {
+            for limit in [1024, 1600, 4096, 65536] {
+                for needed in [0, 1, limit / stride, limit / stride + 1] {
+                    let room = buffer_room(needed, stride, 1024, limit, "test");
+                    if needed <= limit / stride {
+                        let room = room.unwrap();
+                        assert!(room >= needed);
+                        assert!(room * stride <= limit);
+                    } else {
+                        assert!(room.unwrap_err().contains("GPU's buffer limit"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn binding_pressure_reclaims_a_dead_minority() {
+        let mut store = Store::default();
+        for key in 1..=3 {
+            store.add_rows(key, &[[key as f32, 0.0, 0.0, 1.0]; 40]);
+        }
+        store.evict(&[2]);
+        assert!(store.dead * 2 < store.bytes());
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 1280, ..Default::default() };
+        assert!(!store.fits(&limits));
+        store.pack_if_worthwhile(true);
+        assert!(store.fits(&limits));
+        assert_eq!(store.dead, 0);
+        for key in [1, 3] {
+            let brush = &store.brushes[&key];
+            assert_eq!(&store.rows[brush.offset as usize..(brush.offset + brush.count) as usize], &[[key as f32, 0.0, 0.0, 1.0]; 40]);
+        }
+    }
+
+    fn retained_frames() -> Player {
+        let mut player = Player::new(1, 1, 1);
+        for key in 1..=3 {
+            player.store.add_points(key, &[[key as f32, 0.0, 0.0, 0.0]; 80]);
+            player.store.add_rows(key + 10, &[[key as f32, 0.0, 0.0, 1.0]; 80]);
+        }
+        player.store.dirty.push((0, 16..32));
+        player
+    }
+
+    fn frame(camera: u64, shape: u64) -> Frame {
+        Frame { key: camera, width: 1, height: 1, view: Vec::new(), records: vec![Record { key1: shape, fill_rows: shape + 10, ..Zeroable::zeroed() }] }
+    }
+
+    #[test]
+    fn a_draw_uses_every_camera_but_does_not_evict_other_frames_even_on_error() {
+        let mut player = retained_frames();
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..Default::default() };
+        let frames = [frame(9, 3), frame(0, 1)];
+        for fail in [false, true, false] {
+            let generation = player.store.generation;
+            let result = player.with_working_set(&limits, &frames, |p| {
+                assert!(p.store.fits(&limits));
+                assert_eq!(p.store.shapes.len(), 2);
+                assert_eq!(p.store.brushes.len(), 2);
+                assert!(!p.store.shapes.contains_key(&2));
+                let moved = &p.store.shapes[&3];
+                assert_eq!(moved.base, 80);
+                assert_eq!(p.store.indices[moved.raster.stroke.start as usize] >> 3, 80);
+                assert_eq!(p.store.vertices[moved.base as usize][0], 3.0);
+                let rows = &p.store.brushes[&13];
+                assert_eq!(p.store.rows[rows.offset as usize][0], 3.0);
+                assert!(p.store.dirty.is_empty());
+                // As preparation does: temporary writes are consumed independently.
+                p.store.dirty.clear();
+                if fail { Err("rejected frame".into()) } else { Ok(()) }
+            });
+            assert_eq!(result.is_err(), fail);
+            assert_eq!(player.store.shapes.len(), 3);
+            assert_eq!(player.store.brushes.len(), 3);
+            assert_eq!(player.store.shapes[&3].base, 160);
+            assert_eq!(player.store.dirty, [(0, 16..32)]);
+            assert!(player.store.generation > generation);
+        }
+    }
+
+    #[test]
+    fn a_frame_that_itself_exceeds_capacity_is_rejected_without_losing_residency() {
+        let mut player = retained_frames();
+        let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..Default::default() };
+        let frames = [frame(8, 1), frame(9, 2), frame(0, 3)];
+        let result = player.with_working_set(&limits, &frames, |_| -> Result<(), String> { panic!("oversized frame reached the GPU") });
+        assert!(result.unwrap_err().contains("resident vertices requires 3840 bytes"));
+        assert_eq!(player.store.shapes.len(), 3);
+        assert_eq!(player.store.dirty, [(0, 16..32)]);
+    }
+
+    /// Alternating working sets must upload their own offsets, including after ordinary
+    /// residency fits again. Compare actual pixels with the same draws without projection.
+    #[test]
+    fn projected_residency_preserves_pixels_across_draws() {
+        fn player() -> Player {
+            let mut p = Player::new(64, 64, 4);
+            for key in 1..=3 {
+                p.store.add_points(key, &[[key as f32 * 0.4 - 0.8, 0.0, 0.5, 0.0]; 80]);
+                let mut color = [0.0, 0.0, 0.0, 1.0];
+                color[key as usize - 1] = 1.0;
+                p.store.add_rows(key + 10, &[color; 80]);
+            }
+            p
+        }
+        fn image(p: &mut Player, gpu: &mut Gpu, limits: &wgpu::Limits, key: u64) -> Vec<u8> {
+            let mut f = frame(0, key);
+            (f.width, f.height) = (64, 64);
+            f.view = vec![0.0; VIEW_LENGTH];
+            for at in [0, 16] {
+                for i in 0..4 {
+                    f.view[at + i * 5] = 1.0;
+                }
+            }
+            f.view[32..36].copy_from_slice(&[64.0, 64.0, 32.0, 1.0]);
+            f.view[39] = 1.0;
+            f.view[42] = 1.0;
+            f.view[47] = 1.0;
+            let r = &mut f.records[0];
+            r.m1 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+            r.fill = [1.0; 4];
+            r.params[1] = 80.0;
+            r.gradient_a[3] = 0.25;
+            let frames = [f];
+            let (mut encoder, _, listed) = p.with_working_set(limits, &frames, |p| p.encode_frame(gpu, &frames)).unwrap();
+            assert!(!listed);
+            let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: 64 * 64 * 4, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo { texture: p.targets.as_ref().unwrap().frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                wgpu::TexelCopyBufferInfo { buffer: &buffer, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(256), rows_per_image: Some(64) } },
+                wgpu::Extent3d { width: 64, height: 64, depth_or_array_layers: 1 },
+            );
+            gpu.queue.submit(Some(encoder.finish()));
+            buffer.slice(..).map_async(wgpu::MapMode::Read, |r| r.unwrap());
+            gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            buffer.slice(..).get_mapped_range().unwrap().to_vec()
+        }
+        with_gpu(|gpu| {
+            let limits = wgpu::Limits { max_storage_buffer_binding_size: 2560, ..gpu.device.limits() };
+            let (mut projected, mut reference) = (player(), player());
+            let mut images = Vec::new();
+            for key in [1, 3, 2, 1] {
+                let expected = image(&mut reference, gpu, &gpu.device.limits(), key);
+                assert!(expected.chunks_exact(4).any(|pixel| pixel[..3] != [0, 0, 0]));
+                assert_eq!(image(&mut projected, gpu, &limits, key), expected);
+                images.push(expected);
+            }
+            assert_ne!(images[0], images[1]);
+            for p in [&mut projected, &mut reference] {
+                p.store.evict(&[2, 3, 12, 13]);
+            }
+            assert_eq!(image(&mut projected, gpu, &limits, 1), image(&mut reference, gpu, &gpu.device.limits(), 1));
+        }).unwrap();
+    }
 }

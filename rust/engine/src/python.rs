@@ -3,7 +3,8 @@
 //! over the core in `render`, `take` and `typeset`.
 
 #[cfg(feature = "render")]
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -13,6 +14,60 @@ use crate::{CameraView, take};
 
 #[cfg(feature = "typeset")]
 pyo3::create_exception!(_engine, TypstError, pyo3::exceptions::PyException);
+
+#[cfg(feature = "render")]
+impl Player {
+    /// The common readback for directly evaluated frames and recorded takes.
+    fn readback<'py>(&mut self, py: Python<'py>, frames: Vec<crate::render::Frame>) -> PyResult<Bound<'py, PyBytes>> {
+        py.detach(|| {
+            with_gpu(|gpu| -> Result<(), String> {
+                // drawn again while its see-through fragments overflow the lists
+                loop {
+                    let (mut encoder, _, composited) = self.encode(gpu, &frames)?;
+                    let t = self.targets.as_ref().expect("targets");
+                    let pixels = t.padded as u64 * self.height as u64;
+                    self.copy_pixels(&mut encoder);
+                    let lists = self.lists.as_ref().filter(|_| composited);
+                    if let Some(lists) = lists {
+                        encoder.copy_buffer_to_buffer(&lists.appended, 0, &t.readback, pixels, Some(COUNT_BYTES));
+                    }
+                    let capacity = lists.map(|l| l.capacity);
+                    gpu.queue.submit(Some(encoder.finish()));
+                    self.map_pixels(gpu)?;
+                    let Some(capacity) = capacity else { return Ok(()) };
+                    let appended = count(&t.readback.slice(pixels..).get_mapped_range().map_err(|e| e.to_string())?);
+                    if !self.overflowed(gpu, appended, capacity) {
+                        return Ok(());
+                    }
+                    self.targets.as_ref().expect("targets").readback.unmap();
+                }
+            })?
+        })
+        .map_err(PyRuntimeError::new_err)?;
+        self.pixels(py)
+    }
+
+    fn pixels<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let (width, height) = (self.width, self.height);
+        // copied once: from the mapped buffer into the bytes Python gets
+        let t = self.targets.as_ref().expect("targets");
+        let mapped = t.readback.slice(..t.padded as u64 * height as u64).get_mapped_range().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let row = (width * 4) as usize;
+        let pixels = if t.padded as usize == row {
+            PyBytes::new(py, &mapped)
+        } else {
+            PyBytes::new_with(py, row * height as usize, |out| {
+                for (to, from) in out.chunks_exact_mut(row).zip(mapped.chunks_exact(t.padded as usize)) {
+                    to.copy_from_slice(&from[..row]);
+                }
+                Ok(())
+            })?
+        };
+        drop(mapped);
+        t.readback.unmap();
+        Ok(pixels)
+    }
+}
 
 #[cfg(feature = "render")]
 #[pymethods]
@@ -54,6 +109,11 @@ impl Player {
         self.stored()
     }
 
+    #[pyo3(name = "pressured")]
+    fn py_pressured(&self, py: Python<'_>) -> PyResult<bool> {
+        py.detach(|| with_gpu(|gpu| self.pressured(gpu))).map_err(PyRuntimeError::new_err)
+    }
+
     #[pyo3(name = "add_rows")]
     fn py_add_rows(&mut self, key: u64, rows: &[u8]) -> PyResult<()> {
         self.add_rows(key, rows).map_err(PyValueError::new_err)
@@ -75,54 +135,7 @@ impl Player {
     #[pyo3(signature = (view, records, cameras = Vec::new()))]
     fn render<'py>(&mut self, py: Python<'py>, view: &[u8], records: &[u8], cameras: Vec<CameraView>) -> PyResult<Bound<'py, PyBytes>> {
         let frames = self.views(view, records, cameras).map_err(PyValueError::new_err)?;
-        let (width, height) = (self.width, self.height);
-        py.detach(|| {
-            with_gpu(|gpu| -> Result<(), String> {
-                // drawn again while its see-through fragments overflow the lists
-                loop {
-                    let (mut encoder, _, composited) = self.encode(gpu, &frames)?;
-                    let t = self.targets.as_ref().expect("targets");
-                    let pixels = t.padded as u64 * height as u64;
-                    encoder.copy_texture_to_buffer(
-                        wgpu::TexelCopyTextureInfo { texture: t.frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-                        wgpu::TexelCopyBufferInfo { buffer: &t.readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.padded), rows_per_image: Some(height) } },
-                        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                    );
-                    let lists = self.lists.as_ref().filter(|_| composited);
-                    if let Some(lists) = lists {
-                        encoder.copy_buffer_to_buffer(&lists.appended, 0, &t.readback, pixels, Some(COUNT_BYTES));
-                    }
-                    let capacity = lists.map(|l| l.capacity);
-                    gpu.queue.submit(Some(encoder.finish()));
-                    t.readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-                    gpu.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
-                    let Some(capacity) = capacity else { return Ok(()) };
-                    let appended = count(&t.readback.slice(pixels..).get_mapped_range().map_err(|e| e.to_string())?);
-                    if !self.overflowed(gpu, appended, capacity) {
-                        return Ok(());
-                    }
-                    self.targets.as_ref().expect("targets").readback.unmap();
-                }
-            })?
-        })
-        .map_err(PyRuntimeError::new_err)?;
-        // copied once: from the mapped buffer into the bytes Python gets
-        let t = self.targets.as_ref().expect("targets");
-        let mapped = t.readback.slice(..t.padded as u64 * height as u64).get_mapped_range().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let row = (width * 4) as usize;
-        let pixels = if t.padded as usize == row {
-            PyBytes::new(py, &mapped)
-        } else {
-            PyBytes::new_with(py, row * height as usize, |out| {
-                for (to, from) in out.chunks_exact_mut(row).zip(mapped.chunks_exact(t.padded as usize)) {
-                    to.copy_from_slice(&from[..row]);
-                }
-                Ok(())
-            })?
-        };
-        drop(mapped);
-        t.readback.unmap();
-        Ok(pixels)
+        self.readback(py, frames)
     }
 
     #[cfg(feature = "export")]
@@ -143,10 +156,12 @@ impl Player {
     #[cfg(feature = "export")]
     /// The next frame of the video, shown for `repeat` frames: a view and its records, with
     /// `cameras` drawn first (as for `render`); `key`: a keyframe, where a player can start.
-    #[pyo3(signature = (view, records, repeat = 1, cameras = Vec::new(), key = false))]
-    fn push(&mut self, py: Python<'_>, view: &[u8], records: &[u8], repeat: u32, cameras: Vec<CameraView>, key: bool) -> PyResult<()> {
+    #[pyo3(signature = (view, records, repeat = 1, cameras = Vec::new(), key = false, capture = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn push<'py>(&mut self, py: Python<'py>, view: &[u8], records: &[u8], repeat: u32, cameras: Vec<CameraView>, key: bool, capture: bool) -> PyResult<Option<Bound<'py, PyBytes>>> {
         let frames = self.views(view, records, cameras).map_err(PyValueError::new_err)?;
-        py.detach(|| with_gpu(|gpu| self.push_frames(gpu, frames, repeat, key))?).map_err(PyRuntimeError::new_err)
+        py.detach(|| with_gpu(|gpu| self.push_frames(gpu, frames, repeat, key, capture))?).map_err(PyRuntimeError::new_err)?;
+        capture.then(|| self.pixels(py)).transpose()
     }
 
     #[cfg(feature = "export")]
@@ -178,6 +193,43 @@ impl Player {
     }
 }
 
+/// A complete recorded take, drawn headlessly by the same decoder and player as a window.
+#[cfg(feature = "player")]
+#[pyclass(module = "manimgx._engine", unsendable)]
+struct Replay {
+    take: crate::project::Take,
+}
+
+#[cfg(feature = "player")]
+#[pymethods]
+impl Replay {
+    #[new]
+    fn new(data: &[u8]) -> PyResult<Self> {
+        crate::project::Take::read(data).map(|take| Self { take }).map_err(PyValueError::new_err)
+    }
+
+    #[getter]
+    fn size(&self) -> (u32, u32) { self.take.size }
+
+    #[getter]
+    fn frames(&self) -> u32 { self.take.frames }
+
+    #[getter]
+    fn fps(&self) -> f64 { self.take.fps }
+
+    #[getter]
+    fn timeline(&self) -> Vec<(u32, u32)> { self.take.timeline() }
+
+    /// A zero-based frame, in any order: RGBA8 rows, top to bottom, at the recorded size.
+    fn render<'py>(&mut self, py: Python<'py>, frame: i64) -> PyResult<Bound<'py, PyBytes>> {
+        if frame < 0 || frame >= self.take.frames as i64 {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!("frame {frame} is outside the take's {} frames", self.take.frames)));
+        }
+        let frames = self.take.frame_views(frame as u32).map_err(PyValueError::new_err)?;
+        self.take.player.readback(py, frames)
+    }
+}
+
 /// The content key of some bytes, taken as one stream: xxh3, 64 bits, never 0 (reserved). What
 /// names an upload, so that equal content is uploaded once.
 #[pyfunction]
@@ -201,7 +253,10 @@ fn read_hdr<'py>(py: Python<'py>, data: &[u8]) -> PyResult<(u32, u32, Bound<'py,
 #[pyfunction]
 fn decode_audio<'py>(py: Python<'py>, data: Vec<u8>, rate: u32) -> PyResult<(Bound<'py, PyBytes>, usize)> {
     let (samples, channels) = py
-        .detach(|| crate::audio::decode(data).map(|(s, from, c)| (crate::audio::resample(&s, c, from as f64, rate as f64), c)))
+        .detach(|| {
+            let (samples, from, channels) = crate::audio::decode(data)?;
+            crate::audio::resample(&samples, channels, from as f64, rate as f64).map(|samples| (samples, channels))
+        })
         .map_err(pyo3::exceptions::PyValueError::new_err)?;
     Ok((PyBytes::new(py, bytemuck::cast_slice(&samples)), channels))
 }
@@ -210,7 +265,7 @@ fn decode_audio<'py>(py: Python<'py>, data: Vec<u8>, rate: u32) -> PyResult<(Bou
 #[pyfunction]
 fn resample_audio<'py>(py: Python<'py>, samples: &[u8], channels: usize, rate: f64, to: f64) -> PyResult<Bound<'py, PyBytes>> {
     let input: Vec<f32> = crate::read(samples, "samples").map_err(pyo3::exceptions::PyValueError::new_err)?;
-    let out = py.detach(|| crate::audio::resample(&input, channels, rate, to));
+    let out = py.detach(|| crate::audio::resample(&input, channels, rate, to)).map_err(pyo3::exceptions::PyValueError::new_err)?;
     Ok(PyBytes::new(py, bytemuck::cast_slice(&out)))
 }
 
@@ -241,8 +296,11 @@ impl Recorder {
 
     #[pyo3(signature = (key, points, uvs, normals, triangles, outline = 0, block = 0))]
     #[allow(clippy::too_many_arguments)]
-    fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) {
-        self.writer.mesh(key, points, uvs, normals, triangles, outline, block);
+    fn add_mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) -> PyResult<()> {
+        crate::check_key(key).map_err(PyValueError::new_err)?;
+        let mesh = crate::mesh::Mesh::new(points, uvs, normals, triangles, outline, block).map_err(PyValueError::new_err)?;
+        self.writer.mesh(key, &mesh);
+        Ok(())
     }
 
     fn add_rows(&mut self, key: u64, rows: &[u8]) {
@@ -331,6 +389,11 @@ mod typesetting {
 
     use super::TypstError;
     use crate::typeset as core;
+
+    #[pyfunction]
+    pub(super) fn cache_directory() -> Option<std::path::PathBuf> {
+        core::cache_directory()
+    }
 
     /// A typeset document: its rows (float64), its shapes' cubic points, its labelled groups, and
     /// whether it needed the system's fonts.
@@ -421,6 +484,23 @@ fn start_gpu() -> bool {
     began
 }
 
+/// The adapter actually used by this engine, after bringing it up if necessary. Diagnostic
+/// consumers can distinguish renderer changes from a different backend, device or driver.
+#[cfg(feature = "player")]
+#[pyfunction]
+fn adapter_info(py: Python<'_>) -> PyResult<std::collections::BTreeMap<String, String>> {
+    let info = py.detach(|| with_gpu(|gpu| gpu.adapter.get_info())).map_err(PyRuntimeError::new_err)?;
+    Ok([
+        ("name", info.name),
+        ("vendor", info.vendor.to_string()),
+        ("device", info.device.to_string()),
+        ("device_type", format!("{:?}", info.device_type)),
+        ("driver", info.driver),
+        ("driver_info", info.driver_info),
+        ("backend", format!("{:?}", info.backend)),
+    ].into_iter().map(|(key, value)| (key.to_string(), value)).collect())
+}
+
 /// Waits for the GPU's warm-up, at most 30 s; Python calls it as it exits. Exit unloads the
 /// drivers, and must not unload one still starting on the warm-up's thread: lavapipe crashed a
 /// process that loaded the engine and exited at once. A forked child has no warm-up to wait for.
@@ -446,6 +526,7 @@ fn window(py: Python<'_>, title: String, time: f64, fonts: Vec<String>) -> PyRes
 
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("TAKE_VERSION", take::VERSION)?;
     #[cfg(feature = "render")]
     {
         m.add_class::<Player>()?;
@@ -454,6 +535,11 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     #[cfg(feature = "window")]
     m.add_function(wrap_pyfunction!(window, m)?)?;
+    #[cfg(feature = "player")]
+    {
+        m.add_class::<Replay>()?;
+        m.add_function(wrap_pyfunction!(adapter_info, m)?)?;
+    }
     m.add_class::<Recorder>()?;
     m.add_function(wrap_pyfunction!(note, m)?)?;
     m.add_function(wrap_pyfunction!(web, m)?)?;
@@ -464,6 +550,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "typeset")]
     {
         use typesetting::*;
+        m.add_function(wrap_pyfunction!(cache_directory, m)?)?;
         m.add_function(wrap_pyfunction!(typeset, m)?)?;
         m.add_function(wrap_pyfunction!(glyph_outlines, m)?)?;
         m.add_function(wrap_pyfunction!(ligature_carets, m)?)?;

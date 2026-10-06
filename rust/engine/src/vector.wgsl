@@ -162,9 +162,10 @@ fn dbernstein(t: f32) -> vec4<f32> {
 // The four control points from `first` with weights w (Bernstein or its derivative).
 fn weighted(first: u32, w: vec4<f32>) -> vec3<f32> {
     var acc = vec3<f32>(0.0);
-    for (var k = 0u; k < 4u; k++) {
-        acc += w[k] * control(first + k).xyz;
-    }
+    acc = fma(vec3<f32>(w.x), control(first).xyz, acc);
+    acc = fma(vec3<f32>(w.y), control(first + 1u).xyz, acc);
+    acc = fma(vec3<f32>(w.z), control(first + 2u).xyz, acc);
+    acc = fma(vec3<f32>(w.w), control(first + 3u).xyz, acc);
     return acc;
 }
 
@@ -1851,6 +1852,11 @@ fn crossed(gid: vec2<u32>, b: Begun) -> Mix {
 // A pixel's nearest layers' depths met so far, far to near (NO_LAYER past the last), with a layer at depth z among them:
 // where all SLABS are met, only if it is nearer than the farthest, which makes room.
 fn nearer(k: vec4<f32>, z: f32) -> vec4<f32> {
+    // A boundary is a depth, not a fragment: triangles and per-sample invocations can
+    // contribute several nodes at one depth without creating another slab for points.
+    if (any(k == vec4<f32>(z))) {
+        return k;
+    }
     var out = k;
     if (out.w > NO_LAYER) {
         if (z >= out.x) {

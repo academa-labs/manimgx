@@ -72,13 +72,30 @@ struct Coded {
     kind: Kind,
     mode: u8,
     base: u64,
+    depth: u8,
     blob: Blob,
 }
 
 impl Pack {
     fn add(&mut self, f: &mut Fields) -> Result<(), String> {
         let (key, base, kind, mode, data) = (f.u64()?, f.u64()?, Kind::from_u8(f.u8()?)?, f.u8()?, f.string()?);
-        self.arrays.insert(key, Coded { kind, mode, base, blob: blob(data) });
+        crate::check_key(key)?;
+        if self.arrays.contains_key(&key) { return Err("an array key is immutable within a take".into()); }
+        // The writer sends every base first, once, and cuts each dependency chain at DEPTH.
+        // Enforcing that DAG on receipt keeps lazy decoding bounded and rules out cycles.
+        let depth = match mode {
+            pack::ALONE if base == 0 => 0,
+            pack::ALONE => return Err("an independent array cannot have a base".into()),
+            pack::FIRST | pack::SECOND | pack::TAIL => {
+                let parent = self.arrays.get(&base).ok_or("an array's base must precede it")?;
+                if parent.kind != kind { return Err("an array and its base have different kinds".into()); }
+                if mode == pack::SECOND && parent.base == 0 { return Err("an array's second base is missing".into()); }
+                if parent.depth >= pack::DEPTH { return Err("an array's dependency chain is too deep".into()); }
+                parent.depth + 1
+            }
+            _ => return Err(format!("unknown array coding {mode}")),
+        };
+        self.arrays.insert(key, Coded { kind, mode, base, depth, blob: blob(data) });
         Ok(())
     }
 
@@ -118,7 +135,7 @@ impl Pack {
 
 /// How an upload is made from its arrays.
 enum Recipe {
-    Path { centroid_area: [f32; 6], points: u64, subpaths: u64, grown: Vec<(u64, bool)> },
+    Path { centroid_area: [f32; 6], points: u64, subpaths: u64, grown: Vec<(u32, u64, bool)>, applied: usize },
     Points(u64),
     Mesh { outline: u32, block: u32, arrays: [u64; 4] },
     Rows(u64),
@@ -127,12 +144,24 @@ enum Recipe {
 
 impl Recipe {
     /// Put the shape (brush, texture) `key` into the player.
-    fn make(&self, key: u64, pack: &mut Pack, player: &mut Player) -> Result<(), String> {
+    fn make(&mut self, key: u64, frame: u32, pack: &mut Pack, player: &mut Player) -> Result<(), String> {
+        if !matches!(self, Recipe::Path { .. }) && player.has(key) {
+            return Ok(());
+        }
         match self {
-            Recipe::Path { centroid_area, points, subpaths, grown } => {
-                player.add_path(key, &pack.get(*points)?, &pack.get(*subpaths)?, *centroid_area)?;
-                for &(tail, closed) in grown {
+            Recipe::Path { centroid_area, points, subpaths, grown, applied } => {
+                // A shot sees only growth that had arrived when it was recorded. The
+                // path's bounds, joints and closure belong to that version too: cropping
+                // a fully grown path's curve window cannot recover its earlier picture.
+                let wanted = grown.partition_point(|&(first, _, _)| first <= frame);
+                if !player.has(key) || *applied > wanted {
+                    player.evict(&[key]);
+                    player.add_path(key, &pack.get(*points)?, &pack.get(*subpaths)?, *centroid_area)?;
+                    *applied = 0;
+                }
+                for &(_, tail, closed) in &grown[*applied..wanted] {
                     player.grow_path(key, &pack.get(tail)?, closed)?;
+                    *applied += 1;
                 }
             }
             Recipe::Points(data) => player.add_points(key, &pack.get(*data)?)?,
@@ -171,6 +200,35 @@ pub(crate) struct Take {
 }
 
 impl Take {
+    /// One complete, successful recording, decoded by the same projector as a window or page.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn read(stream: &[u8]) -> Result<Self, String> {
+        let mut projector = Projector::default();
+        projector.feed(stream)?;
+        if !projector.pending.is_empty() { return Err("a message of the take ends early".into()); }
+        if projector.takes != 1 { return Err("a recording must contain exactly one take".into()); }
+        let take = projector.shown.unwrap();
+        if !take.ended || take.failed { return Err("the take did not end successfully".into()); }
+        if take.frames == 0 || take.size.0 == 0 || take.size.1 == 0 || !take.fps.is_finite() || take.fps <= 0.0 {
+            return Err("a take needs frames, positive dimensions, and a finite positive frame rate".into());
+        }
+        Ok(take)
+    }
+
+    /// A recording's exact integer frame, including holds; every upload uses the projector's
+    /// existing recipes and bounded decoded-array cache.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn frame_views(&mut self, frame: u32) -> Result<Vec<Frame>, String> {
+        if frame >= self.frames { return Err(format!("frame {frame} is outside the take's {} frames", self.frames)); }
+        self.views(self.shot(frame).ok_or("the take has no recorded frames")?)
+    }
+
+    /// Each recorded shot's first frame and repeat count, without expanding its held frames.
+    #[cfg(any(feature = "python", test))]
+    pub(crate) fn timeline(&self) -> Vec<(u32, u32)> {
+        self.shots.iter().enumerate().map(|(i, shot)| (shot.first, self.shots.get(i + 1).map_or(self.frames, |next| next.first) - shot.first)).collect()
+    }
+
     /// Its frame at `time` seconds (the last, past its end).
     pub(crate) fn frame(&self, time: f64) -> u32 {
         ((time * self.fps + 1e-6).floor().max(0.0) as u32).min(self.frames.saturating_sub(1))
@@ -181,11 +239,10 @@ impl Take {
         f64::from(self.frames) > (time * self.fps + 1e-6).floor()
     }
 
-    /// Its shot showing the frame at `time` (the last, past its end).
-    fn shot(&self, time: f64) -> Option<usize> {
+    /// Its shot showing `frame` (the last, past its end).
+    fn shot(&self, frame: u32) -> Option<usize> {
         let last = self.shots.len().checked_sub(1)?;
-        let index = self.frame(time);
-        Some(self.shots.partition_point(|s| s.first <= index).saturating_sub(1).min(last))
+        Some(self.shots.partition_point(|s| s.first <= frame).saturating_sub(1).min(last))
     }
 
     /// Shot `at`'s views (its cameras', then the frame), everything they draw in the player.
@@ -201,10 +258,8 @@ impl Take {
         for frame in &frames {
             for keys in take::slots(bytemuck::cast_slice(&frame.records)) {
                 for key in keys.into_iter().filter(|&k| k != 0) {
-                    if !player.has(key)
-                        && let Some(recipe) = recipes.get(&key)
-                    {
-                        recipe.make(key, pack, player)?;
+                    if let Some(recipe) = recipes.get_mut(&key) {
+                        recipe.make(key, shot.first, pack, player)?;
                     }
                     used.insert(key, self.draws);
                 }
@@ -294,8 +349,14 @@ impl Projector {
     fn message(&mut self, message: &[u8], notes: &mut Vec<(u32, Note)>) -> Result<(), String> {
         let mut f = Fields(message);
         let op = f.u8()?;
+        if op == 0 {
+            return Err("unversioned takes are unsupported; record the scene again with this version of manimgx".into());
+        }
         if op == take::START {
+            let format = f.u32()?;
+            if format != take::VERSION { return Err(format!("unsupported take format {format}; this engine reads format {}", take::VERSION)); }
             let (width, height, fps) = (f.u32()?, f.u32()?, f.f64()?);
+            if width == 0 || height == 0 || !fps.is_finite() || fps <= 0.0 { return Err("a take needs positive dimensions and a finite positive frame rate".into()); }
             self.takes += 1;
             let fresh = Take { number: self.takes, size: (width, height), player: Player::new(width, height, 4), pack: Pack::default(), recipes: HashMap::new(), shots: Vec::new(), used: HashMap::new(), draws: 0, frames: 0, fps, ended: false, failed: false };
             // the first take is shown at once; a later one comes in beside it
@@ -313,6 +374,7 @@ impl Projector {
             return Ok(());
         }
         let Some(t) = newest else { return Err("a take begins with START".into()) };
+        if t.ended { return Err("a take cannot change after END".into()); }
         // filed, not made: a frame makes what it draws when it is drawn
         let recipe = match op {
             take::ARRAY => return t.pack.add(&mut f),
@@ -320,7 +382,7 @@ impl Projector {
                 (t.ended, t.failed) = (true, f.u8()? != 0);
                 return Ok(());
             }
-            take::PATH => (f.u64()?, Recipe::Path { centroid_area: f.f32s()?, points: f.u64()?, subpaths: f.u64()?, grown: Vec::new() }),
+            take::PATH => (f.u64()?, Recipe::Path { centroid_area: f.f32s()?, points: f.u64()?, subpaths: f.u64()?, grown: Vec::new(), applied: 0 }),
             take::POINTS => (f.u64()?, Recipe::Points(f.u64()?)),
             take::MESH => (f.u64()?, Recipe::Mesh { outline: f.u32()?, block: f.u32()?, arrays: [f.u64()?, f.u64()?, f.u64()?, f.u64()?] }),
             take::ROWS => (f.u64()?, Recipe::Rows(f.u64()?)),
@@ -333,19 +395,20 @@ impl Projector {
             take::GROW => {
                 let (key, closed, tail) = (f.u64()?, f.u8()? != 0, f.u64()?);
                 if let Some(Recipe::Path { grown, .. }) = t.recipes.get_mut(&key) {
-                    grown.push((tail, closed));
+                    grown.push((t.frames, tail, closed));
                 }
-                t.player.evict(&[key]); // made again, grown, when next drawn
                 return Ok(());
             }
             take::FRAME => {
                 let (repeat, view, records) = (f.u32()?, f.string()?.to_vec(), f.u64()?);
+                if repeat == 0 { return Err("a recorded frame needs a positive repeat count".into()); }
+                let frames = t.frames.checked_add(repeat).ok_or("the take has too many frames")?;
                 let mut cameras = Vec::new();
                 for _ in 0..f.u32()? {
                     cameras.push((f.u64()?, f.u32()?, f.u32()?, f.string()?.to_vec(), f.u64()?));
                 }
                 t.shots.push(Shot { first: t.frames, view, records, cameras });
-                t.frames += repeat;
+                t.frames = frames;
                 return Ok(());
             }
             op => return Err(format!("unknown message {op} in the take")),
@@ -371,7 +434,7 @@ impl Projector {
     /// Whether the frame at `time`, at `size`, is what was drawn last (nothing to draw again).
     pub(crate) fn drawn(&self, time: f64, size: (u32, u32)) -> bool {
         let Some(t) = self.shown.as_ref() else { return true };
-        t.shot(time).is_none_or(|at| self.drawn == Some((t.number, at, size)))
+        t.shot(t.frame(time)).is_none_or(|at| self.drawn == Some((t.number, at, size)))
     }
 
     /// Draw the frame at `time` of the shown take at `size` (its proportions; a view is
@@ -380,7 +443,7 @@ impl Projector {
     /// (`submitted`, then `settle`).
     pub(crate) fn encode(&mut self, gpu: &mut Gpu, time: f64, size: (u32, u32)) -> Result<Option<wgpu::CommandEncoder>, String> {
         let Some(t) = self.shown.as_mut() else { return Ok(None) };
-        let Some(at) = t.shot(time) else { return Ok(None) };
+        let Some(at) = t.shot(t.frame(time)) else { return Ok(None) };
         if (t.player.width, t.player.height) != size {
             (t.player.width, t.player.height, t.player.targets) = (size.0, size.1, None);
         }
@@ -453,7 +516,7 @@ fn resized(views: &[Frame], own: (u32, u32), size: (u32, u32)) -> std::borrow::C
     std::borrow::Cow::Owned(views)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::take::Writer;
@@ -474,6 +537,62 @@ mod tests {
 
     fn shown(p: &Projector) -> Option<(u32, u32, bool)> {
         p.shown.as_ref().map(|t| (t.number, t.frames, t.ended))
+    }
+
+    #[test]
+    fn a_recording_is_exactly_one_complete_successful_take() {
+        let stream = take(2, Some(false));
+        let recording = Take::read(&stream).unwrap();
+        assert_eq!((recording.size, recording.frames, recording.fps), ((64, 36), 2, 30.0));
+        for end in 0..stream.len() { assert!(Take::read(&stream[..end]).is_err(), "cut at {end}"); }
+        for bad in [take(0, Some(false)), take(2, None), take(2, Some(true)), [stream.clone(), stream].concat()] {
+            assert!(Take::read(&bad).is_err());
+        }
+    }
+
+    #[test]
+    fn an_unsupported_take_is_rejected_before_its_resources_are_read() {
+        let stream = take(2, Some(false));
+        for version in [0, take::VERSION + 1, u32::MAX] {
+            let mut unsupported = stream.clone();
+            unsupported[5..9].copy_from_slice(&version.to_le_bytes());
+            // Split even the length and version fields, as native and browser streams can be.
+            for chunk in [1, 3, unsupported.len()] {
+                let mut projector = Projector::default();
+                let result = unsupported.chunks(chunk).try_for_each(|bytes| projector.feed(bytes).map(|_| ()));
+                assert_eq!(result.unwrap_err(), format!("unsupported take format {version}; this engine reads format {}", take::VERSION));
+                assert!(projector.shown.is_none());
+            }
+        }
+        // The former START had no version, only width, height and fps (17 payload bytes).
+        let legacy = [17u32.to_le_bytes().as_slice(), &[0], &64u32.to_le_bytes(), &36u32.to_le_bytes(), &30f64.to_le_bytes()].concat();
+        let mut projector = Projector::default();
+        assert!(projector.feed(&legacy).err().unwrap().contains("unversioned takes are unsupported"));
+        assert!(projector.shown.is_none());
+    }
+
+    #[test]
+    fn a_recording_seeks_exact_integer_frames_including_holds() {
+        let mut w = Writer::default();
+        w.start(64, 36, 29.97);
+        let mut view = vec![0.0_f32; crate::render::VIEW_LENGTH];
+        view[44] = 0.25;
+        let cameras = vec![(7, 16, 12, bytemuck::cast_slice(&view).to_vec(), Vec::new())];
+        w.frame(bytemuck::cast_slice(&view), &[], 3, &cameras);
+        view[44] = 0.75;
+        w.frame(bytemuck::cast_slice(&view), &[], 2, &cameras);
+        w.close(false);
+        let mut recording = Take::read(&w.drain()).unwrap();
+        assert_eq!(recording.timeline(), [(0, 3), (3, 2)]);
+        for frame in [4, 0, 3, 2, 1, 4] {
+            let views = recording.frame_views(frame).unwrap();
+            assert_eq!(views.len(), 2);
+            assert_eq!((views[0].key, views[0].width, views[0].height), (7, 16, 12));
+            assert_eq!(views[0].view[44], 0.25);
+            assert_eq!(views[1].view[44], if frame < 3 { 0.25 } else { 0.75 });
+        }
+        assert!(recording.frame_views(5).is_err());
+        assert!(recording.frame_views(u32::MAX).is_err());
     }
 
     /// The first take is shown at once; a newer one comes in beside it and replaces it once it
@@ -528,6 +647,96 @@ mod tests {
         assert_eq!(whole, (vec![1, 2], Some((1, 2, false)), Some((2, 1, true))));
         for cut in [1, 7, 100] {
             assert_eq!(read(cut), whole);
+        }
+    }
+}
+
+#[cfg(test)]
+mod decoder_contract {
+    use super::*;
+
+    fn message(op: u8, fields: &[u8]) -> Vec<u8> {
+        [(fields.len() as u32 + 1).to_le_bytes().as_slice(), &[op], fields].concat()
+    }
+    fn start(width: u32, height: u32, fps: f64) -> Vec<u8> {
+        message(take::START, &[take::VERSION.to_le_bytes().as_slice(), &width.to_le_bytes(), &height.to_le_bytes(), &fps.to_le_bytes()].concat())
+    }
+    fn array(key: u64, base: u64, kind: Kind, mode: u8) -> Vec<u8> {
+        [key.to_le_bytes().as_slice(), &base.to_le_bytes(), &[kind as u8, mode], &0u32.to_le_bytes()].concat()
+    }
+    fn frame(repeat: u32) -> Vec<u8> {
+        message(take::FRAME, &[repeat.to_le_bytes().as_slice(), &0u32.to_le_bytes(), &1u64.to_le_bytes(), &0u32.to_le_bytes()].concat())
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn arrays_have_immutable_preceding_bases_of_the_same_kind() {
+        let mut p = Projector::default();
+        p.feed(&start(64, 36, 30.0)).unwrap();
+        p.feed(&message(take::ARRAY, &array(1, 0, Kind::Points, pack::ALONE))).unwrap();
+        for bad in [
+            array(0, 0, Kind::Points, pack::ALONE),
+            array(1, 0, Kind::Points, pack::ALONE),
+            array(2, 2, Kind::Points, pack::FIRST), // self-cycle
+            array(2, 3, Kind::Points, pack::FIRST), // forward reference
+            array(2, 1, Kind::Texture, pack::FIRST),
+            array(2, 1, Kind::Points, pack::ALONE),
+            array(2, 0, Kind::Points, pack::FIRST),
+            array(2, 1, Kind::Points, pack::SECOND), // no grandparent
+            array(2, 1, Kind::Points, 255),
+        ] {
+            assert!(p.feed(&message(take::ARRAY, &bad)).is_err());
+            assert_eq!(p.shown.as_ref().unwrap().pack.arrays.len(), 1);
+        }
+        p.feed(&message(take::ARRAY, &array(2, 1, Kind::Points, pack::FIRST))).unwrap();
+        p.feed(&message(take::ARRAY, &array(3, 2, Kind::Points, pack::SECOND))).unwrap();
+        p.feed(&message(take::END, &[0])).unwrap();
+        p.feed(&message(take::NOTE, &[2u32.to_le_bytes().as_slice(), b"{}"].concat())).unwrap();
+        p.feed(&start(64, 36, 30.0)).unwrap();
+        p.feed(&message(take::ARRAY, &array(1, 0, Kind::Texture, pack::ALONE))).unwrap();
+        assert_eq!(p.shown.as_ref().unwrap().pack.arrays[&1].kind, Kind::Points);
+        assert_eq!(p.coming.as_ref().unwrap().pack.arrays[&1].kind, Kind::Texture);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn array_dependencies_stop_at_the_writers_keyframe_bound() {
+        let mut pack = Pack::default();
+        for depth in 0..=pack::DEPTH {
+            let mode = if depth == 0 { pack::ALONE } else { pack::FIRST };
+            pack.add(&mut Fields(&array(depth as u64 + 1, depth as u64, Kind::Points, mode))).unwrap();
+        }
+        let deepest = pack::DEPTH as u64 + 1;
+        assert!(pack.add(&mut Fields(&array(deepest + 1, deepest, Kind::Points, pack::FIRST))).is_err());
+        assert_eq!(pack.arrays.len(), deepest as usize);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn frame_holds_are_positive_checked_and_end_with_the_take() {
+        let mut p = Projector::default();
+        p.feed(&start(64, 36, 30.0)).unwrap();
+        assert!(p.feed(&frame(0)).is_err());
+        assert!(p.shown.as_ref().unwrap().shots.is_empty());
+        p.feed(&frame(u32::MAX)).unwrap();
+        assert!(p.feed(&frame(1)).is_err());
+        let t = p.shown.as_ref().unwrap();
+        assert_eq!((t.frames, t.shots.len()), (u32::MAX, 1));
+        p.feed(&message(take::END, &[0])).unwrap();
+        assert!(p.feed(&frame(1)).is_err());
+        assert!(p.feed(&message(take::ARRAY, &array(1, 0, Kind::Points, pack::ALONE))).is_err());
+        assert_eq!(p.shown.as_ref().unwrap().frames, u32::MAX);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn invalid_start_does_not_replace_the_live_take() {
+        let mut p = Projector::default();
+        p.feed(&start(64, 36, 30.0)).unwrap();
+        for (width, height, fps) in [(0, 36, 30.0), (64, 0, 30.0), (64, 36, 0.0), (64, 36, -1.0), (64, 36, f64::INFINITY), (64, 36, f64::NAN)] {
+            assert!(p.feed(&start(width, height, fps)).is_err());
+            assert!(p.coming.is_none());
+            assert_eq!((p.takes, p.shown.as_ref().unwrap().size), (1, (64, 36)));
         }
     }
 }

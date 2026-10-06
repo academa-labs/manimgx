@@ -28,7 +28,7 @@ pub(crate) const SECOND: u8 = 2;
 pub(crate) const TAIL: u8 = 3;
 
 /// Versions in a chain before a keyframe.
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", feature = "player", test))]
 pub(crate) const DEPTH: u8 = 32;
 
 /// What an array holds: its elements' type and how many lanes make one (coded lane by lane).
@@ -78,14 +78,14 @@ impl Kind {
     }
 
     /// Whether it arrives as float64 and goes as float32.
-    #[cfg(any(feature = "python", test))]
+    #[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
     pub(crate) fn rounded(self) -> bool {
         matches!(self, Kind::MeshPoints | Kind::MeshUvs | Kind::MeshNormals)
     }
 }
 
 /// The array as a take carries it: a mesh's float64s as float32s, anything else as it is.
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 pub(crate) fn canonical(kind: Kind, data: &[u8]) -> Vec<u8> {
     if kind.rounded() {
         let f: Vec<f64> = bytemuck::pod_collect_to_vec(data);
@@ -95,7 +95,7 @@ pub(crate) fn canonical(kind: Kind, data: &[u8]) -> Vec<u8> {
 }
 
 /// The key an array is sent under: of its kind and content (equal bytes of two kinds differ).
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 pub(crate) fn key(kind: Kind, data: &[u8]) -> u64 {
     crate::digest([&[kind as u8][..], data])
 }
@@ -105,7 +105,7 @@ trait Lane: Pod {
     fn ordered(self, float: bool) -> Self;
     #[cfg_attr(not(any(feature = "player", test)), allow(dead_code))]
     fn unordered(self, float: bool) -> Self;
-    #[cfg_attr(not(any(feature = "python", test)), allow(dead_code))]
+    #[cfg_attr(not(any(feature = "python", all(test, not(target_arch = "wasm32")))), allow(dead_code))]
     fn sub(self, other: Self) -> Self;
     #[cfg_attr(not(any(feature = "player", test)), allow(dead_code))]
     fn add(self, other: Self) -> Self;
@@ -160,7 +160,7 @@ impl Lane for u8 {
 }
 
 /// Elements lane by lane (all x's, then all y's, …), then byte by byte: what zstd compresses.
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 fn planes<T: Pod>(values: &[T], lanes: usize) -> Vec<u8> {
     let lanes = if lanes > 1 && values.len().is_multiple_of(lanes) { lanes } else { 1 };
     let (n, w) = (values.len(), size_of::<T>());
@@ -195,7 +195,7 @@ fn unplanes<T: Pod>(bytes: &[u8], lanes: usize) -> Vec<T> {
 
 /// Code `data` (canonical bytes) against its base (and the base's base), if any: the smallest of
 /// the codings that apply. Returns (mode, compressed payload).
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 pub(crate) fn encode(kind: Kind, data: &[u8], base: Option<&[u8]>, older: Option<&[u8]>) -> (u8, Vec<u8>) {
     match kind.width() {
         8 => encode_lanes::<u64>(kind, data, base, older),
@@ -204,7 +204,7 @@ pub(crate) fn encode(kind: Kind, data: &[u8], base: Option<&[u8]>, older: Option
     }
 }
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 fn encode_lanes<T: Lane>(kind: Kind, data: &[u8], base: Option<&[u8]>, older: Option<&[u8]>) -> (u8, Vec<u8>) {
     let (float, lanes) = (kind.float(), kind.lanes());
     let a: Vec<T> = bytemuck::pod_collect_to_vec(data);
@@ -249,17 +249,20 @@ pub(crate) fn decode(kind: Kind, mode: u8, blob: &[u8], base: Option<&[u8]>, old
 #[cfg(any(feature = "player", test))]
 fn decode_lanes<T: Lane>(kind: Kind, mode: u8, bytes: &[u8], base: Option<&[u8]>, older: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let (float, lanes) = (kind.float(), kind.lanes());
+    if !bytes.len().is_multiple_of(size_of::<T>()) { return Err("an array ends inside an element".into()); }
     let values: Vec<T> = unplanes(bytes, lanes);
-    let base = || -> Result<Vec<T>, String> { base.map(bytemuck::pod_collect_to_vec).ok_or_else(|| "an array's base is missing".into()) };
+    let base = || -> Result<Vec<T>, String> { crate::read(base.ok_or("an array's base is missing")?, "array base") };
     let ord = |v: &[T]| v.iter().map(|&x| x.ordered(float)).collect::<Vec<T>>();
     let out: Vec<T> = match mode {
         ALONE => values.iter().map(|&x| x.unordered(float)).collect(),
         FIRST => {
             let b = base()?;
+            if b.len() != values.len() { return Err("an array's difference and base have different lengths".into()); }
             ord(&b).iter().zip(&values).map(|(&y, &r)| y.add(r).unordered(float)).collect()
         }
         SECOND => {
-            let (b, o): (Vec<T>, Vec<T>) = (base()?, older.map(bytemuck::pod_collect_to_vec).ok_or("an array's second base is missing")?);
+            let (b, o): (Vec<T>, Vec<T>) = (base()?, crate::read(older.ok_or("an array's second base is missing")?, "array second base")?);
+            if b.len() != o.len() || b.len() != values.len() { return Err("an array's prediction and difference have different lengths".into()); }
             let p: Vec<T> = b.iter().zip(&o).map(|(&b, &o)| T::predict(b, o)).collect::<Option<_>>().ok_or("a prediction is not finite")?;
             ord(&p).iter().zip(&values).map(|(&y, &r)| y.add(r).unordered(float)).collect()
         }
@@ -273,7 +276,7 @@ fn decode_lanes<T: Lane>(kind: Kind, mode: u8, bytes: &[u8], base: Option<&[u8]>
     Ok(bytemuck::cast_slice(&out).to_vec())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
@@ -313,5 +316,24 @@ mod tests {
         let c = canonical(Kind::MeshPoints, &f64s);
         assert_eq!(bytemuck::cast_slice::<u8, f32>(&c), &[0.1f32, -2.5, 1e-9]);
         assert_ne!(key(Kind::MeshPoints, &[]), key(Kind::MeshTriangles, &[]));
+    }
+}
+
+#[cfg(test)]
+mod decoder_contract {
+    use super::*;
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn malformed_arrays_are_not_padded_or_truncated() {
+        let base = [0u8; 8];
+        assert!(decode_lanes::<u32>(Kind::Points, ALONE, &[0; 3], None, None).is_err());
+        assert!(decode_lanes::<u64>(Kind::PathPoints, ALONE, &[0; 7], None, None).is_err());
+        assert!(decode_lanes::<u32>(Kind::Points, FIRST, &[], Some(&base), None).is_err());
+        assert!(decode_lanes::<u32>(Kind::Points, FIRST, &base, Some(&base[..3]), None).is_err());
+        assert!(decode_lanes::<u32>(Kind::Points, SECOND, &base, Some(&base), Some(&base[..4])).is_err());
+        assert!(decode_lanes::<u32>(Kind::Points, SECOND, &base[..4], Some(&base), Some(&base)).is_err());
+        assert_eq!(decode_lanes::<u32>(Kind::Points, FIRST, &base, Some(&base), None).unwrap(), base);
+        assert_eq!(decode_lanes::<u32>(Kind::Points, SECOND, &base, Some(&base), Some(&base)).unwrap(), base);
     }
 }

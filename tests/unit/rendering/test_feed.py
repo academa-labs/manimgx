@@ -146,7 +146,10 @@ MESHES: dict[str, tuple[dict[str, np.ndarray], bool]] = {  # a mesh's changes; t
 
 
 @pytest.mark.parametrize("name", MESHES)
-def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
+@pytest.mark.parametrize("sink", [Player, Recorder])
+def test_a_mesh_is_taken_if_it_fits_its_points(
+    name: str, sink: type[Player] | type[Recorder]
+) -> None:
     changes, taken = MESHES[name]
     mesh = {
         "points": np.zeros((4, 3)),
@@ -156,7 +159,7 @@ def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
     } | changes
 
     def add() -> None:
-        Player(16, 16, 1).add_mesh(
+        sink(16, 16, 1).add_mesh(
             1,
             np.asarray(mesh["points"], "<f8").tobytes(),
             np.asarray(mesh["uvs"], "<f8").tobytes(),
@@ -169,6 +172,12 @@ def test_a_mesh_is_taken_if_it_fits_its_points(name: str) -> None:
     else:
         with pytest.raises(ValueError, match="mesh"):
             add()
+
+
+@pytest.mark.parametrize("sink", [Player, Recorder])
+def test_mesh_uploads_reserve_key_zero(sink: type[Player] | type[Recorder]) -> None:
+    with pytest.raises(ValueError, match="key 0 is reserved"):
+        sink(16, 16, 1).add_mesh(0, b"", b"", b"", b"")
 
 
 @pytest.mark.parametrize("start_paced", [False, True])
@@ -396,6 +405,143 @@ class Sink:
 
     def stored(self) -> tuple[int, int]:
         return self.engine.stored()
+
+
+def test_a_tween_materializes_only_the_frames_consumed_and_reloads_evicted_values() -> (
+    None
+):
+    """A non-affine cloud morph, revisiting old values after their uploads were evicted."""
+    points = np.array(
+        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
+    )
+    start = m.PMobject().add_points(points)
+    end = start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[0.5, 0, 0]]))
+    leaf = start.copy()
+    progress = np.tile(np.linspace(0.1, 0.9, 25), 3)
+    camera, path, sink = m.Camera(), m.straight_path(), Sink()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    frames = iter(
+        feeder.tween(
+            camera,
+            [leaf],
+            [(leaf, [start, end], path, np.zeros(len(progress), int), progress)],
+        )
+    )
+    assert not sink.resident
+    for number, t in enumerate(progress):
+        _, records = next(frames)
+        if number == 0:
+            assert sum(kind == "points" for kind in sink.kinds.values()) <= 2
+        expected_sink = Sink()
+        expected = feed.Feeder(32, 32, expected_sink)  # ty: ignore[invalid-argument-type]
+        alone = start.copy()
+        alone.interpolate(start, end, float(t), path)
+        assert records == expected.frame(camera, [alone])[1]
+        feeder.sweep(pressed=True)
+        keys = {
+            int(row[name])
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in (*feed.KEYS, "texture")
+            if row[name]
+        }
+        assert set(sink.resident) == keys
+    with pytest.raises(StopIteration):
+        next(frames)
+
+
+def test_streaming_still_mixes_whole_keyframe_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interval revisited by a nonmonotone clock is vectorized when it becomes current."""
+    start = m.Square()
+    keys: list[m.Mobject] = [
+        start,
+        start.copy().shift(m.RIGHT),
+        start.copy().shift(m.UP),
+    ]
+    leaf, sink, camera = start.copy(), Sink(), m.Camera()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    intervals = np.repeat([0, 1, 0], 30)
+    progress = np.tile(np.linspace(0, 1, 30), 3)
+    batches: list[int] = []
+    mix = feeder.mix
+
+    def measured(*args: object) -> np.ndarray | None:
+        batches.append(len(args[3]))  # ty: ignore[invalid-argument-type]
+        return mix(*args)  # ty: ignore[invalid-argument-type]
+
+    monkeypatch.setattr(feeder, "mix", measured)
+    frames = feeder.tween(
+        camera, [leaf], [(leaf, keys, m.straight_path(), intervals, progress)]
+    )
+    for f, (_, records) in enumerate(frames):
+        assert batches == [30] * (1 + f // 30)
+        feeder.sweep(pressed=True)
+        assert all(
+            int(row[name]) in feeder.sizes
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in feed.KEYS
+            if row[name]
+        )
+
+
+@pytest.mark.parametrize("fixed", [False, True])
+def test_a_delayed_tween_can_return_before_its_start_after_eviction(
+    fixed: bool,
+) -> None:
+    from manimgx.scene import _tracks
+
+    points = np.array(
+        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
+    )
+    start = m.PMobject().add_points(points)
+    keys = [
+        start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[x, x, 0]]))
+        for x in [0, 0.5, 1]
+    ]
+    # The state before the play need not be its first explicit keyframe.
+    leaf = start.copy().shift(0.125 * m.UP)
+    tween = m.Transform(leaf, keys=keys, rate_func=m.linear)
+    clock = m.Succession(m.Wait(1), tween, rate_func=m.there_and_back)
+    clock.begin_all()
+    leaves = _tracks(clock, [(tween, m.straight_path())], np.linspace(0, 1, 4), set())
+    assert leaves[0][3].tolist() == [-1, 1, 1, -1]
+    camera, sink = m.Camera(), Sink()
+    if fixed:
+        camera.fixed_in_frame_mobjects.add(leaf)
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    original = feeder.frame(camera, [leaf])[1]
+    for number, (_, records) in enumerate(feeder.tween(camera, [leaf], leaves)):
+        if number in (0, 3):
+            assert records == original
+        used = {
+            int(row[name])
+            for row in np.frombuffer(records, feed.RECORD)
+            for name in (*feed.KEYS, "texture")
+            if row[name]
+        }
+        assert used <= set(sink.resident)
+        feeder.sweep(pressed=True)
+        assert set(sink.resident) == used
+
+
+def test_pressure_preserves_pending_current_and_camera_resources() -> None:
+    sink = Sink()
+    feeder = feed.Feeder(32, 32, sink)  # ty: ignore[invalid-argument-type]
+    keys = [
+        feeder.path(m.RegularPolygon(n)._geometry.terms[0][1])[0] for n in range(3, 7)
+    ]
+
+    def records(key: int) -> bytes:
+        row = np.zeros(1, feed.RECORD)
+        row["key1"] = key
+        return row.tobytes()
+
+    feeder.frames = 10
+    feeder.latest = [records(keys[0])]
+    feeder.sweep([records(keys[1]), records(keys[2])], pressed=True)
+    assert set(sink.resident) == set(keys[:3])
+    assert set(feeder.sizes) == set(keys[:3])
 
 
 PIXELS = [np.full((2, 2, 4), v, np.uint8) for v in (0, 90, 200)]

@@ -21,12 +21,18 @@ fn store(gid: vec2<u32>, m: Mix) {
 @group(2) @binding(1) var<storage, read_write> stroke_out: array<Seg>;
 
 @compute @workgroup_size(64)
-fn flatten(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+fn flatten_fill(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
     let q = gid.x + gid.y * groups.x * 64u;
     if (q < frame.tiles.z) {
         fill_out[q] = fill_slot(q);
-    } else if (q - frame.tiles.z < frame.tiles.w) {
-        stroke_out[q - frame.tiles.z] = stroke_slot(q - frame.tiles.z);
+    }
+}
+
+@compute @workgroup_size(64)
+fn flatten_stroke(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+    let q = gid.x + gid.y * groups.x * 64u;
+    if (q < frame.tiles.w) {
+        stroke_out[q] = stroke_slot(q);
     }
 }
 

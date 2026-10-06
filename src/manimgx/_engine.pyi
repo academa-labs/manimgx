@@ -2,12 +2,16 @@
 encodes them into an MP4.
 
 Shapes, brushes and images are uploaded once, under a nonzero key; a frame is then a view (48
-float32: projection, overlay, pixels, light, toward; then the background) and one 320-byte record
+float32: projection, overlay, pixels, light, toward; then the background) and one 336-byte record
 per object (see `manimgx.rendering.feed`). A document is typeset in this process by Typst as a library, and
 its layout read off Typst's frames (see `manimgx.drawing.typesetting`).
 """
 
 from collections.abc import Sequence
+from pathlib import Path
+
+TAKE_VERSION: int
+"""The take format written by Recorder and supported by Replay and the native/browser player."""
 
 # a camera's view, drawn into a texture that later views sample by its key:
 # (key, width, height, view, records)
@@ -60,6 +64,9 @@ class Player:
     def stored(self) -> tuple[int, int]:
         """(bytes in the store's arrays, of which dead): what the arrays sent to the GPU hold."""
 
+    def pressured(self) -> bool:
+        """Whether the resident arrays exceed a GPU buffer's capacity; brings up the GPU."""
+
     def render(
         self, view: bytes, records: bytes, cameras: Sequence[CameraView] = ...
     ) -> bytes:
@@ -82,9 +89,11 @@ class Player:
         repeat: int = 1,
         cameras: Sequence[CameraView] = ...,
         key: bool = False,
-    ) -> None:
+        capture: bool = False,
+    ) -> bytes | None:
         """The next frame of the video, shown for `repeat` frames; `key`: a keyframe, where a
-        player can start (a section's first frame)."""
+        player can start (a section's first frame). With `capture`, return the same draw's
+        full-quality RGBA8 pixels, waiting for any overflow retries."""
 
     def abort_export(self) -> None:
         """Abandon the video: nothing is written."""
@@ -101,11 +110,38 @@ class Player:
         bits a second. Returns (seconds, of which in x264, share of macroblocks converted,
         bytes)."""
 
+class Replay:
+    """One complete, successful take, using the native player's decoder and renderer."""
+
+    def __init__(self, data: bytes) -> None: ...
+    @property
+    def size(self) -> tuple[int, int]:
+        """The recorded width and height, in pixels."""
+
+    @property
+    def frames(self) -> int:
+        """The frame count, including repeated frames."""
+
+    @property
+    def fps(self) -> float: ...
+    @property
+    def timeline(self) -> list[tuple[int, int]]:
+        """Each recorded shot's first frame and repeat count."""
+
+    def render(self, frame: int) -> bytes:
+        """A zero-based frame, in any order, as RGBA8 bytes; out-of-range indices fail."""
+
 def start_gpu() -> bool:
     """Start bringing the GPU up, on a thread of its own, unless that has begun; whether this
     call began it (natively only). What draws first waits for it, and so does Python as it
     exits. A process that will draw calls it as early as it knows; one that never draws never
     brings the GPU up."""
+
+def adapter_info() -> dict[str, str]:
+    """The active GPU's name, vendor, device, device_type, driver, driver_info and backend.
+
+    Brings the GPU up if necessary; available in the native engine.
+    """
 
 def decode_audio(data: bytes, rate: int) -> tuple[bytes, int]:
     """A file's audio (its bytes, any container and codec the engine's FFmpeg decodes: WAV,
@@ -194,6 +230,9 @@ def digest(*parts: bytes) -> int:
 
 class TypstError(Exception):
     """Typst could not typeset a document (its errors, joined)."""
+
+def cache_directory() -> Path | None:
+    """The current user's cache root, or the browser's private filesystem; None disables it."""
 
 def typeset(
     source: str, font_paths: Sequence[str], packages: str | None = None

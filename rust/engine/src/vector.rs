@@ -1,6 +1,6 @@
-//! A view's paths, drawn exactly (see `vector.wgsl`): from their control points, flattened per
+//! A view's paths, drawn with analytic segment coverage (see `vector.wgsl`): flattened per
 //! frame on the GPU to the size they are drawn at through the view's camera (projectively in 3D),
-//! their exact area accumulated into a float atlas and composited per 16×16 tile in depth order
+//! their segment areas accumulated into a float atlas and composited per 16×16 tile in depth order
 //! (the draw order among equal depths: a 2D view's whole order), each pixel kept as two regions. A
 //! 2D view's point clouds and meshes are drawn by the raster pipeline (`blend.wgsl`), each alone in
 //! its rectangle of a raster atlas, which the composite lays in its place in the order; a 3D view's
@@ -12,7 +12,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use super::{Camera, Kind, Mat34, NONE, Paint, ROUND, Record, SQUARE, Store, compose};
+use super::{Camera, Kind, Mat34, NONE, Paint, ROUND, Record, SQUARE, Shape, Store, compose};
 
 const TILE: u32 = 16;
 const ATLAS_WIDTH: u32 = 4096;
@@ -246,6 +246,54 @@ struct Flats {
     points: Vec<[[f64; 3]; 3]>,                  // each flat's: three points of its plane in the world (a line's: on it)
 }
 
+/// Place plane witnesses without rounding their basis into a different plane. In-plane
+/// principal axes may rotate freely when their spreads coincide; only the plane matters.
+fn world_plane(a: &Shape, b: Option<&Shape>, record: &Record) -> [[f64; 3]; 3] {
+    let at = |m: &Mat34, p: [f64; 3], translate: bool| [0, 1, 2].map(|k| m[k][0] as f64 * p[0] + m[k][1] as f64 * p[1] + m[k][2] as f64 * p[2] + if translate { m[k][3] as f64 } else { 0.0 });
+    std::array::from_fn(|i| {
+        let first = at(&record.m1, a.plane[i], true);
+        let second = b.map_or([0.0; 3], |b| at(&record.m2, b.plane[i], false));
+        [0, 1, 2].map(|k| first[k] + second[k])
+    })
+}
+
+#[cfg(test)]
+mod plane_precision {
+    use super::*;
+
+    #[test]
+    fn a_planes_projection_does_not_depend_on_its_principal_axes() {
+        // Equal in-plane spreads have no preferred eigenbasis. Tiny changes can rotate
+        // the witnesses by a large angle, but must not rotate or translate their plane.
+        for perturbation in [-f64::EPSILON, 0.0, f64::EPSILON] {
+            let mut points = [[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]];
+            points[0][0] += perturbation;
+            let mut store = Store::default();
+            store.add_path(1, &points, &[[0, 1, 1, 0]], [0.0; 3], [0.0, 0.0, 1.0]);
+            let shape = store.shapes.get(&1).unwrap();
+            for offset in [0.0f32, 100.0, 100_000.0] {
+                let m = [[0.81, 0.24, 0.55, offset], [0.44, 0.93, -0.14, -offset], [0.37, -0.62, 0.89, offset]];
+                let record = Record::filled(1, 1, m, [1.0; 4]);
+                let placed = world_plane(shape, None, &record);
+                let actual = fit_plane(&placed);
+                let m = m.map(|row| row.map(f64::from));
+                let determinant = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+                let a = (m[2][0] * m[1][1] - m[2][1] * m[1][0]) / determinant;
+                let b = (m[0][0] * m[2][1] - m[0][1] * m[2][0]) / determinant;
+                // Evaluate the fitted plane where the shape actually lies. Intercepts
+                // alone are ill-conditioned for a plane translated far from the origin.
+                for x in [-1.0, 0.0, 1.0] {
+                    for y in [-1.0, 0.0, 1.0] {
+                        let wanted = m[2][3] + a * x + b * y;
+                        let found = actual[0] * (m[0][3] + x) + actual[1] * (m[1][3] + y) + actual[2];
+                        assert!((wanted - found).abs() <= 8.0 * f64::EPSILON * (1.0 + offset as f64), "{perturbation} {offset}: {wanted} != {found}");
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn flats(store: &Store, records: &[Record], order: &[usize]) -> Flats {
     type P = [f64; 3];
     let sub = |a: P, b: P| -> P { [a[0] - b[0], a[1] - b[1], a[2] - b[2]] };
@@ -279,8 +327,7 @@ fn flats(store: &Store, records: &[Record], order: &[usize]) -> Flats {
             continue; // in the frame, not the scene
         }
         let b = if r.key2 == 0 { None } else { store.shapes.get(&r.key2) };
-        let at = |m: &super::Mat34, p: [f32; 3], translate: bool| -> P { [0, 1, 2].map(|i| (m[i][0] * p[0] + m[i][1] * p[1] + m[i][2] * p[2] + if translate { m[i][3] } else { 0.0 }) as f64) };
-        let points: [P; 3] = std::array::from_fn(|i| add(at(&r.m1, a.plane[i], true), b.map_or([0.0; 3], |b| at(&r.m2, b.plane[i], false))));
+        let points = world_plane(a, b, r);
         let scale = points.iter().flat_map(|p| p.iter()).fold(1.0f64, |m, x| m.max(x.abs()));
         let (u, v) = (sub(points[1], points[0]), sub(points[2], points[0]));
         let n = cross(u, v);
@@ -585,14 +632,15 @@ struct GroupBuffers {
     tiles: Data,
 }
 
-/// The GPU side of drawing views exactly: its pipelines, and what they draw with.
+/// The GPU's path coverage and view composition: its pipelines, and what they draw with.
 pub(crate) struct Vector {
     limit: u32, // the largest texture side
     shader: wgpu::ShaderModule,
+    single_shader: Option<wgpu::ShaderModule>, // the same composite with single-sample textures
     write_layout: wgpu::BindGroupLayout,
-    flatten: wgpu::ComputePipeline,
-    composite: [Option<[wgpu::ComputePipeline; 2]>; 16], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
-    crossing: [Option<[wgpu::ComputePipeline; 2]>; 16], // where depths cross: the count, the pixels (alike)
+    flatten: [Option<wgpu::ComputePipeline>; 2], // independent fill and stroke records, made when needed
+    composite: [Option<[wgpu::ComputePipeline; 2]>; 32], // by what a view lays (`LIT`, ...): the composite, `keep`; made when first needed
+    crossing: [Option<[wgpu::ComputePipeline; 2]>; 32], // where depths cross: the count, the pixels (alike)
     crossings: (wgpu::Buffer, wgpu::Buffer, u64),      // their list, the second pass's workgroups; pixels it holds
     groups_layout: wgpu::BindGroupLayout,              // the workgroups, as the count writes them
     records: Option<(wgpu::Buffer, wgpu::Buffer, [u32; 2])>, // fill, stroke records' slots; how many they hold
@@ -600,12 +648,12 @@ pub(crate) struct Vector {
     depth_resolve: [wgpu::ComputePipeline; 2],
     nothing: wgpu::Buffer,                      // a view's lists when it has none (and strokes' depths)
     stroke_depths: Option<(wgpu::Buffer, u64)>, // a non-planar path's strokes' depths, per pixel of the atlas
-    no_samples: [wgpu::TextureView; 2],         // its base's samples when it has none (color, depth)
+    no_samples: [[wgpu::TextureView; 2]; 2],         // its base's samples when it has none (color, depth)
     nearest: Option<(wgpu::BindGroupLayout, [wgpu::RenderPipeline; 2])>, // a light's map, a view's opaque depth, from its paths (made when first needed)
     bounds: Option<([wgpu::BindGroupLayout; 2], wgpu::ComputePipeline)>, // a 3D view's slab bounds: what they read, where they go (made when first needed)
     no_slabs: wgpu::TextureView, // a view's slabs when it has none: 1x1, one layer
     scene_layout: wgpu::BindGroupLayout,
-    image_layout: wgpu::BindGroupLayout,
+    image_layout: [wgpu::BindGroupLayout; 2],
     read_layout: wgpu::BindGroupLayout,
     fill: wgpu::RenderPipeline,
     stroke: wgpu::RenderPipeline,
@@ -624,9 +672,13 @@ pub(crate) struct Vector {
 }
 
 impl Vector {
+    fn shader(device: &wgpu::Device, multisampled: bool) -> wgpu::ShaderModule {
+        super::sampled_shader(device, "vector", &[include_str!("vector.wgsl"), include_str!("light.wgsl"), include_str!("vector_buffers.wgsl"), include_str!("vector_compute.wgsl")].concat(), multisampled)
+    }
+
     pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let limits = device.limits();
-        let shader = super::shader(device, "vector", &[include_str!("vector.wgsl"), include_str!("light.wgsl"), include_str!("vector_buffers.wgsl"), include_str!("vector_compute.wgsl")].concat());
+        let shader = Self::shader(device, true);
         let (vertex, fragment, compute) = (wgpu::ShaderStages::VERTEX, wgpu::ShaderStages::FRAGMENT, wgpu::ShaderStages::COMPUTE);
         // where the composite runs, and the accumulate pass
         let (composing, all) = (compute, wgpu::ShaderStages::VERTEX_FRAGMENT | compute);
@@ -635,7 +687,7 @@ impl Vector {
         let layout = |label, entries: &[wgpu::BindGroupLayoutEntry]| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries });
         let scene_layout = layout("vector scene", &[entry(0, all, wgpu::BufferBindingType::Uniform), entry(1, all, read), entry(2, all, read), entry(3, all, read), entry(4, all, read), entry(5, all, read)]);
         let texture = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None };
-        let multisampled = |binding, sample_type| wgpu::BindGroupLayoutEntry { binding, visibility: compute, ty: wgpu::BindingType::Texture { sample_type, view_dimension: wgpu::TextureViewDimension::D2, multisampled: true }, count: None };
+        let sampled = |binding, sample_type, multisampled| wgpu::BindGroupLayoutEntry { binding, visibility: compute, ty: wgpu::BindingType::Texture { sample_type, view_dimension: wgpu::TextureViewDimension::D2, multisampled }, count: None };
         let target = |format| wgpu::BindingType::StorageTexture { access: wgpu::StorageTextureAccess::WriteOnly, format, view_dimension: wgpu::TextureViewDimension::D2 };
         // what its paths with a material are lit with: a 3D view's lights' shadow maps and their comparison, the DFG
         // table and its bilinear reads, its environment's cube, its ambient occlusion
@@ -646,10 +698,10 @@ impl Vector {
         let cube = wgpu::BindGroupLayoutEntry { binding: 15, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::Cube, multisampled: false }, count: None };
         // and a 3D view's see-through points' slabs, as many layers as `SLABS`
         let slabs = wgpu::BindGroupLayoutEntry { binding: 21, visibility: composing, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false }, count: None };
-        let image_layout = layout(
+        let image_layout = [false, true].map(|multisampled| layout(
             "vector images",
-            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), multisampled(7, wgpu::TextureSampleType::Float { filterable: false }), multisampled(8, wgpu::TextureSampleType::Depth), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), multisampled(18, wgpu::TextureSampleType::Float { filterable: false }), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }, texture(20), slabs],
-        );
+            &[texture(0), texture(1), texture(2), wgpu::BindGroupLayoutEntry { binding: 3, visibility: compute, ty: target(super::COLOR), count: None }, texture(4), entry(5, compute, read), entry(6, compute, read), sampled(7, wgpu::TextureSampleType::Float { filterable: false }, multisampled), sampled(8, wgpu::TextureSampleType::Depth, multisampled), entry(9, compute, read), maps, compare, dfg, linear, entry(14, compute, rw), cube, texture(16), texture(17), sampled(18, wgpu::TextureSampleType::Float { filterable: false }, multisampled), wgpu::BindGroupLayoutEntry { binding: 19, visibility: compute, ty: target(super::RADIANCE), count: None }, texture(20), slabs],
+        ));
         let read_layout = layout("records in", &[entry(0, vertex, read), entry(1, vertex, read), entry(2, fragment, rw)]);
         let pipeline_layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
         let accumulate = pipeline_layout(&[Some(&scene_layout), None, None, Some(&read_layout)]);
@@ -678,22 +730,19 @@ impl Vector {
         let depth_resolve = [("nearest_of_samples", &depth_layouts[0]), ("single_sample", &depth_layouts[1])].map(|(entry, l)| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&pipeline_layout(&[Some(l)])), module: &depth_shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
         });
-        // workgroup memory is written before it is read: zeroing it would only cost time
-        let options = wgpu::PipelineCompilationOptions { zero_initialize_workgroup_memory: false, ..Default::default() };
-        let flatten = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("flatten"), layout: Some(&pipeline_layout(&[Some(&scene_layout), None, Some(&write_layout)])), module: &shader, entry_point: Some("flatten"), compilation_options: options, cache: None });
-        let no_samples = [(super::COLOR, None), (super::DEPTH, Some(wgpu::TextureAspect::DepthOnly))].map(|(format, aspect)| {
+        let no_samples = [1, 4].map(|samples| [(super::COLOR, None), (super::DEPTH, Some(wgpu::TextureAspect::DepthOnly))].map(|(format, aspect)| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("no samples"),
                 size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
                 mip_level_count: 1,
-                sample_count: 4,
+                sample_count: samples,
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
             texture.create_view(&wgpu::TextureViewDescriptor { aspect: aspect.unwrap_or_default(), ..Default::default() })
-        });
+        }));
         let far = {
             let t = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("far"),
@@ -711,8 +760,9 @@ impl Vector {
         Self {
             limit: limits.max_texture_dimension_2d,
             shader,
+            single_shader: None,
             write_layout,
-            flatten,
+            flatten: [None, None],
             composite: Default::default(),
             crossing: Default::default(),
             crossings: (buffer(device, "crossings", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST), buffer(device, "crossing groups", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT), 3),
@@ -890,18 +940,12 @@ impl Vector {
             // its fill lit by the view's lights: a 3D view's planar path with a material, in the scene (not fixed in
             // the frame); its plane's normal in the world (a morph's: both terms' plane points, summed, as its depth
             // plane takes them)
-            let world = |i: usize| -> [f32; 3] {
-                let (p1, p2) = (a.plane[i], b.map_or([0.0; 3], |b| b.plane[i]));
-                let at = |m: &super::Mat34, p: [f32; 3], translate: bool| [0, 1, 2].map(|k| m[k][0] * p[0] + m[k][1] * p[1] + m[k][2] * p[2] + if translate { m[k][3] } else { 0.0 });
-                let (q1, q2) = (at(&r.m1, p1, true), if b.is_some() { at(&r.m2, p2, false) } else { [0.0; 3] });
-                [0, 1, 2].map(|k| q1[k] + q2[k])
-            };
-            let (q0, q1, q2) = (world(0), world(1), world(2));
+            let [q0, q1, q2] = world_plane(a, b, r);
             let (u, v) = ([0, 1, 2].map(|k| q1[k] - q0[k]), [0, 1, 2].map(|k| q2[k] - q0[k]));
             let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
             let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             let lit = camera.three_d && r.material[3] > 0.0 && r.flags & super::OVERLAY == 0 && a.planar && b.is_none_or(|b| b.planar) && length > 1e-12;
-            let normal = if lit { n.map(|x| x / length) } else { [0.0; 3] };
+            let normal = if lit { n.map(|x| (x / length) as f32) } else { [0.0; 3] };
             // else lit as a whole, like CE (where it is shaded in 3D): solid colors here, gradients by the composite
             // (`place`)
             let light = if lit { 0.0 } else { store.light(camera, r)? };
@@ -911,7 +955,7 @@ impl Vector {
                 }
             }
             let [pa, pb, pc] = if camera.three_d {
-                let row = |t: &[f32; 4], p: [f32; 3]| [0, 1, 2].map(|j| t[j] as f64 * p[j] as f64).iter().sum::<f64>() + t[3] as f64;
+                let row = |t: &[f32; 4], p: [f64; 3]| [0, 1, 2].map(|j| t[j] as f64 * p[j]).iter().sum::<f64>() + t[3] as f64;
                 let points: Vec<[f64; 3]> = (0..3)
                     .filter_map(|i| {
                         let (p1, p2) = (a.plane[i], b.map_or([0.0; 3], |b| b.plane[i]));
@@ -960,11 +1004,11 @@ impl Vector {
                 let [p0, p1, p2] = a.plane;
                 let (u, v) = ([0, 1, 2].map(|k| p1[k] - p0[k]), [0, 1, 2].map(|k| p2[k] - p0[k]));
                 let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-                let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-                let z = [z1[0] + t1w[0], z1[1] + t1w[1], z1[2] + t1w[2]]; // clip z's
+                let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                let z = [0, 1, 2].map(|i| z1[i] as f64 + t1w[i] as f64); // clip z's
                 let g = if dot(n, n) > 1e-20 { [0, 1, 2].map(|k| z[k] - n[k] * dot(z, n) / dot(n, n)) } else { z };
                 let d = dot(z, g);
-                if d.abs() > 1e-20 { [g[0], g[1], g[2], 1.0 / d] } else { [z[0], z[1], z[2], 1.0 / dot(z, z).max(1e-20)] }
+                (if d.abs() > 1e-20 { [g[0], g[1], g[2], 1.0 / d] } else { [z[0], z[1], z[2], 1.0 / dot(z, z).max(1e-20)] }).map(|v| v as f32)
             } else {
                 [0.0; 4]
             };
@@ -1057,21 +1101,39 @@ impl Vector {
     }
 
     /// The composite's pipelines for views that lay what `key` says (`LIT`, `RASTERS`, `LISTS`: the overrides in
-    /// `vector.wgsl`), made when first needed.
-    fn composite(&mut self, device: &wgpu::Device, key: usize) {
-        if self.composite[key].is_some() {
+    /// `vector.wgsl`), made when first needed. Only a 3D view needs the passes where depths cross.
+    fn composite(&mut self, device: &wgpu::Device, key: usize, crossings: bool) {
+        if self.composite[key].is_some() && (!crossings || self.crossing[key].is_some()) {
             return;
         }
+        let kind = (key & SINGLE == 0) as usize;
+        let shader = if kind == 0 { self.single_shader.get_or_insert_with(|| Self::shader(device, false)) } else { &self.shader };
         let constants = [("lighting", (key & LIT) as f64), ("rasters", (key & RASTERS != 0) as u8 as f64), ("lists", (key & LISTS != 0) as u8 as f64), ("points", (key & POINTS != 0) as u8 as f64)];
         let layout = |groups: &[Option<&wgpu::BindGroupLayout>]| device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: groups, immediate_size: 0 });
-        let (composing, counting) = (layout(&[Some(&self.scene_layout), Some(&self.image_layout)]), layout(&[Some(&self.scene_layout), Some(&self.image_layout), Some(&self.groups_layout)]));
+        let composing = layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind])]);
         // workgroup memory is written before it is read: zeroing it would only cost time
         let make = |entry: &str, layout: &wgpu::PipelineLayout| {
             let options = wgpu::PipelineCompilationOptions { constants: &constants, zero_initialize_workgroup_memory: false };
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(layout), module: &self.shader, entry_point: Some(entry), compilation_options: options, cache: None })
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(layout), module: shader, entry_point: Some(entry), compilation_options: options, cache: None })
         };
-        self.composite[key] = Some([make("composite", &composing), make("keep", &composing)]);
-        self.crossing[key] = Some([make("count_crossings", &counting), make("settle_crossings", &composing)]);
+        if self.composite[key].is_none() {
+            self.composite[key] = Some([make("composite", &composing), make("keep", &composing)]);
+        }
+        if crossings && self.crossing[key].is_none() {
+            let counting = layout(&[Some(&self.scene_layout), Some(&self.image_layout[kind]), Some(&self.groups_layout)]);
+            self.crossing[key] = Some([make("count_crossings", &counting), make("settle_crossings", &composing)]);
+        }
+    }
+
+    /// Fill and stroke records have independent producers. A view pays only for the families it draws.
+    fn prepare_flatten(&mut self, device: &wgpu::Device, counts: [u32; 2]) {
+        for (i, count) in counts.into_iter().enumerate() {
+            if count == 0 || self.flatten[i].is_some() { continue; }
+            let entry = ["flatten_fill", "flatten_stroke"][i];
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&self.scene_layout), None, Some(&self.write_layout)], immediate_size: 0 });
+            let options = wgpu::PipelineCompilationOptions { zero_initialize_workgroup_memory: false, ..Default::default() };
+            self.flatten[i] = Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&layout), module: &self.shader, entry_point: Some(entry), compilation_options: options, cache: None }));
+        }
     }
 
     /// The pipelines of a light's map and of a view's opaque depth from its paths (`fs_nearest`), made when one is
@@ -1123,6 +1185,7 @@ impl Vector {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, plan: &Plan, g: usize, statics: &[wgpu::BindingResource<'_>; 3], out: Out<'_>) {
         let group = &plan.groups[g];
+        self.prepare_flatten(device, [group.fills, group.strokes]);
         let [w, h] = plan.size;
         let [tiles_x, tiles_y] = [w.div_ceil(TILE), h.div_ceil(TILE)];
         let (base, light, listed, glowing, slabs) = match &out {
@@ -1158,9 +1221,10 @@ impl Vector {
         }
         // its composite's pipeline: with the code of what the group lays alone (`vector.wgsl`'s overrides)
         let rastered = !group.rasters.is_empty() || (g == 0 && base.is_some());
-        let key = lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
+        let kind = (!listed.is_some_and(|l| l.samples == 1)) as usize;
+        let key = (kind == 0) as usize * SINGLE | lit as usize * LIT | rastered as usize * RASTERS | (g == 0 && listed.is_some()) as usize * LISTS | slabs.is_some() as usize * POINTS;
         match out {
-            Out::Color { .. } => self.composite(device, key),
+            Out::Color { .. } => self.composite(device, key, plan.crossings),
             Out::Bounds { .. } => self.bounds(device),
             Out::Depth(_) | Out::Opaque(_) => self.nearest(device),
         }
@@ -1258,10 +1322,11 @@ impl Vector {
         };
         let write = bind(&self.write_layout, &[(0, fill_records.as_entire_binding()), (1, stroke_records.as_entire_binding())]);
         let read = bind(&self.read_layout, &[(0, fill_records.as_entire_binding()), (1, stroke_records.as_entire_binding()), (2, depths.as_entire_binding())]);
-        let slots = group.fills.saturating_add(group.strokes).div_ceil(64); // workgroups: a thread per slot
-        if slots > 0 {
+        for (pipeline, count) in self.flatten.iter().zip([group.fills, group.strokes]) {
+            let slots = count.div_ceil(64); // workgroups: a thread per slot
+            if slots == 0 { continue; }
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("flatten"), timestamp_writes: None });
-            pass.set_pipeline(&self.flatten);
+            pass.set_pipeline(pipeline.as_ref().expect("the required record producer"));
             pass.set_bind_group(0, &scene, &[]);
             pass.set_bind_group(2, &write, &[]);
             pass.dispatch_workgroups(slots.min(65535), slots.div_ceil(65535), 1);
@@ -1279,8 +1344,8 @@ impl Vector {
                 }
                 encoder.clear_buffer(&self.crossings.0, 0, Some(4));
                 let (heads, nodes) = listed.map_or((&self.nothing, &self.nothing), |l| (l.heads, l.nodes));
-                let [colors, sample_depths] = listed.map_or([&self.no_samples[0], &self.no_samples[1]], |l| [l.colors, l.depths]);
-                let lights = listed.and_then(|l| l.lights).unwrap_or(&self.no_samples[0]);
+                let [colors, sample_depths] = listed.map_or([&self.no_samples[kind][0], &self.no_samples[kind][1]], |l| [l.colors, l.depths]);
+                let lights = listed.and_then(|l| l.lights).unwrap_or(&self.no_samples[kind][0]);
                 // the light under the group (the raster base's, or what the group before left), and where it leaves its own
                 let carried = self.carried.as_ref().map(|(c, _)| c);
                 let light_in = if g == 0 { light.unwrap_or(&self.empty) } else { carried.map_or(&self.empty, |c| &c[(g - 1) % 2]) };
@@ -1290,7 +1355,7 @@ impl Vector {
                     None => &self.no_light_out,
                 };
                 let images = bind(
-                    &self.image_layout,
+                    &self.image_layout[kind],
                     &[(0, view(atlas)), (1, view(rasters.unwrap_or(&self.empty))), (2, view(under)), (3, view(written)), (4, view(depth)), (5, heads.as_entire_binding()), (6, nodes.as_entire_binding()), (7, view(colors)), (8, view(sample_depths)), (9, depths.as_entire_binding()), (10, view(lighting.maps)), (11, wgpu::BindingResource::Sampler(lighting.compare)), (12, view(lighting.dfg)), (13, wgpu::BindingResource::Sampler(lighting.linear)), (14, self.crossings.0.as_entire_binding()), (15, view(lighting.environment)), (16, view(lighting.occlusion)), (17, view(light_in)), (18, view(lights)), (19, view(light_out)), (20, view(slabs.map_or(&self.empty, |s| s[0]))), (21, view(slabs.map_or(&self.no_slabs, |s| s[1])))],
                 );
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes: None });
@@ -1337,6 +1402,52 @@ const LIT: usize = 1;
 const RASTERS: usize = 2;
 const LISTS: usize = 4;
 const POINTS: usize = 8;
+const SINGLE: usize = 16; // single-sample texture bindings, with the same compositing code
+
+#[cfg(test)]
+mod pipeline_demand {
+    use super::*;
+
+    #[test]
+    fn record_families_compile_only_when_first_needed() {
+        super::super::with_gpu(|gpu| {
+            for first in 0..2 {
+                let mut vector = Vector::new(&gpu.device, &gpu.queue);
+                vector.prepare_flatten(&gpu.device, [0, 0]);
+                assert!(vector.flatten.iter().all(Option::is_none));
+                let mut counts = [0, 0];
+                counts[first] = 1;
+                vector.prepare_flatten(&gpu.device, counts);
+                assert!(vector.flatten[1 - first].is_none());
+                let pipeline = vector.flatten[first].clone().unwrap();
+                for counts in [[0, 0], counts, [1, 1]] {
+                    vector.prepare_flatten(&gpu.device, counts);
+                    assert_eq!(vector.flatten[first].as_ref(), Some(&pipeline));
+                }
+                assert!(vector.flatten.iter().all(Option::is_some));
+            }
+        }).unwrap();
+    }
+
+    #[test]
+    fn two_d_views_leave_crossing_passes_for_the_first_three_d_view() {
+        super::super::with_gpu(|gpu| {
+            let mut vector = Vector::new(&gpu.device, &gpu.queue);
+            for key in [0, SINGLE] {
+                for _ in 0..2 {
+                    vector.composite(&gpu.device, key, false);
+                    assert!(vector.composite[key].is_some());
+                    assert!(vector.crossing[key].is_none());
+                }
+                for crossings in [true, false, true] {
+                    vector.composite(&gpu.device, key, crossings);
+                    assert!(vector.composite[key].is_some());
+                    assert!(vector.crossing[key].is_some());
+                }
+            }
+        }).unwrap();
+    }
+}
 
 /// What group `g` of `groups` lies over and writes: each lies over what the ones before it made (the first over
 /// `first`); the last writes the target, the others alternate with the scratch image behind it.

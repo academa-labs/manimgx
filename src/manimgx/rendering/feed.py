@@ -1,4 +1,4 @@
-"""Feed the player: shapes once, then one 320-byte record per object and frame.
+"""Feed the player: shapes once, then one 336-byte record per object and frame.
 
 A shape is uploaded as its object defines it, and the player derives what drawing needs. A path
 goes as control points in its own space, with its subpaths as curve ranges, so a reveal is a
@@ -12,6 +12,7 @@ widths and flags; the camera is one 4×4 matrix."""
 import functools
 import itertools
 import struct
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -169,9 +170,10 @@ def centroid_area(points: np.ndarray) -> list[float]:
 # A surface is its samples of func(u, v) on a grid; drawn, it is the tensor-product cubic
 # spline through them (periodic along a direction whose ends meet, not-a-knot otherwise): C²,
 # exact for cubics, O(h⁴) from a smooth func — a coarse grid draws the surface, not flat
-# quads. Each face (a grid cell) is refined into m × m cells of its spline patch, m chosen per
-# shape so that no chord leaves the spline by more than SURFACE_TOLERANCE; normals are the
-# spline's (smooth shading). A face keeps its own vertices, so a checkerboard keeps its sharp
+# quads. Each face (a grid cell) is refined into m × m cells of its spline patch. The shape's
+# midpoint deviation estimates m, capped by SURFACE_STEPS; this is not a bound on triangle
+# error (a saddle can have zero midpoint deviation). Normals are the spline's. A face keeps
+# its own vertices, so a checkerboard keeps its sharp
 # cells, and its edge loop (4m + 1 vertices) is its outline.
 
 # scene units: a quarter pixel at 1080p, the frame 8 units high
@@ -253,8 +255,11 @@ def _patches(cells: np.ndarray, x: np.ndarray) -> tuple[np.ndarray, ...]:
 
 
 def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
-    """m: cells per face and direction for no chord to leave the spline by more than
-    SURFACE_TOLERANCE where `linear` places it (a chord's deviation falls as 1/m²)."""
+    """Estimate cells per face and direction from midpoint deviation after `linear`.
+
+    SURFACE_TOLERANCE is the target of this estimate, not a guaranteed error bound;
+    refinement is capped at SURFACE_STEPS and midpoint sampling can miss curvature.
+    """
     mid = _patches(_cells(g[..., :3]), np.array([0.5]))[0][:, :, 0, 0]
     flat = (g[:-1, :-1, :3] + g[1:, :-1, :3] + g[:-1, 1:, :3] + g[1:, 1:, :3]) / 4
     deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
@@ -557,16 +562,15 @@ class Feeder:
         self.last_used.update(dict.fromkeys(keys, last))
         self.last_used.pop(0, None)
 
-    def sweep(self) -> None:
+    def sweep(self, pinned: Sequence[bytes] = (), *, pressed: bool = False) -> None:
         """Evict what no frame has shown for KEEP frames (frames mark what they show every MARK
-        frames; the film holds back at most one frame). Past BUDGET living bytes (a scene making
-        big new shapes every frame), all the last frame does not show goes at once: the store
-        stays far below wgpu's 4 GiB buffer limit however long the scene."""
+        frames; the film holds back at most one frame). Memory pressure keeps only the latest
+        frame and the records pinned by the caller, including every pending camera view."""
         stored, dead = self.player.stored()
-        pressed = stored - dead + sum(self.texture_bytes.values()) > BUDGET
+        pressed |= stored - dead + sum(self.texture_bytes.values()) > BUDGET
         if self.frames - self.swept < SWEEP and not pressed:
             return
-        for data in self.latest:
+        for data in (*self.latest, *pinned):
             self.shown(np.frombuffer(data, RECORD), self.frames)
         self.swept = self.frames
         keep = 0 if pressed else KEEP
@@ -921,7 +925,7 @@ class Feeder:
         cameras: list[CameraView],
         fixed: "set[Mobject]",
     ) -> bytes | None:
-        """One object's record (320 bytes), or None if it draws nothing. It is a function of the
+        """One object's record (336 bytes), or None if it draws nothing. It is a function of the
         object's geometry and paint (values), a mesh's topology (indices or lattice dimensions, with uvs:
         values too), its camera flags and lighting, so it is kept on the object and remade only
         when one of them changes (or what it draws was evicted); a camera's picture is remade
@@ -1105,10 +1109,11 @@ class Feeder:
         camera: "Camera",
         mobjects: "list[Mobject]",
         leaves: "list[tuple[Mobject, list[Mobject], Path, np.ndarray, np.ndarray]]",
-    ) -> list[tuple[bytes, bytes]]:
-        """(view, records) for every frame of a pure play at once: per leaf and keyframe interval, the
-        two keyframe records are mixed over all its frames (`mix`); a leaf that cannot be mixed is
-        materialized per distinct t. The view is the play's first, unless the play moves the camera.
+    ) -> Iterator[tuple[bytes, bytes]]:
+        """Mix whole keyframe intervals on the CPU; upload an interval when it first appears.
+
+        A leaf that cannot be mixed is materialized when its frame is yielded, so a long
+        play never makes every future shape resident on the GPU before drawing its first.
         """
         self.sweep()
         frames = len(leaves[0][3]) if leaves else 0
@@ -1116,7 +1121,7 @@ class Feeder:
             camera, self.width, self.height, self.lights(mobjects)
         )
         views = self.views(camera, mobjects, leaves, frames)
-        fixed = camera.fixed_in_frame_mobjects  # read once a play
+        fixed = camera.fixed_in_frame_mobjects
         args = (camera, three_d, mobjects, self.width, self.height, [], fixed)
         base = [unpack(self.record(mob, *args)) for mob in mobjects]
         rows = np.zeros((frames, len(mobjects)), RECORD)
@@ -1125,45 +1130,88 @@ class Feeder:
             if r is not None:
                 rows[:, k], present[:, k] = r, True
         position = {id(mob): k for k, mob in enumerate(mobjects)}
-        drawn = [
-            r for r in base if r is not None
-        ]  # a record of every key the play draws
+        type Interval = tuple[
+            Mobject, Mobject, Mobject, Path, np.ndarray, np.ndarray, int
+        ]
+        type Cached = dict[float, tuple[np.void | None, tuple[int, ...]]]
+        type Materialize = tuple[
+            Mobject, Mobject, Mobject, Path, np.ndarray, float, int, Cached
+        ]
+        starts: dict[int, list[Interval]] = {}
+        moving: dict[int, list[Materialize]] = {}
+        restores: dict[int, list[tuple[Mobject, np.ndarray, int, set[Mobject]]]] = {}
         for leaf, keys, path, index, t in leaves:
             k = position.get(id(leaf))
             if k is None:
                 continue
-            present[index == -2, k] = False  # not in the scene yet
-            for interval in dict.fromkeys(index[index >= 0].tolist()):
+            present[index == -2, k] = False
+            initial = None
+            for interval in dict.fromkeys(index[index >= -1].tolist()):
                 at = np.nonzero(index == interval)[0]
-                a, b = keys[interval], keys[interval + 1]
-                # a frame is a function of its t: each distinct t once (a held stretch is one)
-                distinct = dict.fromkeys(t[at].tolist())
+                # A nonmonotone clock can leave an interval and return: its inputs may
+                # have been evicted while absent, so entering it prepares them again.
+                for run in np.split(at, np.flatnonzero(np.diff(at) != 1) + 1):
+                    if interval == -1:
+                        if run[0] > 0:
+                            # A clock can return to before the animation began. Keep
+                            # its original CPU state, not its now-unused uploads.
+                            if initial is None:
+                                initial = leaf.copy()
+                            pinned = fixed | {initial} if leaf in fixed else fixed
+                            restores.setdefault(int(run[0]), []).append(
+                                (initial, run, k, pinned)
+                            )
+                        continue
+                    starts.setdefault(int(run[0]), []).append(
+                        (leaf, keys[interval], keys[interval + 1], path, run, t[run], k)
+                    )
+        for f in range(frames):
+            self.sweep()
+            for initial, at, k, pinned in restores.pop(f, ()):
+                r = unpack(self.record(initial, *args[:-1], pinned))
+                present[at, k] = r is not None
+                if r is not None:
+                    rows[at, k] = r
+            for leaf, a, b, path, at, t, k in starts.pop(f, ()):
+                distinct = dict.fromkeys(t.tolist())
                 ts = np.array(list(distinct))
-                where = np.array(
-                    [*map({x: j for j, x in enumerate(distinct)}.get, t[at].tolist())]
-                )
+                where = np.array([*map({x: j for j, x in enumerate(distinct)}.get, t)])
                 mixed = self.mix(a, b, path, ts, args, base[k])
                 if mixed is not None:
                     rows[at, k], present[at, k] = mixed[where], True
-                    drawn.append(mixed[0])
                     continue
-                for j, x in enumerate(
-                    ts
-                ):  # not mixable here: the leaf itself, at each t
-                    leaf.interpolate(a, b, float(x), path)
+                cache: Cached = {}
+                # A hold has one materialization. Revisited values reuse their records
+                # while resident, and reconstruct from their keyframes after eviction.
+                for run in np.split(
+                    np.arange(len(at)), np.flatnonzero(np.diff(where)) + 1
+                ):
+                    moving.setdefault(int(at[run[0]]), []).append(
+                        (leaf, a, b, path, at[run], float(t[run[0]]), k, cache)
+                    )
+            for leaf, a, b, path, at, t, k, cache in moving.pop(f, ()):
+                known = cache.get(t)
+                if known is None or any(key not in self.sizes for key in known[1]):
+                    leaf.interpolate(a, b, t, path)
                     r = unpack(self.record(leaf, *args))
-                    shown = at[where == j]
-                    present[shown, k] = r is not None
-                    if r is not None:
-                        rows[shown, k] = r
-                        drawn.append(r)
-        if drawn:
-            self.shown(np.array(drawn, RECORD), self.frames + frames)
-        self.frames += frames
-        return [
-            (uniform if views is None else views[f], rows[f][present[f]].tobytes())
-            for f in range(frames)
-        ]
+                    keys = (
+                        ()
+                        if r is None
+                        else tuple(
+                            int(r[name]) for name in (*KEYS, "texture") if r[name]
+                        )
+                    )
+                    known = cache[t] = (r, keys)
+                r = known[0]
+                present[at, k] = r is not None
+                if r is not None:
+                    rows[at, k] = r
+            data = rows[f][present[f]].tobytes()
+            self.latest = [data]
+            if self.frames % MARK == 0:
+                self.shown(np.frombuffer(data, RECORD), self.frames)
+            self.frames += 1
+            yield uniform if views is None else views[f], data
 
     def views(
         self,
