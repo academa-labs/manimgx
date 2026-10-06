@@ -1,14 +1,18 @@
 """Reference interpreters retain their verified wheel's identity and adjacent resources."""
 
+import contextlib
 import hashlib
-import json
-import subprocess
-import sys
 import zipfile
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
-from tests.integration.corpus.frozen import prepare
+from tests.integration.corpus.case import SIZE, Case, Frames
+from tests.integration.corpus.frames import Recorder
+from tests.integration.corpus.frozen import Movie, dependencies, prepare
+from tests.integration.corpus.frozen_probe import compare
+
+import manimgx
 
 
 def wheel(path: Path, files: dict[str, bytes]) -> str:
@@ -75,53 +79,74 @@ def test_a_reference_wheel_identifies_exactly_one_native_module(
         prepare(path, digest, tmp_path / "prepared")
 
 
-@pytest.mark.parametrize("capture_succeeds", [False, True])
-def test_optional_probe_capture_has_its_own_process_and_reports_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capture_succeeds: bool
+def test_dependency_changes_cannot_silently_change_the_reference(
+    tmp_path: Path,
 ) -> None:
-    from tests.integration.corpus import frozen_probe
+    old, current = tmp_path / "old.lock", tmp_path / "uv.lock"
+    old.write_bytes(b"numpy=2.5.3\n")
+    current.write_bytes(old.read_bytes())
+    assert dependencies(old, current) == hashlib.sha256(old.read_bytes()).hexdigest()
+    current.write_bytes(b"numpy=2.6\n")
+    with pytest.raises(ValueError, match="frozen dependencies"):
+        dependencies(old, current)
 
-    path, output = tmp_path / "reference.whl", tmp_path / "output"
-    digest = wheel(path, {"manimgx/_engine.abi3.so": b"engine"})
-    calls: list[tuple[str, object]] = []
 
-    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        module, directory = command[2], Path(command[3])
-        calls.append((module, kwargs["cwd"]))
-        code = 0
-        if module.endswith("frozen_probe"):
-            (directory / "result.json").write_text('{"status": "exact"}')
-        else:
-            assert command[-1] == "--take"
-            code = 0 if capture_succeeds else 1
-        return subprocess.CompletedProcess(command, code)
-
-    monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr(frozen_probe, "_metadata", lambda _: None)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "frozen_probe",
-            str(output),
-            "basic_usage",
-            "--capture-take",
-            "--wheel",
-            str(path),
-            "--sha256",
-            digest,
-            "--references",
-            str(tmp_path),
-        ],
-    )
-    with pytest.raises(SystemExit) as exit_:
-        frozen_probe.main()
-    assert exit_.value.code == (not capture_succeeds)
-    assert [module for module, _ in calls] == [
-        "tests.integration.corpus.frozen_probe",
-        "tests.integration.corpus.probe",
+@pytest.mark.parametrize("negative", [False, True])
+def test_frozen_package_uses_the_existing_isolated_runner(
+    tmp_path: Path, negative: bool
+) -> None:
+    case = Case("basic_usage")
+    unchanged = [
+        path.read_bytes()
+        for path in (case.scene, case.facts_path, case.video_hash("manimgx"))
     ]
-    assert calls[0][1] == calls[1][1]
-    result = json.loads((output / "results.json").read_text())["basic_usage"]
-    assert result["captured_take"] is capture_succeeds
-    assert result["status"] == ("exact" if capture_succeeds else "error")
+    package = Path(manimgx.__file__).resolve().parent.parent
+    result = compare(case, package, tmp_path, negative=negative)
+    assert result["status"] == ("different" if negative else "exact"), result
+    assert result["same_frame_count"]
+    assert result["same_duration"]
+    assert result["same_timeline"]
+    assert (result["changed_frames"] != 0) is negative
+    assert all(
+        (tmp_path / name).is_file()
+        for name in ("reference.log", "actual.log", "reference.mkv")
+    )
+    assert unchanged == [
+        path.read_bytes()
+        for path in (case.scene, case.facts_path, case.video_hash("manimgx"))
+    ]
+
+
+def test_a_changed_scene_cannot_become_its_own_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Case, "facts", lambda _: None)
+    result = compare(Case("basic_usage"), tmp_path, tmp_path)
+    assert result["status"] == "error"
+    assert result["error"] == "the scene source differs from its canonical facts"
+
+
+@pytest.mark.parametrize("expected_count", [1, 2, 3])
+def test_reference_movie_must_decode_exactly_its_recorded_frames(
+    tmp_path: Path, expected_count: int
+) -> None:
+    path = tmp_path / "reference.mkv"
+    pixels = bytes(SIZE[0] * SIZE[1] * 3)
+    recorder = Recorder(SIZE, 10, path)
+    recorder.add(pixels, 2)
+    recorder.close()
+    facts = Frames(
+        (("unused", expected_count),), Fraction(1), ((Fraction(0), expected_count),)
+    )
+    with contextlib.closing(Movie(path, facts)) as movie:
+
+        def read() -> None:
+            for frame in range(expected_count):
+                assert movie.render(frame) == pixels
+            movie.finish()
+
+        if expected_count == 2:
+            read()
+        else:
+            with pytest.raises(ValueError, match="reference movie"):
+                read()

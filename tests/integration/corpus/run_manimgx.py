@@ -9,6 +9,7 @@ renders several scenes in one process, in order, to find exactly such leaks.
 """
 
 import argparse
+import contextlib
 import dataclasses
 import json
 import sys
@@ -17,28 +18,44 @@ from fractions import Fraction
 from pathlib import Path
 
 import av
-from tests.integration.corpus.case import FPS, SIZE, Frames, Json
+from PIL import Image
+from tests.integration.corpus.case import FPS, SIZE, Frames, Json, frames_from_json
 from tests.integration.corpus.frames import Recorder, rgb
+from tests.integration.corpus.frozen import Comparison, Difference, Movie
 from tests.integration.corpus.runtime import load, seed, the_scene, write_result
 
 import manimgx
+from manimgx import _engine
 from manimgx.config import Config, config
+from manimgx.rendering.film import Frame
 
 
 def render(
-    scene_path: Path, video: Path | None, mp4: Path | None
+    scene_path: Path,
+    video: Path | None,
+    mp4: Path | None,
+    *,
+    comparison: Comparison | None = None,
+    source: bytes | None = None,
 ) -> tuple[bytes, Frames, int]:
     """(source, frames, frame count of the film)."""
-    source = scene_path.read_bytes()
+    source = scene_path.read_bytes() if source is None else source
     seed()
     config.pixel_width, config.pixel_height = SIZE
     config.frame_rate = FPS
     module = load(scene_path, source, f"corpus_scene_{scene_path.parent.name}")
     scene = the_scene(module, manimgx.Scene)()
     recorder = Recorder(SIZE, FPS, video)
-    film = scene.render(
-        mp4, frames=lambda frame: recorder.add(rgb(frame.pixels(), SIZE), frame.repeat)
-    )
+
+    def observe(frame: Frame) -> None:
+        pixels = rgb(frame.pixels(), SIZE)
+        recorder.add(pixels, frame.repeat)
+        if comparison is not None:
+            comparison.add(frame.index, frame.repeat, pixels)
+
+    film = scene.render(mp4, frames=observe)
+    if comparison is not None:
+        comparison.finish(film.frame_count)
     runs = recorder.close()
     frames = Frames(
         runs=runs, duration=scene.clock, timeline=((Fraction(0), recorder.count),)
@@ -75,7 +92,17 @@ def main() -> None:
     parser.add_argument("--video", type=Path)
     parser.add_argument("--mp4", action="store_true")
     parser.add_argument("--sequence", action="store_true")
+    parser.add_argument("--package", type=Path)
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--differences", type=Path)
     args = parser.parse_args()
+    if args.package is not None and not Path(manimgx.__file__).resolve().is_relative_to(
+        args.package.resolve()
+    ):
+        raise RuntimeError(
+            "the corpus runner did not import the requested reference package"
+        )
 
     if args.sequence:
         # each scene starts from the same config: only the engine's own state may carry over
@@ -91,11 +118,43 @@ def main() -> None:
 
     (scene_path,) = args.scene
     extra: dict[str, Json] = {}
-    with tempfile.TemporaryDirectory() as tmp:
+    differences: list[Json] = []
+
+    def changed(difference: Difference, old: bytes, new: bytes) -> None:
+        differences.append(dataclasses.asdict(difference))
+        if args.differences is not None and len(differences) <= 3:
+            args.differences.mkdir(parents=True, exist_ok=True)
+            for prefix, pixels in (("reference", old), ("actual", new)):
+                Image.frombytes("RGB", SIZE, pixels).save(
+                    args.differences / f"{prefix}-{difference.first:05}.png"
+                )
+
+    with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
         mp4 = Path(tmp) / "product.mp4" if args.mp4 else None
-        source, frames, film_frames = render(scene_path, args.video, mp4)
+        movie, comparison = None, None
+        if args.reference is not None:
+            expected = frames_from_json(
+                json.loads(args.reference.read_text(encoding="utf-8"))
+            )
+            if not isinstance(expected, Frames):
+                raise ValueError("the reference must be a successfully rendered film")
+            movie = stack.enter_context(
+                contextlib.closing(Movie(args.reference.with_suffix(".mkv"), expected))
+            )
+            comparison = Comparison(movie, changed)
+        source, frames, film_frames = render(
+            scene_path,
+            args.video,
+            mp4,
+            comparison=comparison,
+            source=None if args.source is None else args.source.read_bytes(),
+        )
+        if movie is not None:
+            movie.finish()
+            extra["differences"] = differences
         if mp4 is not None:
-            extra = {"film_frames": film_frames, "mp4_frames": mp4_frames(mp4)}
+            extra |= {"film_frames": film_frames, "mp4_frames": mp4_frames(mp4)}
+        extra["adapter"] = dict[str, Json](_engine.adapter_info())
     if "manim" in sys.modules:
         msg = "the scene imported Manim CE; a manimgx render must not"
         raise RuntimeError(msg)

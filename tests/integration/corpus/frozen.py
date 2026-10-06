@@ -1,22 +1,20 @@
-"""A reviewed native interpreter, loaded from its verified wheel beside today's engine.
+"""Verified reference packages and exact streaming comparisons on the current host.
 
-The wheel keeps its native resources and licenses together. It is extracted, never installed:
-the reference needs neither an old Python environment nor a second renderer implementation.
+A reference wheel runs in its own process through the ordinary corpus runner. Its transient
+lossless movie is compared with today's pixels; reviewed canonical movies remain the anchor.
 """
 
 import hashlib
-import importlib.util
 import json
-import sys
-import types
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol, cast
+from typing import Protocol
 
 import numpy as np
-from tests.integration.corpus.frames import rgb
+from tests.integration.corpus.case import FPS, SIZE, Frames
+from tests.integration.corpus.frames import decode, rgb
 
 
 class RecordedFilm(Protocol):
@@ -26,14 +24,6 @@ class RecordedFilm(Protocol):
     timeline: list[tuple[int, int]]
 
     def render(self, frame: int) -> bytes: ...
-
-
-class NativeInterpreter(Protocol):
-    TAKE_VERSION: int
-
-    def Replay(self, take: bytes) -> RecordedFilm: ...
-
-    def adapter_info(self) -> dict[str, str]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,45 +141,44 @@ def prepare(wheel: Path, sha256: str, directory: Path) -> Path:
     return directory
 
 
-def interpreter(directory: Path) -> NativeInterpreter:
-    """Load a prepared artifact under its own package name and native global state."""
-    metadata = json.loads(
-        (directory / "reference-wheel.json").read_text(encoding="utf-8")
-    )
-    alias = f"_manimgx_reference_{metadata['sha256']}"
-    name = f"{alias}._engine"
-    if name not in sys.modules:
-        package = types.ModuleType(alias)
-        package.__path__ = [str(directory / "manimgx")]
-        sys.modules[alias] = package
-        spec = importlib.util.spec_from_file_location(
-            name, directory / metadata["engine"]
-        )
-        if spec is None or spec.loader is None:
-            raise ImportError("the reference wheel has no loadable native module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        try:
-            spec.loader.exec_module(module)
-            for attribute in ("Replay", "TAKE_VERSION", "adapter_info"):
-                if not hasattr(module, attribute):
-                    raise ImportError(
-                        f"the reference engine does not expose {attribute}"
-                    )
-        except BaseException:
-            sys.modules.pop(name, None)
-            sys.modules.pop(alias, None)
-            raise
-    return cast(NativeInterpreter, sys.modules[name])
-
-
-def same_adapter(
-    reference: NativeInterpreter, actual: NativeInterpreter
-) -> dict[str, str]:
-    """Require the same backend, device and driver before interpreting pixel differences."""
-    wanted, found = reference.adapter_info(), actual.adapter_info()
-    if wanted != found:
+def dependencies(lock: Path, current: Path) -> str:
+    """Require the reference's frozen dependency lock before sharing a numerical runtime."""
+    digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+    if lock.read_bytes() != current.read_bytes():
         raise ValueError(
-            f"renderers selected different adapters: {wanted!r} != {found!r}"
+            "the reference dependency lock differs: compare with its frozen dependencies "
+            "or review a new baseline before accepting dependency changes"
         )
-    return found
+    return digest
+
+
+class Movie:
+    """A sequential lossless reference, decoded once and checked through its last frame."""
+
+    def __init__(self, path: Path, facts: Frames) -> None:
+        self.size, self.frames = SIZE, facts.count
+        self.fps = float(FPS)
+        self.timeline = [(i, 1) for i in range(self.frames)]
+        self._decoded = decode(path, SIZE)
+        self._index = 0
+
+    def render(self, frame: int) -> bytes:
+        if frame != self._index:
+            raise ValueError("reference movies are read in consecutive frame order")
+        try:
+            pixels = next(self._decoded)
+        except StopIteration as error:
+            raise ValueError(
+                "the reference movie ends before its recorded frames"
+            ) from error
+        self._index += 1
+        return pixels.tobytes()
+
+    def finish(self) -> None:
+        if self._index != self.frames or next(self._decoded, None) is not None:
+            raise ValueError(
+                "the reference movie's frame count differs from its record"
+            )
+
+    def close(self) -> None:
+        self._decoded.close()

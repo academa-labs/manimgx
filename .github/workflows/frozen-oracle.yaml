@@ -1,5 +1,5 @@
-# An explicit experiment: reviewed takes and a frozen native interpreter, on the candidate's
-# own GPU and driver. This does not replace the corpus's acceptance rules or publish assets.
+# Frozen authoring and candidate wheels use the same host through the ordinary corpus runner.
+# This experiment changes no canonical movies, case facts, reviews or published assets.
 name: Frozen renderer experiment
 
 on:
@@ -13,14 +13,9 @@ on:
         description: Test run containing candidate wheels (empty uses baseline)
         required: false
         type: string
-      release_asset:
-        description: Numeric asset ID of the existing reviewed take bundle
-        required: true
-        type: string
-      reference_sha256:
-        description: Independently verified SHA256 of the take bundle
-        required: true
-        default: cec112a68c80bc9c201980fe08f9908a190f661983b018aaec9729ba6954e987
+      shader_run:
+        description: Optional Test run with an actual shader mutant of the baseline
+        required: false
         type: string
       platforms:
         description: JSON list of hosted runners to compare
@@ -31,52 +26,11 @@ on:
         description: Space-separated case names (empty compares the entire corpus)
         required: false
         type: string
-      capture_take:
-        description: Also record each selected scene for numerical input diagnosis
-        required: false
-        default: false
-        type: boolean
 
 permissions: {}
 
 jobs:
-  references:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    # Draft assets require push access. This bootstrap only downloads a verified asset;
-    # the matrix receives an ordinary Actions artifact and has no write permission.
-    permissions:
-      contents: write
-    steps:
-      - name: Download and verify the existing reference capture
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" \
-            --header 'Accept: application/octet-stream' > reference.tar.gz
-          python - <<'PY'
-          import hashlib, os, tarfile
-          from pathlib import Path
-          path = Path("reference.tar.gz")
-          with path.open("rb") as stream:
-              actual = hashlib.file_digest(stream, "sha256").hexdigest()
-          if actual != os.environ["REFERENCE_SHA256"]:
-              raise SystemExit(f"reference bundle SHA256 differs: {actual}")
-          with tarfile.open(path) as archive:
-              archive.extractall("references", filter="data")
-          PY
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ASSET_ID: ${{ inputs.release_asset }}
-          REFERENCE_SHA256: ${{ inputs.reference_sha256 }}
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: frozen-reference-capture
-          path: references/
-          if-no-files-found: error
-          retention-days: 7
-
   compare:
-    needs: references
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -108,11 +62,6 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: frozen-reference-capture
-          path: references
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
           name: wheel-${{ matrix.os }}
           path: baseline
           run-id: ${{ inputs.baseline_run }}
@@ -125,6 +74,15 @@ jobs:
           run-id: ${{ inputs.candidate_run || inputs.baseline_run }}
           github-token: ${{ github.token }}
 
+      - name: Retrieve the reference dependency lock
+        run: |
+          commit="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BASELINE_RUN}" --jq .head_sha)"
+          gh api "repos/${GITHUB_REPOSITORY}/contents/uv.lock?ref=${commit}" \
+            --header 'Accept: application/vnd.github.raw+json' > baseline/uv.lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_RUN: ${{ inputs.baseline_run }}
+
       - name: Install the candidate artifact and test dependencies
         run: |
           uv sync --frozen --no-install-project
@@ -136,32 +94,38 @@ jobs:
           sha="$(uv run --frozen --no-sync python -c 'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1], "rb"), "sha256").hexdigest())' "${wheel[0]}")"
           uv run --frozen --no-sync python -m tests.integration.corpus.frozen_probe \
             negative-source basic_usage --negative-source \
-            --wheel "${wheel[0]}" --sha256 "${sha}" --references references
+            --wheel "${wheel[0]}" --sha256 "${sha}" --lock baseline/uv.lock
 
       - name: Compare every scene on the same adapter
         run: |
           wheel=(baseline/*.whl)
           read -r -a cases <<< "$CASE_NAMES"
-          options=()
-          if [[ "$CAPTURE_TAKE" == true ]]; then options+=(--capture-take); fi
           sha="$(uv run --frozen --no-sync python -c 'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1], "rb"), "sha256").hexdigest())' "${wheel[0]}")"
           uv run --frozen --no-sync python -m tests.integration.corpus.frozen_probe \
-            frozen-comparison "${cases[@]}" "${options[@]}" --wheel "${wheel[0]}" --sha256 "${sha}" --references references
+            frozen-comparison "${cases[@]}" --wheel "${wheel[0]}" --sha256 "${sha}" --lock baseline/uv.lock
         env:
           CASE_NAMES: ${{ inputs.cases }}
-          CAPTURE_TAKE: ${{ inputs.capture_take }}
 
-      - name: Compare locally recorded inputs with direct rendering
-        if: ${{ !cancelled() && inputs.capture_take }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ !cancelled() && inputs.shader_run != '' }}
+        with:
+          name: wheel-${{ matrix.os }}
+          path: shader-mutant
+          run-id: ${{ inputs.shader_run }}
+          github-token: ${{ github.token }}
+
+      - name: Prove the actual shader mutation is detected
+        if: ${{ !cancelled() && inputs.shader_run != '' }}
         run: |
+          uv pip install --force-reinstall --no-deps shader-mutant/*.whl
           wheel=(baseline/*.whl)
-          read -r -a cases <<< "$CASE_NAMES"
           sha="$(uv run --frozen --no-sync python -c 'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1], "rb"), "sha256").hexdigest())' "${wheel[0]}")"
           uv run --frozen --no-sync python -m tests.integration.corpus.frozen_probe \
-            local-input-comparison "${cases[@]}" --wheel "${wheel[0]}" --sha256 "${sha}" \
-            --references frozen-comparison
-        env:
-          CASE_NAMES: ${{ inputs.cases }}
+            negative-shader three_d_light_source_position --expect-different \
+            --wheel "${wheel[0]}" --sha256 "${sha}" --lock baseline/uv.lock
+          uv run --frozen --no-sync python -m tests.integration.corpus.frozen_probe \
+            shader-unaffected basic_usage \
+            --wheel "${wheel[0]}" --sha256 "${sha}" --lock baseline/uv.lock
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -172,7 +136,9 @@ jobs:
             !frozen-comparison/reference-wheel/**
             negative-source/
             !negative-source/reference-wheel/**
-            local-input-comparison/
-            !local-input-comparison/reference-wheel/**
+            negative-shader/
+            !negative-shader/reference-wheel/**
+            shader-unaffected/
+            !shader-unaffected/reference-wheel/**
           if-no-files-found: error
           retention-days: 7
