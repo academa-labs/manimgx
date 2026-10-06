@@ -363,3 +363,41 @@ def test_nothing_deprecated_is_shown(package: "griffe.Module") -> None:
         if (obj := resolve(package, path)) is not None and deprecated(obj)
     )
     assert not hidden, f"deprecated, and shown: {hidden}"
+
+
+def test_symbol_badges_in_headings_and_toc() -> None:
+    """The site's settings and custom templates keep Zensical's symbol badges."""
+    markdown = pytest.importorskip("markdown")
+    python = pytest.importorskip("mkdocstrings_handlers.python")
+    docs = ROOT / "docs"
+    config = tomllib.loads((docs / "zensical.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["plugins"]["mkdocstrings"]
+    handler = python.PythonHandler(
+        config=python.PythonConfig.from_data(**config["handlers"]["python"]),
+        base_dir=docs,
+        theme="material",
+        custom_templates=str(docs / config["custom_templates"]),
+        mdx=["toc"],
+        mdx_config={},
+    )
+    handler._update_env(markdown.Markdown(extensions=["toc"]))
+    options = handler.get_options({"members": False})
+    try:
+        for path, symbol in [
+            ("manimgx.Scene", "class"),
+            ("manimgx.Scene.play", "method"),
+            ("manimgx.smooth", "function"),
+            ("manimgx.Scene.time", "attribute"),
+            ("manimgx.UP", "attribute"),
+            ("manimgx.constants", "module"),
+        ]:
+            html = handler.render(handler.collect(path, options), options)
+            assert f'doc-symbol-heading doc-symbol-{symbol}"' in html, path
+            (heading,) = handler.get_headings()
+            assert (
+                f'doc-symbol-toc doc-symbol-{symbol}"'
+                in heading.attrib["data-toc-label"]
+            ), path
+    finally:
+        handler.teardown()
