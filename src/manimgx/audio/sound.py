@@ -511,7 +511,9 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
         audio = stem.with_suffix(record["suffix"]).read_bytes()
         same = record.get("audio") == f"{digest(audio):016x}"
         words = [Word(*w) for w in record["words"]] if same else []
-        return Speech(audio, text=text, words=words)
+        speech = Speech(audio, text=text, words=words)
+        speech._edit = _Edit(**record.get("edit", {}))
+        return speech
     speech = voice(text)
     folder.mkdir(parents=True, exist_ok=True)
     suffix, data = _stored(speech)
@@ -523,6 +525,7 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
                 "voice": identity,
                 "suffix": suffix,
                 "audio": f"{digest(data):016x}",
+                "edit": dataclasses.asdict(speech._edit),
                 "words": [[w.text, w.start, w.end] for w in speech._words],
             },
             indent=1,
@@ -588,7 +591,7 @@ def _stored(speech: Speech) -> tuple[str, bytes]:
     if isinstance(source, bytes):
         return _sniff(source), source
     if isinstance(source, np.ndarray):
-        return ".wav", _wav(speech.samples)
+        return ".wav", _wav(_source_samples(speech))
     path = Path(source)
     return path.suffix or ".bin", path.read_bytes()
 

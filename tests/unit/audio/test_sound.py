@@ -463,6 +463,44 @@ class TestVoice:
 
 @pytest.mark.usefixtures("cache_here")
 class TestCache:
+    @pytest.mark.parametrize("kind", ["array", "bytes", "file"])
+    def test_cached_speech_preserves_edits_and_word_times(
+        self, kind: str, cache_here: Path, tmp_path: Path
+    ) -> None:
+        samples = np.linspace(-0.5, 0.5, RATE, dtype=np.float32)
+        audio = voices._wav(samples)
+        path = tmp_path / "source.wav"
+        path.write_bytes(audio)
+
+        def voice(text: str) -> Speech:
+            source = samples if kind == "array" else audio if kind == "bytes" else path
+            return (
+                Speech(
+                    source,
+                    text=text,
+                    words=[Word(text, 0.2, 0.3)],
+                    rate=RATE if kind == "array" else None,
+                )
+                .trim(0.1, 0.4)
+                .speed(2)
+                .gain(-6)
+                .pan(0.25)
+                .fade_in(0.01)
+                .fade_out(0.02)
+                .loop(0.35)
+                .duck(9)
+            )
+
+        first = cached(voice, "hello", cache_here)
+        again = cached(voice, "hello", cache_here)
+        assert first.duration == again.duration == 0.35
+        assert first.words == again.words
+        np.testing.assert_array_equal(first.samples, again.samples)
+        np.testing.assert_array_equal(
+            mix([Clip(first, Fraction(0))], Fraction(1)),
+            mix([Clip(again, Fraction(0))], Fraction(1)),
+        )
+
     def test_a_voice_speaks_each_text_once(self, cache_here: Path) -> None:
         calls: list[str] = []
 
