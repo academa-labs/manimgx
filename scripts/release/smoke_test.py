@@ -70,7 +70,7 @@ def main() -> None:
             "        assert np.isfinite(samples).all() and np.any(samples)\n",
             encoding="utf-8",
         )
-        subprocess.run([*manimgx, "check", str(scene)], check=True)
+        subprocess.run([*manimgx, "inspect", str(scene)], check=True)
 
 
 def take() -> None:
