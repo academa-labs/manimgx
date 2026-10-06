@@ -1,9 +1,22 @@
 """Code sets its glyphs in rows on a monospace column grid: a tab advances to the next tab stop,
 an empty line is an empty row, and the line numbers end on one right edge."""
 
+import numpy as np
 import pytest
 
 import manimgx as m
+
+
+@pytest.mark.parametrize("font", [None, "Monospace"])
+def test_default_code_font_is_the_bundled_monospace(font: str | None) -> None:
+    listing = "from manim import Scene\n\nclass Example(Scene):\n    pass"
+    default = m.Code(
+        code_string=listing,
+        paragraph_config={} if font is None else {"font": font},
+    )
+    bundled = m.Code(code_string=listing, paragraph_config={"font": "DejaVu Sans Mono"})
+    # An installed system monospace must not change outlines, advances or line numbers.
+    np.testing.assert_array_equal(default.get_all_points(), bundled.get_all_points())
 
 
 @pytest.mark.parametrize("tab_width", [2, 4])

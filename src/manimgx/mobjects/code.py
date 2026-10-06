@@ -33,8 +33,6 @@ _SCENE_PER_UNIT = 0.05
 _POINT = _SCENE_PER_UNIT / SCALE_FACTOR_PER_FONT_POINT
 _LINE_SPACING = 0.3  # CE's Text's, for a line_spacing of -1
 
-# CE's "Monospace", as Pango finds it: Menlo on macOS; elsewhere DejaVu Sans Mono, Typst's own
-_MONOSPACE = ("Menlo", "DejaVu Sans Mono")
 _PYTHON = frozenset({"python", "py", "python3", "py3"})
 _LINE = "line"  # a line's label: "line1" the first
 # pygments' Python lexer: these are builtins wherever they stand, parameters too
@@ -111,9 +109,8 @@ class CodeText(TypedDict, total=False):
     keywords that apply to a listing."""
 
     font: str
-    """The font family: "Monospace", the default, is Menlo where the system has it, and
-    elsewhere DejaVu Sans Mono, which manimgx ships; any other family is one manimgx
-    ships, or else the system's."""
+    """The font family: "Monospace", the default, is the bundled DejaVu Sans Mono on
+    every platform; any other family is one manimgx ships, or else the system's."""
     font_size: float
     """The size of the text: an em is `font_size / 72` scene units (default 24)."""
     line_spacing: float
@@ -165,10 +162,8 @@ def _typeset(
     pitch = size * (1 + (_LINE_SPACING if spacing == -1 else spacing))
     pitch *= _PANGO_PER_FONT_SIZE
     font = text.get("font", "Monospace")
-    fonts = "".join(
-        f"{typst_string(f)}, " for f in (_MONOSPACE if font == "Monospace" else (font,))
-    )
-    face = f"font: ({fonts}), size: {em}pt"
+    family = "DejaVu Sans Mono" if font == "Monospace" else font
+    face = f"font: {typst_string(family)}, size: {em}pt"
     ligatures = "false" if text.get("disable_ligatures", True) else "true"
     closing = (
         f"; if it.number in (1, it.count) {{ {typst_string(suffix)} }}"

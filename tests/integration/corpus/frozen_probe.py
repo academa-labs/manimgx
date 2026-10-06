@@ -39,7 +39,7 @@ from tests.integration.corpus.frozen import (
     same_adapter,
     verify,
 )
-from tests.integration.corpus.probe import _metadata
+from tests.integration.corpus.probe import _call, _metadata
 from tests.integration.corpus.runtime import load, seed, the_scene
 
 import manimgx
@@ -157,6 +157,11 @@ def main() -> None:
     parser.add_argument("--references", type=Path, required=True)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--negative-source", action="store_true")
+    parser.add_argument(
+        "--capture-take",
+        action="store_true",
+        help="also record each scene in a fresh process",
+    )
     parser.add_argument("--native", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -224,6 +229,16 @@ def main() -> None:
             except subprocess.TimeoutExpired as error:
                 log.write(f"\n{error}\n".encode())
                 result = {"status": "error", "returncode": 1, "error": str(error)}
+        if args.capture_take:
+            captured = _call(
+                "tests.integration.corpus.probe",
+                [str(directory), name, "--take"],
+                known[name],
+                directory / "recording.log",
+            )
+            result["captured_take"] = captured
+            if not captured:
+                result.update(status="error", returncode=1, error="take capture failed")
         return name, result
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:

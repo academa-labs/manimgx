@@ -31,6 +31,11 @@ on:
         description: Space-separated case names (empty compares the entire corpus)
         required: false
         type: string
+      capture_take:
+        description: Also record each selected scene for numerical input diagnosis
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -137,11 +142,14 @@ jobs:
         run: |
           wheel=(baseline/*.whl)
           read -r -a cases <<< "$CASE_NAMES"
+          options=()
+          if [[ "$CAPTURE_TAKE" == true ]]; then options+=(--capture-take); fi
           sha="$(uv run --frozen --no-sync python -c 'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1], "rb"), "sha256").hexdigest())' "${wheel[0]}")"
           uv run --frozen --no-sync python -m tests.integration.corpus.frozen_probe \
-            frozen-comparison "${cases[@]}" --wheel "${wheel[0]}" --sha256 "${sha}" --references references
+            frozen-comparison "${cases[@]}" "${options[@]}" --wheel "${wheel[0]}" --sha256 "${sha}" --references references
         env:
           CASE_NAMES: ${{ inputs.cases }}
+          CAPTURE_TAKE: ${{ inputs.capture_take }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
