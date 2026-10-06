@@ -52,10 +52,11 @@ cmake -S "$source/llvm" -B "$work/llvm-build" -G Ninja \
   -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF
 cp "$work/llvm-build/CMakeCache.txt" "$output/"
+cp "$work/llvm-build/tools/llvm-config/LibraryDependencies.inc" "$output/"
 # The first four-core build completed 1540/2205 default targets in 30 minutes.
 # Build the verifier tools and Mesa's native MCJIT/LTO dependency closure; unrelated
 # LLVM utilities and libraries do not belong in this driver build.
-targets=(llvm-config llc opt LLVMX86Disassembler LLVMX86TargetMCA LLVMMCJIT LLVMLTO)
+targets=(llvm-config llc opt LLVMX86Disassembler LLVMX86TargetMCA LLVMMCJIT LLVMLTO LLVMInterpreter)
 ninja -C "$work/llvm-build" -n all > "$output/llvm-all-plan.txt"
 ninja -C "$work/llvm-build" -n "${targets[@]}" > "$output/llvm-build-plan.txt"
 /usr/bin/time -v -o "$output/llvm-build-time.txt" \
