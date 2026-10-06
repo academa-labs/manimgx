@@ -52,10 +52,14 @@ cmake -S "$source/llvm" -B "$work/llvm-build" -G Ninja \
   -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF
 cp "$work/llvm-build/CMakeCache.txt" "$output/"
+# The first four-core build completed 1540/2205 default targets in 30 minutes.
+# Build the verifier tools and Mesa's native MCJIT/LTO dependency closure; unrelated
+# LLVM utilities and libraries do not belong in this driver build.
+targets=(llvm-config llc opt LLVMX86Disassembler LLVMMCJIT LLVMLTO)
+ninja -C "$work/llvm-build" -n all > "$output/llvm-all-plan.txt"
+ninja -C "$work/llvm-build" -n "${targets[@]}" > "$output/llvm-build-plan.txt"
 /usr/bin/time -v -o "$output/llvm-build-time.txt" \
-  timeout --kill-after=10s 1800s cmake --build "$work/llvm-build" --parallel "$(nproc)"
-/usr/bin/time -v -o "$output/llvm-tools-time.txt" \
-  timeout --kill-after=10s 300s cmake --build "$work/llvm-build" --parallel "$(nproc)" --target llc opt llvm-config
+  timeout --kill-after=10s 3600s cmake --build "$work/llvm-build" --parallel "$(nproc)" --target "${targets[@]}"
 export PATH="$work/llvm-build/bin:$PATH"
 test "$(command -v llvm-config)" = "$work/llvm-build/bin/llvm-config"
 llvm-config --version --prefix --cxxflags > "$output/llvm-config.txt"
