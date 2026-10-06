@@ -34,7 +34,6 @@ from typing import (
     ClassVar,
     Literal,
     Self,
-    TypedDict,
     Unpack,
     cast,
     overload,
@@ -43,6 +42,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 from isosurfaces import plot_isoline
+from typing_extensions import TypedDict
 
 from manimgx.config import config
 from manimgx.constants import (
@@ -80,6 +80,7 @@ from manimgx.drawing.paint import (
     ParsableManimColor,
     Style,
     StyleBase,
+    _Style,
     color_gradient,
     colors_by_value,
     invert_color,
@@ -94,10 +95,12 @@ from manimgx.mobjects.shapes import (
     DashedLineOptions,
     Dot,
     Line,
+    LineOptions,
     Polygon,
     Rectangle,
     RegularPolygon,
     Tipped,
+    _Tipped,
 )
 from manimgx.mobjects.text import MathTex, MathTexOptions, Tex, Typst
 from manimgx.typing import ManimTextLabel, Vector3D
@@ -323,10 +326,8 @@ class LogBase(_ScaleBase):
 _CURVE_LINEAR = LinearBase()  # a default (never changed)
 
 
-class CurveOptions(Style, total=False):
-    """How a curve is sampled and smoothed, with the style keywords: the keywords of
-    [plot][manimgx.Axes.plot] and the other curves, for the methods that
-    pass them on."""
+class _CurveOptions(_Style, total=False):
+    """CurveOptions's keys, open, for the keywords that add to them."""
 
     dt: float
     """How far short of each discontinuity the curve's pieces stop, in units of its
@@ -339,7 +340,13 @@ class CurveOptions(Style, total=False):
     straight segments (default True)."""
 
 
-class ParametricOptions(CurveOptions, total=False):
+class CurveOptions(_CurveOptions, total=False, closed=True):
+    """How a curve is sampled and smoothed, with the style keywords: the keywords of
+    [plot][manimgx.Axes.plot] and the other curves, for the methods that
+    pass them on."""
+
+
+class ParametricOptions(_CurveOptions, total=False):
     """A [ParametricFunction][manimgx.ParametricFunction]'s keywords but its function:
     its parameter's range and spacing, with the curve keywords."""
 
@@ -565,7 +572,7 @@ class FunctionGraph(ParametricFunction):
         return self.parametric_function(x)
 
 
-class ImplicitOptions(Style, total=False):
+class ImplicitOptions(_Style, total=False, closed=True):
     """An [ImplicitFunction][manimgx.ImplicitFunction]'s smoothing, with the style
     keywords, for the methods that pass them on
     ([plot_implicit_curve][manimgx.Axes.plot_implicit_curve])."""
@@ -667,7 +674,7 @@ default)."""
 _AXIS_LINEAR = LinearBase()  # a default (never changed)
 
 
-class NumberLineOptions(Tipped, total=False):
+class NumberLineOptions(_Tipped, total=False, closed=True):
     """A [NumberLine][manimgx.NumberLine]'s keywords but its range, for the configs that
     pass them on (a coordinate system's axes): its size, ticks, tip and numbers, with
     the style and tip keywords."""
@@ -1333,6 +1340,13 @@ type Coordinates = (
 points at once."""
 
 
+def _halved(opacity: float | Sequence[float]) -> float | list[float]:
+    """An opacity, or one for each part, at half strength."""
+    if isinstance(opacity, int | float):
+        return opacity * 0.5
+    return [o * 0.5 for o in opacity]
+
+
 def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
     """Merge axis configs: later ones win, key by key, and inside their
     `decimal_number_config` too. An iterator among the values is read into a list: the
@@ -1365,7 +1379,7 @@ def merged_axis_config(*configs: NumberLineOptions | None) -> NumberLineOptions:
     return merged
 
 
-class AxisLine(TypedDict, total=False):
+class AxisLine(TypedDict, total=False, closed=True):
     """The keywords of a line from an axis to a point
     ([get_vertical_line][manimgx.Axes.get_vertical_line] and the like): its class, its
     keywords, its color and its width."""
@@ -1383,7 +1397,7 @@ class AxisLine(TypedDict, total=False):
     """The line's width, in hundredths of a scene unit (default 2)."""
 
 
-class PlotOptions(CurveOptions, total=False):
+class PlotOptions(_CurveOptions, total=False, closed=True):
     """[plot][manimgx.Axes.plot]'s keywords but its function, for the methods that pass
     them on ([plot_derivative_graph][manimgx.Axes.plot_derivative_graph],
     [plot_antiderivative_graph][manimgx.Axes.plot_antiderivative_graph]): the range of
@@ -1449,10 +1463,12 @@ class Axes(VGroup):
         x_range: The x-axis's range, `[x_min, x_max, x_step]`, or `[x_min, x_max]` for
             a step of 1; None for the frame's width, [-7, 7, 1].
         y_range: The y-axis's range, likewise; None for the frame's height, [-4, 4, 1].
-        x_length: The x-axis's length, in scene units: by default the frame's width
-            less 2, rounded (12); None for `unit_size` (by default 1) per unit.
-        y_length: The y-axis's length, in scene units: by default the frame's height
-            less 2, rounded (6); None for `unit_size` per unit.
+        x_length: The x-axis's length, in scene units; None for the frame's width
+            less 2, rounded, as the frame is when the axes are made (12 in a wide video,
+            6 in a tall one), or `unit_size` per unit if the axis's config gives one.
+        y_length: The y-axis's length, in scene units; None for the frame's height
+            less 2, rounded (6 in a wide video, 12 in a tall one), or `unit_size` per unit
+            if the axis's config gives one.
         axis_config: [Number line keywords][manimgx.NumberLine]
             for both axes: `include_numbers`, `font_size`, `color`, …; None for none.
         x_axis_config: Number line keywords for the x-axis, over `axis_config`'s; None
@@ -1488,8 +1504,8 @@ class Axes(VGroup):
         self,
         x_range: Sequence[float] | None = None,
         y_range: Sequence[float] | None = None,
-        x_length: float | None = round(config.frame_width) - 2,
-        y_length: float | None = round(config.frame_height) - 2,
+        x_length: float | None = None,
+        y_length: float | None = None,
         axis_config: NumberLineOptions | None = None,
         x_axis_config: NumberLineOptions | None = None,
         y_axis_config: NumberLineOptions | None = None,
@@ -1516,9 +1532,9 @@ class Axes(VGroup):
                 y_axis_config,
             )
         )
-        self.x_axis = self._create_axis(self.x_range, x_axis_config, x_length)
+        self.x_axis = self._create_axis(self.x_range, x_axis_config, x_length, 0)
         """The x-axis, a [NumberLine][manimgx.NumberLine]."""
-        self.y_axis = self._create_axis(self.y_range, y_axis_config, y_length)
+        self.y_axis = self._create_axis(self.y_range, y_axis_config, y_length, 1)
         """The y-axis, a [NumberLine][manimgx.NumberLine]."""
         self.x_length, self.y_length = (
             self.x_axis.get_length(),
@@ -1538,10 +1554,19 @@ class Axes(VGroup):
         range_terms: Sequence[float] | None,
         axis_config: NumberLineOptions,
         length: float | None,
+        index: int,
     ) -> NumberLine:
+        if length is None and "unit_size" not in axis_config:
+            length = self._fitting_length(index)
         axis = NumberLine(range_terms, **(axis_config | {"length": length}))
         axis.shift(-axis.number_to_point(_origin_shift([axis.x_min, axis.x_max])))
         return axis
+
+    def _fitting_length(self, index: int) -> float:
+        """The length of an axis given none (0: x, 1: y): the frame's width or height
+        less 2, rounded, as the frame is now (a scene's file may make it tall after
+        manimgx is imported)."""
+        return round((config.frame_width, config.frame_height)[index]) - 2
 
     def coords_to_point(self, *coords: Coordinates) -> npt.NDArray[np.float64]:
         """Convert coordinates on the axes to a point of the scene, or arrays of them to
@@ -1884,12 +1909,18 @@ class Axes(VGroup):
         Returns:
             A new line, not added to the axes.
         """
+        start = self.get_axis(index).get_projection(point)
         style = (line_config or DashedLineOptions()).copy()
         style["color"], style["stroke_width"] = (
             ManimColor(WHITE if color is None else color),
             stroke_width,
         )
-        return line_func(self.get_axis(index).get_projection(point), point, **style)
+        if issubclass(line_func, DashedLine):
+            return line_func(start, point, **style)
+        # a solid line has no dashes: it takes the line keywords without them
+        style.pop("dash_length", None)
+        style.pop("dashed_ratio", None)
+        return line_func(start, point, **cast("LineOptions", style))
 
     def get_vertical_line(self, point: Point3DLike, **kwargs: Unpack[AxisLine]) -> Line:
         """Make a line from the x-axis up (or down) to a point: dashed, white and thin
@@ -2918,11 +2949,8 @@ def _origin_shift(axis_range: Sequence[float]) -> float:
     return 0
 
 
-class AxesOptions(Style, total=False):
-    """[Axes][manimgx.Axes]' keywords but their ranges and lengths, for the classes that
-    pass them on ([ThreeDAxes][manimgx.ThreeDAxes], the planes,
-    [BarChart][manimgx.BarChart]): their axes' configs and tips, with the style
-    keywords."""
+class _AxesOptions(_Style, total=False):
+    """AxesOptions's keys, open, for the keywords that add to them."""
 
     axis_config: NumberLineOptions | None
     """[Number line keywords][manimgx.NumberLine]
@@ -2936,6 +2964,13 @@ class AxesOptions(Style, total=False):
     tips: bool
     """Whether each axis ends in an arrow tip (default True; a plane's axes have none,
     unless `axis_config` includes `include_tip`)."""
+
+
+class AxesOptions(_AxesOptions, total=False, closed=True):
+    """[Axes][manimgx.Axes]' keywords but their ranges and lengths, for the classes that
+    pass them on ([ThreeDAxes][manimgx.ThreeDAxes], the planes,
+    [BarChart][manimgx.BarChart]): their axes' configs and tips, with the style
+    keywords."""
 
 
 def _origin_tick(config_: NumberLineOptions) -> NumberLineOptions:
@@ -2969,12 +3004,13 @@ class ThreeDAxes(Axes):
             a step of 1; None for [-7, 7, 1].
         y_range: The y-axis's range, likewise; None for [-4, 4, 1].
         z_range: The z-axis's range, likewise; None for [-7, 7, 1].
-        x_length: The x-axis's length, in scene units: by default the frame's height
-            plus 2.5 (10.5); None for `unit_size` (by default 1) per unit.
-        y_length: The y-axis's length, in scene units: by default 10.5 too; None for
-            `unit_size` per unit.
-        z_length: The z-axis's length, in scene units: by default the frame's height
-            less 1.5 (6.5); None for `unit_size` per unit.
+        x_length: The x-axis's length, in scene units; None for the frame's short side
+            plus 2.5 (10.5, in a wide video and a tall one), or `unit_size` per unit if
+            the axis's config gives one.
+        y_length: The y-axis's length, in scene units; None for 10.5 too, or `unit_size`
+            per unit if the axis's config gives one.
+        z_length: The z-axis's length, in scene units; None for the frame's short side
+            less 1.5 (6.5), or `unit_size` per unit if the axis's config gives one.
         z_axis_config: [Number line keywords][manimgx.NumberLine]
             for the z-axis, over `axis_config`'s; None for none.
         **kwargs: [Axes keywords][manimgx.mobjects.plotting.AxesOptions]:
@@ -3006,9 +3042,9 @@ class ThreeDAxes(Axes):
         x_range: Sequence[float] | None = (-6, 6, 1),
         y_range: Sequence[float] | None = (-5, 5, 1),
         z_range: Sequence[float] | None = (-4, 4, 1),
-        x_length: float | None = config.frame_height + 2.5,
-        y_length: float | None = config.frame_height + 2.5,
-        z_length: float | None = config.frame_height - 1.5,
+        x_length: float | None = None,
+        y_length: float | None = None,
+        z_length: float | None = None,
         z_axis_config: NumberLineOptions | None = None,
         **kwargs: Unpack[AxesOptions],
     ):
@@ -3028,7 +3064,7 @@ class ThreeDAxes(Axes):
         """The z-axis's range, as given."""
         z_axis_config = _origin_tick(merged_axis_config(axis_config, z_axis_config))
         self.dimension = 3
-        z_axis = self._create_axis(self.z_range, z_axis_config, z_length)
+        z_axis = self._create_axis(self.z_range, z_axis_config, z_length, 2)
         z_origin = _origin_shift([z_axis.x_min, z_axis.x_max])
         z_axis.rotate_about_number(z_origin, -PI / 2, UP)
         z_axis.rotate_about_number(z_origin, angle_of_vector(DOWN))
@@ -3045,6 +3081,12 @@ class ThreeDAxes(Axes):
         self.z_length = z_axis.get_length()
         self._add_3d_pieces()
         self._set_axis_shading()
+
+    def _fitting_length(self, index: int) -> float:
+        """The length of an axis given none (0: x, 1: y, 2: z), from the frame's short
+        side, which a wide video and a tall one share."""
+        short = min(config.frame_width, config.frame_height)
+        return short - 1.5 if index == 2 else short + 2.5
 
     def _add_3d_pieces(self) -> None:
         for axis in self.axes:
@@ -3171,6 +3213,10 @@ class _Plane(Axes):
         background_line_style = Style(
             stroke_color=BLUE_D, stroke_width=2, stroke_opacity=1
         ) | (background_line_style or Style())
+        # a plane's unit is a scene unit, unless a length or a unit_size is given
+        kwargs["axis_config"] = merged_axis_config(
+            {"unit_size": 1}, kwargs.get("axis_config")
+        )
         super().__init__(
             x_range=x_range,
             y_range=y_range,
@@ -3180,10 +3226,12 @@ class _Plane(Axes):
         )
         if faded_line_style is None:  # the background lines at half strength
             faded = background_line_style.copy()
-            for key in ("stroke_width", "stroke_opacity", "fill_opacity"):
-                value = faded.get(key)
-                if value is not None:
-                    faded[key] = value * 0.5
+            if (width := faded.get("stroke_width")) is not None:
+                faded["stroke_width"] = width * 0.5
+            if (opacity := faded.get("stroke_opacity")) is not None:
+                faded["stroke_opacity"] = _halved(opacity)
+            if (opacity := faded.get("fill_opacity")) is not None:
+                faded["fill_opacity"] = _halved(opacity)
             faded_line_style = faded
         self.background_lines, self.faded_lines = self._get_lines(faded_line_ratio)
         for lines, style in (
@@ -3239,7 +3287,7 @@ class _Plane(Axes):
         return self
 
 
-class NumberPlaneOptions(AxesOptions, total=False):
+class NumberPlaneOptions(_AxesOptions, total=False, closed=True):
     """A [NumberPlane][manimgx.NumberPlane]'s keywords, for the scenes that pass them on
     ([LinearTransformationScene][manimgx.LinearTransformationScene], …): its ranges,
     sizes and grid, with the axes' keywords."""
