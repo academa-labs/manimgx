@@ -42,6 +42,7 @@ interface Python {
   py: Pyodide;
   micropip: Micropip;
   runner: Runner;
+  note: (text: string) => Uint8Array<ArrayBuffer>;
 }
 
 const queue = new Map<number, Run>(); // film → the latest run asked for, not begun (an edit replaces it)
@@ -87,30 +88,39 @@ from manimgx.drawing.typesetting import FONTS
   built.destroy();
   send({ engine: { js, wasm, fonts } }, [wasm.buffer, ...fonts.map((f) => f.buffer)]);
   const runner = py.runPython(RUNNER) as Runner;
-  return { py, micropip, runner };
+  const note = py.runPython("lambda text: to_js(_engine.note(text))") as Python["note"];
+  return { py, micropip, runner, note };
 }
 
 async function drain(): Promise<void> {
   const python = await booted;
   if (!python || busy) return;
-  const { py, micropip, runner } = python;
+  const { py, micropip, runner, note } = python;
   busy = true;
-  for (const [film, { source, scene }] of queue) {
-    queue.delete(film);
-    const feed = (bytes: Uint8Array<ArrayBuffer>): void =>
-      send({ film, feed: bytes.buffer }, [bytes.buffer]);
-    await py.loadPackagesFromImports(source); // what the scene imports from Pyodide's own packages
-    // a module the scene misses (its own import, or one manimgx imports when needed: networkx
-    // for a Graph) is installed, and the scene run again
-    const tried: string[] = [];
-    for (let missing; (missing = runner(film, source, scene ?? null, feed, tried));) {
-      tried.push(missing);
-      await micropip.install(missing).catch(() => {});
+  try {
+    for (const [film, { source, scene }] of queue) {
+      queue.delete(film);
+      const feed = (bytes: Uint8Array<ArrayBuffer>): void =>
+        send({ film, feed: bytes.buffer }, [bytes.buffer]);
+      try {
+        await py.loadPackagesFromImports(source); // the scene's Pyodide package imports
+        // A missing module is installed once, then the ordinary runner reports any failure.
+        const tried: string[] = [];
+        for (let missing; (missing = runner(film, source, scene ?? null, feed, tried));) {
+          tried.push(missing);
+          await micropip.install(missing).catch(() => {});
+        }
+      } catch (error) {
+        // Loading and calling Python can fail outside its own scene error boundary. Keep the
+        // error in this film's ordinary note stream so another film or edit can still run.
+        feed(note(JSON.stringify({ error: { message: message(error), type: "Error" } })));
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve)); // let newer runs in
     }
-    await new Promise<void>((resolve) => setTimeout(resolve)); // let newer runs in
+  } finally {
+    busy = false;
+    if (queue.size) drain();
   }
-  busy = false;
-  if (queue.size) drain();
 }
 
 // Python: a film's source run as a scene file, like `manimgx render` runs one, its take sent on.

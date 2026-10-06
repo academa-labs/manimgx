@@ -182,7 +182,7 @@ describe("published browser module", () => {
     expect(director.sent).toHaveLength(4);
   });
 
-  test("the embedded worker is executable JavaScript and coalesces pending scene edits", async () => {
+  test("the embedded worker coalesces edits and isolates film failures", async () => {
     const state = await page();
     new state.api.ManimgxPlayer().connectedCallback();
     state.flush();
@@ -206,6 +206,7 @@ describe("published browser module", () => {
       send: (bytes: Uint8Array) => void,
       tried: string[],
     ) => {
+      if (source === "broken runner") throw new Error("Python worker failure");
       runs.push({ film, source, scene, tried: [...tried] });
       if (source === "latest" && !tried.includes("networkx")) return "networkx";
       send(new Uint8Array([film]));
@@ -226,13 +227,16 @@ describe("published browser module", () => {
       runPython: (source: string) =>
         source.includes("def run(")
           ? runner
-          : {
-              toJs: () => ["engine source", wasm, fonts],
-              destroy: () => {
-                destroyed = true;
+          : source.startsWith("lambda text:")
+            ? (text: string) => new TextEncoder().encode(text)
+            : {
+                toJs: () => ["engine source", wasm, fonts],
+                destroy: () => {
+                  destroyed = true;
+                },
               },
-            },
       loadPackagesFromImports: async (source: string) => {
+        if (source === "broken imports") throw new Error("Package download failed");
         imports.push(source);
       },
     };
@@ -304,5 +308,30 @@ describe("published browser module", () => {
       [2, 2],
     ]);
     for (const { data, transfer } of feeds) expect(transfer).toEqual([data.feed]);
+
+    // A failed dependency load or Python call belongs to one film. It must not lock the
+    // shared queue, and editing that same film must remain possible afterward.
+    for (const [source, error] of [
+      ["broken imports", "Package download failed"],
+      ["broken runner", "Python worker failure"],
+    ]) {
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      send({ film: 3, run: { source, scene: null } });
+      send({ film: 4, run: { source: "next film", scene: null } });
+      await settle();
+      const failed = messages.at(-1)!.data as { film: number; feed: ArrayBuffer };
+      expect(failed.film).toBe(3);
+      expect(JSON.parse(new TextDecoder().decode(failed.feed))).toEqual({
+        error: { message: error, type: "Error" },
+      });
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      expect(runs.at(-1)).toMatchObject({ film: 4, source: "next film" });
+      send({ film: 3, run: { source: "corrected", scene: null } });
+      tasks.splice(0).forEach((task) => task());
+      await settle();
+      expect(runs.at(-1)).toMatchObject({ film: 3, source: "corrected" });
+    }
   });
 });
