@@ -9,13 +9,19 @@
 </p>
 
 <p align="center">
-  <b>Blazingly fast 3D animation engine for agents, with <a href="https://www.manim.community">Manim CE's API</a>.</b><br>
+  <b>Blazingly fast 3D animation engine for agents, compatible with <a href="https://www.manim.community">Manim CE's API</a>.</b><br>
   Powered by Rust and wgpu. Install with a prompt or pip. Run in the browser.
 </p>
 
 <p align="center">
+  <b><a href="https://manimgx.academa.ai">Documentation</a></b> ·
+  <a href="https://manimgx.academa.ai/user-guide/quickstart/">Quickstart</a> ·
+  <a href="https://manimgx.academa.ai/gallery/">Examples</a> ·
+  <a href="https://manimgx.academa.ai/reference/">API Reference</a>
+</p>
+
+<p align="center">
   <a href="https://coverage.manimgx.academa.ai"><img alt="Test coverage" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fcoverage.manimgx.academa.ai%2Fbadge.json&label=coverage"></a>
-  <a href="https://manimgx.academa.ai"><img alt="Documentation built with Zensical" src="https://img.shields.io/badge/docs-Zensical-58c4dd"></a>
   <a href="https://pypi.org/project/manimgx/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/manimgx?color=58c4dd&label=PyPI"></a>
   <a href="https://www.npmjs.com/package/manimgx"><img alt="npm version" src="https://img.shields.io/npm/v/manimgx?color=58c4dd"></a>
   <a href="https://pepy.tech/projects/manimgx"><img alt="PyPI total downloads" src="https://img.shields.io/pepy/dt/manimgx?color=58c4dd&label=PyPI%20downloads"></a>
@@ -69,6 +75,8 @@ pip install manimgx
 ```
 
 Fonts, typesetting and video encoding are included.
+For editor setup and a guided first animation, follow the
+[Quickstart](https://manimgx.academa.ai/user-guide/quickstart/).
 
 ## From Python to MP4
 
@@ -120,29 +128,42 @@ manimgx's Rust + wgpu engine renders the MP4, blazingly fast.
 - **Speech in sync.** [Match animations to spoken words](https://manimgx.academa.ai/user-guide/sound-and-voice/)
   with `self.say()`.
 
+## Documentation
+
+**[manimgx.academa.ai](https://manimgx.academa.ai)** has the guides, rendered examples
+with source code, and API reference:
+
+- [Quickstart](https://manimgx.academa.ai/user-guide/quickstart/): install, set up your
+  editor, and render your first scene.
+- [User Guide](https://manimgx.academa.ai/user-guide/the-basics/): learn scenes,
+  animations, 3D, text and sound, one idea at a time.
+- [Examples](https://manimgx.academa.ai/gallery/): watch complete films and read the
+  Python that makes them.
+- [API Reference](https://manimgx.academa.ai/reference/): look up classes, methods
+  and their typed parameters.
+- [Coming from Manim CE](https://manimgx.academa.ai/user-guide/coming-from-manim-ce/):
+  adapt existing scenes and check where behavior differs.
+
+For agents, [llms.txt](https://manimgx.academa.ai/llms.txt) provides setup instructions
+and links to the documentation as Markdown.
+
 ## On the shoulders of giants
 
 [Grant Sanderson](https://www.3blue1brown.com) created
-[Manim](https://github.com/3b1b/manim). The [Manim Community](https://www.manim.community)
-developed the API that manimgx builds on.
+[Manim](https://github.com/3b1b/manim). manimgx targets the API of
+[Manim Community Edition](https://www.manim.community), the widely used
+community-maintained fork.
 
-The engine draws with [wgpu](https://wgpu.rs), typesets text and math with
-[Typst](https://typst.app) and [mitex](https://github.com/mitex-rs/mitex), encodes video
-with [x264](https://www.videolan.org/developers/x264.html), and decodes audio with
-[FFmpeg](https://ffmpeg.org) and [libopus](https://opus-codec.org).
+The Rust renderer uses [wgpu](https://wgpu.rs) for native GPU rendering and WebGPU in
+the browser. [Typst](https://typst.app) typesets text and math, with
+[mitex](https://github.com/mitex-rs/mitex) translating LaTeX input to Typst.
+[x264](https://www.videolan.org/developers/x264.html) encodes native video exports as
+H.264; [FFmpeg](https://ffmpeg.org) decodes imported audio, using
+[libopus](https://opus-codec.org) for Opus.
 
-[NumPy](https://numpy.org) powers the geometry, [PyO3](https://pyo3.rs) connects Python
-and Rust, and [Pyodide](https://pyodide.org) runs Python in the browser.
-[Noto](https://notofonts.github.io) supplies fonts, and
-[Mesa](https://mesa3d.org)'s lavapipe lets Linux render without a GPU.
-
-## Learn more
-
-- [User Guide](https://manimgx.academa.ai/user-guide/quickstart/)
-- [Examples](https://manimgx.academa.ai/gallery/)
-- [API Reference](https://manimgx.academa.ai/reference/)
-- [Changelog](https://manimgx.academa.ai/changelog/)
-- [Citing manimgx](https://github.com/academa-labs/manimgx/blob/main/CITATION.cff)
+[Pyodide](https://pyodide.org) runs Python scenes in a browser worker. Linux wheels
+bundle [Mesa](https://mesa3d.org)'s lavapipe for Vulkan rendering on the CPU when no
+suitable GPU is available.
 
 ## Community
 
@@ -150,6 +171,9 @@ Questions, bug reports and feature requests start with an
 [issue](https://github.com/academa-labs/manimgx/issues/new/choose).
 To contribute, read [Contributing](https://github.com/academa-labs/manimgx/blob/main/.github/CONTRIBUTING.md)
 and the [Developer Guide](https://manimgx.academa.ai/developer-guide/).
+
+[Changelog](https://manimgx.academa.ai/changelog/) ·
+[Citing manimgx](https://github.com/academa-labs/manimgx/blob/main/CITATION.cff)
 
 Everyone participating follows the
 [Code of Conduct](https://github.com/academa-labs/manimgx/blob/main/.github/CODE_OF_CONDUCT.md).
