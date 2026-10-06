@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, ClassVar, Unpack
 import numpy as np
 
 from manimgx import _engine
+from manimgx.caches import forgets
 from manimgx.constants import LEFT, ORIGIN, OUT, PI, RIGHT, UP
 from manimgx.drawing.paint import WHITE, Look, ManimColor, ParsableManimColor
 from manimgx.mobject import VectorizedPoint
@@ -249,11 +250,12 @@ class Picture:
 _PICTURE_IDS = itertools.count(1)  # (0: the studio; a view carries an id as a float32)
 
 
-@functools.cache
-def _picture(path: str) -> Picture:
-    """The picture of a Radiance (.hdr) file at `path` (an absolute path), read once (by the
-    engine: halved until no wider than 4096)."""
-    width, height, rgbe = _engine.read_hdr(Path(path).read_bytes())
+@forgets
+@functools.lru_cache(maxsize=4)
+def _picture(data: bytes) -> Picture:
+    """A Radiance picture's immutable contents, decoded once while remembered (the engine
+    halves it until no wider than 4096)."""
+    width, height, rgbe = _engine.read_hdr(data)
     return Picture(next(_PICTURE_IDS), width, height, bytes(rgbe))
 
 
@@ -310,9 +312,7 @@ class EnvironmentLight(Light):
         **kwargs: Unpack[Look],
     ) -> None:
         # (None: the studio, which the engine makes)
-        self.picture = (
-            None if picture is None else _picture(str(Path(picture).resolve()))
-        )
+        self.picture = None if picture is None else _picture(Path(picture).read_bytes())
         self.shadows = shadows
         super().__init__(ORIGIN, color, intensity, **kwargs)
         # its picture's right and up, a unit from its point: turned with it

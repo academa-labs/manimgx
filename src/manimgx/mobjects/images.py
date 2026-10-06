@@ -16,6 +16,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Style,
+    _Style,
 )
 from manimgx.mobject import MeshMobject
 
@@ -31,11 +32,11 @@ class ImageMobject(MeshMobject):
     pixels make it.
 
     An image `scale_to_resolution` pixels tall (1080 unless given) is as tall as the
-    frame's short side, 8 scene units, and any other in proportion. Shown larger than its
-    pixels, the picture is reconstructed from them by `resampling_algorithm`: by default
-    a smooth cubic through every pixel; linear blends neighboring pixels; nearest shows
-    each pixel as a square of its color. Shown smaller, it is sampled, not averaged. The
-    mobject's opacity multiplies its pixels' own.
+    frame's short side (8 scene units by default), and any other in proportion. Shown
+    larger than its pixels, the picture is reconstructed from them by
+    `resampling_algorithm`: by default a smooth cubic through every pixel; linear blends
+    neighboring pixels; nearest shows each pixel as a square of its color. Shown smaller,
+    it is sampled, not averaged. The mobject's opacity multiplies its pixels' own.
 
     Args:
         filename_or_array: The picture: an image file's path, the file's contents
@@ -237,7 +238,7 @@ def _to_rgba(pixels: np.ndarray) -> np.ndarray:
     return pixels.astype(np.uint8)
 
 
-class ImageCameraOptions(Style, total=False):
+class ImageCameraOptions(_Style, total=False):
     """A camera picture's keywords, for the scenes that pass them on: a
     [ZoomedScene][manimgx.ZoomedScene]'s display.
 

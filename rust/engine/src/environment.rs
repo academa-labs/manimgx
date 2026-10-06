@@ -44,17 +44,34 @@ pub(crate) fn read_hdr(data: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
         ["-Y", h, "+X", w] => (h.parse::<u32>().map_err(|e| e.to_string())?, w.parse::<u32>().map_err(|e| e.to_string())?),
         _ => return Err(format!("a Radiance file's orientation that is not \"-Y height +X width\": {size}")),
     };
-    let mut out = vec![0u8; (width * height * 4) as usize];
+    if width == 0 || height == 0 {
+        return Err("a Radiance picture's dimensions must be positive".into());
+    }
+    let length = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4))
+        .filter(|&n| n <= isize::MAX as usize).ok_or("a Radiance picture is too large to address")?;
+    let row_bytes = length / height as usize;
+    // A header is not evidence that its pixels exist. A flat picture needs all its
+    // bytes; an RLE row needs its four-byte header and, for each of four components,
+    // at least two encoded bytes per 127 decoded bytes (the longest repeated run).
+    let minimum = if (8..0x8000).contains(&width) { (4 + 8 * width.div_ceil(127)) as usize * height as usize } else { length };
+    if data.len() - at < minimum {
+        return Err("a Radiance file ends early".into());
+    }
+    let mut out = vec![0u8; length];
     let byte = |at: &mut usize| -> Result<u8, String> {
         let b = *data.get(*at).ok_or("a Radiance file ends early")?;
         *at += 1;
         Ok(b)
     };
     for y in 0..height as usize {
-        let row = &mut out[y * width as usize * 4..(y + 1) * width as usize * 4];
+        let row = &mut out[y * row_bytes..(y + 1) * row_bytes];
         let head = [data.get(at).copied(), data.get(at + 1).copied(), data.get(at + 2).copied()];
         if (8..0x8000).contains(&width) && head[0] == Some(2) && head[1] == Some(2) && head[2].is_some_and(|b| b & 0x80 == 0) {
             // run-length encoded: four header bytes, then each component's runs across the row
+            let scanline = data.get(at..).and_then(|rest| rest.get(..4)).ok_or("a Radiance file ends early")?;
+            if u16::from_be_bytes([scanline[2], scanline[3]]) as u32 != width {
+                return Err("a Radiance scanline's width does not match its picture".into());
+            }
             at += 4;
             for c in 0..4 {
                 let mut x = 0;
@@ -76,9 +93,9 @@ pub(crate) fn read_hdr(data: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
             }
         } else {
             // flat: four bytes a pixel
-            let bytes = data.get(at..at + row.len()).ok_or("a Radiance file ends early")?;
+            let bytes = data.get(at..).and_then(|rest| rest.get(..row_bytes)).ok_or("a Radiance file ends early")?;
             row.copy_from_slice(bytes);
-            at += row.len();
+            at += row_bytes;
         }
     }
     Ok((width, height, out))
@@ -110,18 +127,22 @@ fn rgbe(c: [f64; 3]) -> [u8; 4] {
 pub(crate) const WIDEST: u32 = 4096;
 
 #[cfg(any(feature = "python", test))]
-/// A picture no wider than `WIDEST`: each halving the average of four pixels' light.
+/// A picture no wider than `WIDEST`: each halving averages the available pixels' light
+/// in each 2x2 block, including an odd edge or a picture only one pixel high.
 pub(crate) fn narrowed(mut width: u32, mut height: u32, mut pixels: Vec<u8>) -> (u32, u32, Vec<u8>) {
     while width > WIDEST {
-        let (w, h) = (width / 2, height / 2);
-        let mut out = Vec::with_capacity((w * h * 4) as usize);
+        let (w, h) = (width.div_ceil(2), height.div_ceil(2));
+        let mut out = Vec::with_capacity(w as usize * h as usize * 4);
         for y in 0..h {
             for x in 0..w {
                 let mut sum = [0.0; 3];
+                let (columns, rows) = ((width - 2 * x).min(2), (height - 2 * y).min(2));
+                let weight = 1.0 / (columns * rows) as f64;
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let at = (((2 * y + dy) * width + 2 * x + dx) * 4) as usize;
+                    if dx >= columns || dy >= rows { continue; }
+                    let at = ((2 * y + dy) as usize * width as usize + (2 * x + dx) as usize) * 4;
                     let l = light(&pixels[at..at + 4]);
-                    (0..3).for_each(|c| sum[c] += l[c] / 4.0);
+                    (0..3).for_each(|c| sum[c] += l[c] * weight);
                 }
                 out.extend(rgbe(sum));
             }
@@ -466,6 +487,70 @@ impl Prefilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_radiance_shapes_fail_without_panicking_or_allocating_the_header() {
+        for (width, height) in [(0, 1), (1, 0), (65536, 16384), (8, 1 << 29), (u32::MAX, u32::MAX)] {
+            let header = format!("#?RADIANCE\n\n-Y {height} +X {width}\n");
+            assert!(read_hdr(header.as_bytes()).is_err(), "{width} x {height}");
+        }
+    }
+
+    #[test]
+    fn radiance_flat_and_encoded_rows_preserve_their_pixels() {
+        let pixels: Vec<u8> = (0..64).collect();
+        let mut flat = b"#?RADIANCE\n\n-Y 1 +X 16\n".to_vec();
+        flat.extend_from_slice(&pixels);
+        assert_eq!(read_hdr(&flat).unwrap(), (16, 1, pixels.clone()));
+        let mut encoded = b"#?RADIANCE\n\n-Y 1 +X 16\n".to_vec();
+        let start = encoded.len();
+        encoded.extend_from_slice(&[2, 2, 0, 16]);
+        for c in 0..4 {
+            encoded.push(16);
+            encoded.extend(pixels.iter().skip(c).step_by(4));
+        }
+        assert_eq!(read_hdr(&encoded).unwrap(), (16, 1, pixels));
+        for end in 0..encoded.len() {
+            assert!(read_hdr(&encoded[..end]).is_err(), "truncated at {end}");
+        }
+        encoded[start + 3] = 15;
+        assert!(read_hdr(&encoded).unwrap_err().contains("width"));
+    }
+
+    #[test]
+    fn the_shortest_radiance_runs_meet_the_allocation_bound() {
+        for width in [8u32, 127, 128, 129, 32767] {
+            let mut file = format!("#?RADIANCE\n\n-Y 2 +X {width}\n").into_bytes();
+            let header = file.len();
+            for _ in 0..2 {
+                file.extend([2, 2, (width >> 8) as u8, width as u8]);
+                for value in [128, 64, 32, 129] {
+                    let mut left = width;
+                    while left > 0 {
+                        let count = left.min(127);
+                        file.extend([128 + count as u8, value]);
+                        left -= count;
+                    }
+                }
+            }
+            assert_eq!(file.len() - header, (4 + 8 * width.div_ceil(127)) as usize * 2);
+            assert_eq!(read_hdr(&file).unwrap(), (width, 2, [128, 64, 32, 129].repeat(width as usize * 2)));
+        }
+    }
+
+    #[test]
+    fn narrowing_preserves_a_single_row_and_the_pixels_of_odd_edges() {
+        let pixels = [128, 64, 32, 129].repeat(8192);
+        let (w, h, out) = narrowed(8192, 1, pixels);
+        assert_eq!((w, h), (4096, 1));
+        assert_eq!(out, [128, 64, 32, 129].repeat(4096));
+        let mut pixels = vec![0; 4097 * 3 * 4];
+        pixels[4097 * 3 * 4 - 4..].copy_from_slice(&[128, 0, 0, 133]);
+        let (w, h, out) = narrowed(4097, 3, pixels);
+        assert_eq!((w, h), (2049, 2));
+        assert!(out[..out.len() - 4].iter().all(|&b| b == 0));
+        assert_eq!(&out[out.len() - 4..], &[128, 0, 0, 133]);
+    }
 
     #[cfg(feature = "render")]
     /// A uniform picture's diffuse light is its light alone, from every side: c0 is the light, the rest nothing.
