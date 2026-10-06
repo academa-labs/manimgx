@@ -12,7 +12,11 @@
 """
 
 import json
+import os
+import signal
 import subprocess
+import sys
+from contextlib import suppress
 from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
@@ -40,6 +44,79 @@ CHANGES = {
     "duration": replace(STORED, duration=Fraction(3, 10)),
     "timeline": replace(STORED, timeline=((Fraction(1, 10), 2),)),
 }
+
+
+def test_render_deadlines_reap_the_child_and_report_without_killing_pytest(
+    tmp_path: Path,
+) -> None:
+    # Use the corpus test's actual timeout policy with Windows' process-killing method.
+    # The child supervisor's deadline starts later; a competing pytest timer wins and
+    # kills the worker before its subprocess.run can kill/reap the stalled renderer.
+    probe = tmp_path / "test_deadline.py"
+    pid = tmp_path / "child.pid"
+    finished = tmp_path / "finished"
+    probe.write_text(
+        f"""
+import subprocess
+import sys
+import time
+from pathlib import Path
+from tests.integration import test_corpus as corpus
+from tests.integration.corpus import engines
+from tests.integration.corpus.case import Case, Failure
+
+pytestmark = [mark for mark in corpus.test_regression.pytestmark if mark.name == "timeout"]
+
+def test_supervised_render(monkeypatch):
+    children = []
+    popen = subprocess.Popen
+    def spawn(*args, **kwargs):
+        child = popen([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+        children.append(child)
+        Path({str(pid)!r}).write_text(str(child.pid), encoding="utf-8")
+        return child
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setitem(engines.TIMEOUT, "manimgx", 0.5)
+    time.sleep(0.25)
+    result = engines.run(Case({str(tmp_path)!r}), "manimgx")
+    assert isinstance(result.frames, Failure)
+    assert "timed out" in result.frames.error
+    assert len(children) == 1 and children[0].poll() is not None
+    Path({str(finished)!r}).touch()
+""",
+        encoding="utf-8",
+    )
+    config = tmp_path / "pytest.ini"
+    config.write_text("[pytest]\n", encoding="utf-8")
+    try:
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-c",
+                str(config),
+                str(probe),
+                "-n",
+                "0",
+                "--timeout=0.5",
+                "--timeout-method=thread",
+                "-q",
+            ],
+            env=engines.environment(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+            check=False,
+        )
+        assert process.returncode == 0, process.stdout + process.stderr
+        assert finished.exists()
+    finally:
+        if pid.exists() and not finished.exists():
+            # The negative control kills its worker; terminate only the child this probe made.
+            with suppress(ProcessLookupError):
+                os.kill(int(pid.read_text(encoding="utf-8")), signal.SIGTERM)
 
 
 @pytest.mark.parametrize("autocrlf", ["true", "false"])

@@ -100,6 +100,7 @@ def test_types(case: Case, type_report: typecheck.TypeReport) -> None:
 
 
 @pytest.mark.parametrize("case", CASES, ids=IDS)
+@pytest.mark.timeout(0)  # engines.run owns each child's deadline and kills/reaps it.
 def test_regression(case: Case) -> None:
     result = engines.run(case, "manimgx", mp4=True)
     if isinstance(result.frames, Failure):
