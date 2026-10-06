@@ -52,7 +52,7 @@ jobs:
           run-id: ${{ inputs.wheel_run }}
           github-token: ${{ github.token }}
 
-      # Reproduce the current packaging host before challenging its portability.
+      # Reuse the wheel's SDK, so the launcher obeys the same glibc floor.
       - name: Build the existing executable recipe
         id: build
         run: |
@@ -60,9 +60,14 @@ jobs:
           cp "$RUNNER_TEMP/wheel-run.json" diagnostic/
           git rev-parse HEAD | tee diagnostic/source.txt
           sha256sum dist/*.whl | tee diagnostic/wheel-sha256.txt
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
-          uv run --no-project scripts/release/create_executable.py 2>&1 | tee diagnostic/build.log
+          docker run --rm -v "$PWD:/project" -w /project \
+            -v "$(command -v uv):/usr/local/bin/uv:ro" \
+            quay.io/pypa/manylinux_2_28_aarch64@sha256:ad74e53b713f3b07d8c889c526dc0c6500da9827b45e38739570875fef52e28f \
+            bash -euxc '
+              curl --proto "=https" --tlsv1.2 --silent --show-error --fail https://sh.rustup.rs | sh -s -- -y --profile minimal
+              export PATH="$HOME/.cargo/bin:$PATH"
+              uv run --no-project scripts/release/create_executable.py
+            ' 2>&1 | tee diagnostic/build.log
           mkdir dist/executable
           tar -xzf dist/manimgx-linux-arm64.tar.gz -C dist/executable
           sha256sum dist/executable/manimgx | tee diagnostic/executable-sha256.txt
