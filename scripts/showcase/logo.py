@@ -8,10 +8,11 @@ shapes made solid, seen through a camera and written as SVG paths.
   circle, square and triangle are drawn one after another (Create), and each becomes a solid
   in its own way: the circle fills with light and shade into a sphere, the square is pulled
   out into a cube as it turns its corner to us, the triangle lifts into a pyramid as it turns
-  edge on. Every frame of the solids is a projection of their scene.
+  edge on. The browser interpolates projected face paths at its refresh rate, then stops;
+  reduced motion shows the completed logo immediately.
 - `images/logo-dark.svg` and `images/logo-light.svg`: the logo, still, for the site's header.
-- `images/byline-dark.svg` and `images/byline-light.svg`: "by Academa", set below the header's
-  logo, in its units.
+- `images/byline-dark.svg` and `images/byline-light.svg`: "by Academa", beside the header's
+  logo, sharing its canvas height and text baseline.
 - `images/academa-dark.svg` and `images/academa-light.svg`: Academa's wordmark, its name in
   Playwrite NO, for the footer.
 - `images/favicon.svg`: the three solids.
@@ -46,10 +47,11 @@ GREEN, BLUE, RED = "#81b29a", "#454866", "#e07a5f"  # its circle, square and tri
 LIGHT = np.array([-0.5, 0.78, 0.42]) / np.linalg.norm([-0.5, 0.78, 0.42])  # upper left
 SOLIDS = 1.272  # the solids' height beside "GX", over the 𝕄's, about the type's middle
 SECONDS = 5.2  # the opening, which then holds
-FPS = 30  # the solids' frames
+TURN_SECONDS = 0.95
+TURN_KEYS = 17  # projection samples, interpolated at the display's refresh rate
 HEADER = 60  # the header's logo: its height, in the SVG's units
 BY = '#text(font: "New Computer Modern")[x#h(1em)by #text(font: "Playwrite NO")[Academa]]'
-BYLINE = 0.58  # the byline's em over the 𝕄's height: the smallest that reads
+BYLINE = 0.5684  # the byline's em over the 𝕄's height
 ACADEMA = '#text(font: "Playwrite NO")[x#h(1em)Academa]'  # Academa's wordmark
 
 type Outline = list[np.ndarray]
@@ -175,6 +177,16 @@ def mix(a: str, b: str, t: float) -> str:
 
 
 @dataclass
+class Face:
+    """A projected face, with its tone, camera-facing measure and distance."""
+
+    points: np.ndarray
+    color: str
+    facing: float
+    depth: float
+
+
+@dataclass
 class Solid:
     """A polyhedron: its vertices about its centre, its faces, its color, where it stands
     and how it is turned there."""
@@ -185,10 +197,10 @@ class Solid:
     center: np.ndarray
     pose: np.ndarray
 
-    def seen(
+    def projected(
         self, camera: Camera, turn: float = 1, depth: float = 1, lit: float = 1
-    ) -> list[tuple[np.ndarray, str]]:
-        """Its faces toward the camera, far first, on the picture plane, each with its tone.
+    ) -> list[Face]:
+        """Every face in mesh order, on the picture plane, including hidden faces.
         Squashed along its own z by `depth` and turned `turn` of the way from facing the
         camera to its pose, it grows out of its silhouette; `lit` blends flat to shaded."""
         z = (camera.eye - self.center) / np.linalg.norm(camera.eye - self.center)
@@ -201,18 +213,29 @@ class Solid:
         for face in self.faces:
             p = world[list(face)]
             n = np.cross(p[1] - p[0], p[2] - p[0])
-            if np.linalg.norm(n) < 1e-12:
-                continue
-            n /= np.linalg.norm(n)
+            length = np.linalg.norm(n)
+            if length > 1e-12:
+                n /= length
             if np.dot(n, p.mean(0) - world.mean(0)) < 0:
                 n = -n
-            if np.dot(n, camera.eye - p.mean(0)) > 1e-9:
-                tone = shade(self.color, 0.76 + 0.44 * max(0.0, float(n @ LIGHT)))
-                faces.append(
-                    (camera.depth(p), camera.project(p), mix(self.color, tone, lit))
+            tone = shade(self.color, 0.76 + 0.44 * max(0.0, float(n @ LIGHT)))
+            faces.append(
+                Face(
+                    camera.project(p),
+                    mix(self.color, tone, lit),
+                    float(np.dot(n, camera.eye - p.mean(0))),
+                    camera.depth(p),
                 )
-        faces.sort(key=lambda f: -f[0])
-        return [(p, tone) for _, p, tone in faces]
+            )
+        return faces
+
+    def seen(
+        self, camera: Camera, turn: float = 1, depth: float = 1, lit: float = 1
+    ) -> list[tuple[np.ndarray, str]]:
+        """Its faces toward the camera, far first, each with its tone."""
+        faces = [f for f in self.projected(camera, turn, depth, lit) if f.facing > 1e-9]
+        faces.sort(key=lambda f: -f.depth)
+        return [(f.points, f.color) for f in faces]
 
 
 def turn_y(degrees: float) -> np.ndarray:
@@ -378,15 +401,16 @@ def animate(attribute: str, keys: list[tuple[float, str]]) -> str:
 
 
 def drawn(
-    path: str, color: str, width: float, start: float, length: float = 0.5
+    paths: list[str], color: str, width: float, start: float, length: float = 0.5
 ) -> str:
-    """A path's stroke drawn from its start to its end (Create), then faded away."""
+    """Strokes drawn together (Create), then faded, sharing their inherited tracks."""
     dash = animate("stroke-dashoffset", [(start, "1"), (start + length, "0")])
     fade = animate(
         "stroke-opacity",
         [(start, "1"), (start + length + 0.05, "1"), (start + length + 0.3, "0")],
     )
-    return f'<path d="{path}" fill="none" stroke="{color}" stroke-width="{num(width)}" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="0" stroke-opacity="0">{dash}{fade}</path>'
+    contours = "".join(f'<path d="{p}" pathLength="1"/>' for p in paths)
+    return f'<g fill="none" stroke="{color}" stroke-width="{num(width)}" stroke-linejoin="round" stroke-dasharray="1 1" stroke-dashoffset="0" stroke-opacity="0">{dash}{fade}{contours}</g>'
 
 
 def ease_out_back(t: float, k: float = 1.1) -> float:
@@ -397,6 +421,64 @@ def ease_out_back(t: float, k: float = 1.1) -> float:
 def smooth(t: float) -> float:
     t = min(max(t, 0), 1)
     return t * t * (3 - 2 * t)
+
+
+@dataclass
+class Turn:
+    """The logo's solid unfolding: projection keys and each visible face's entrance.
+
+    In this choreography, faces only turn toward the camera, never away again. Their
+    exact entrances are extra keys, so no interpolated polygon appears before it faces
+    the camera. Faces keep one path each instead of swapping discrete frame groups.
+    """
+
+    times: list[float]
+    frames: list[list[Face]]
+    visible: list[int]
+    onsets: dict[int, float]
+
+
+def turn_frame(solid: Solid, camera: Camera, progress: float) -> list[Face]:
+    """The exact 3D projection at a fraction of the solid's unfolding."""
+    return solid.projected(
+        camera,
+        ease_out_back(progress),
+        smooth(1.9 * progress),
+        smooth(1.5 * progress),
+    )
+
+
+def turn_keys(solid: Solid, camera: Camera) -> Turn:
+    """Enough samples for subpixel interpolation at the banner's intrinsic width."""
+    times = [float(t) for t in np.linspace(0, 1, TURN_KEYS)]
+    initial, final = turn_frame(solid, camera, 0), turn_frame(solid, camera, 1)
+    visible = sorted(
+        (i for i, face in enumerate(final) if face.facing > 1e-9),
+        key=lambda i: -final[i].depth,
+    )
+    onsets = {}
+    for i in visible:
+        if initial[i].facing > 1e-9:
+            continue
+        lo, hi = 0.0, 1.0
+        for _ in range(45):
+            mid = (lo + hi) / 2
+            if turn_frame(solid, camera, mid)[i].facing > 1e-9:
+                hi = mid
+            else:
+                lo = mid
+        onsets[i] = hi
+        times.append(hi)
+    times = sorted(set(times))
+    return Turn(times, [turn_frame(solid, camera, t) for t in times], visible, onsets)
+
+
+def interpolate(
+    attribute: str, values: list[str], times: list[float], begin: float
+) -> str:
+    """One continuous unfolding track, with final values held after its entrance."""
+    keys = ";".join(f"{t:.6f}" for t in times)
+    return f'<animate attributeName="{attribute}" begin="{begin}s" dur="{TURN_SECONDS}s" fill="freeze" calcMode="linear" keyTimes="{keys}" values="{";".join(values)}"/>'
 
 
 def beside(parts: list[Outline], h: float, sc: Scene) -> tuple[float, float, float]:
@@ -427,6 +509,32 @@ def logo(
     """The logo on a ground: its opening if `opening`, else still."""
     parts, h, _ = word()
     sc = scene()
+    canvas = Canvas(box(parts, h, sc), width, height)
+    body = logo_body(ground, parts, h, sc, canvas, opening)
+    if opening:
+        # Hiding animate elements does not stop SMIL. Show a separate, completed vector
+        # group for reduced motion; final base attributes also support non-SMIL readers.
+        style = (
+            "<style>.logo-still{display:none}"
+            "@media(prefers-reduced-motion:reduce){"
+            ".logo-motion{display:none}.logo-still{display:inline}}</style>"
+        )
+        still = logo_body(ground, parts, h, sc, canvas, opening=False)
+        body = (
+            f'{style}<g class="logo-motion">{body}</g><g class="logo-still">{still}</g>'
+        )
+    return canvas.svg(body)
+
+
+def logo_body(
+    ground: str,
+    parts: list[Outline],
+    h: float,
+    sc: Scene,
+    canvas: Canvas,
+    opening: bool,
+) -> str:
+    """The artwork in a shared canvas, animated or still."""
     bx0, _, _, by1 = sc.bounds()
     left, s, bottom = beside(parts, h, sc)
 
@@ -435,7 +543,6 @@ def logo(
             [left + (p[:, 0] - bx0) * s, bottom + (by1 - p[:, 1]) * s]
         )
 
-    canvas = Canvas(box(parts, h, sc), width, height)
     ink, stroke = INK[ground], max(0.9, 0.012 * canvas.s)
     body = []
     # the word, written: each part's outline drawn, then filled, one part after the next
@@ -445,7 +552,7 @@ def logo(
             body.append(f'<path fill="{ink}" d="{"".join(paths)}"/>')
             continue
         t0 = 0.1 + 0.5 * i
-        strokes = "".join(drawn(p, ink, stroke, t0, 1.05) for p in paths)
+        strokes = drawn(paths, ink, stroke, t0, 1.05)
         fill = animate("fill-opacity", [(t0 + 0.8, "0"), (t0 + 1.35, "1")])
         body.append(f'{strokes}<path fill="{ink}" d="{"".join(paths)}">{fill}</path>')
     # the cube (the farthest), the tetrahedron, then the sphere in front
@@ -463,36 +570,32 @@ def logo(
         if not opening:
             body.append(faces(1, 1, 1))
             continue
-        flat = faces(0, 0, 0)
-        times = [
-            created + 0.4,
-            *np.arange(turning, turning + 0.95, 1 / FPS),
-            turning + 0.95,
-        ]
-        frames = [flat] + [
-            faces(ease_out_back(u), smooth(1.9 * u), smooth(1.5 * u))
-            for u in ((t - turning) / 0.95 for t in times[1:])
-        ]
-        for k, frame in enumerate(
-            frames
-        ):  # a flipbook: each frame until the next; the last holds
-            if k < len(frames) - 1:
-                fade = (
-                    animate("opacity", [(created + 0.4, "0"), (created + 0.65, "1")])
-                    if k == 0
-                    else ""
-                )
+        turn = turn_keys(solid, sc.camera)
+        fade = animate("opacity", [(created + 0.4, "0"), (created + 0.65, "1")])
+        body.append(f'<g stroke-width="0.6" stroke-linejoin="round">{fade}')
+        for i in turn.visible:
+            paths = [canvas.polygon(placed(frame[i].points)) for frame in turn.frames]
+            colors = [frame[i].color for frame in turn.frames]
+            # currentColor keeps the fill and antialiasing seam-cover stroke together.
+            body.append(
+                f'<path fill="currentColor" stroke="currentColor" color="{colors[-1]}" d="{paths[-1]}">'
+            )
+            if i in turn.onsets:
+                onset = turning + TURN_SECONDS * turn.onsets[i]
                 body.append(
-                    f'<g visibility="hidden"><set attributeName="visibility" to="visible" begin="{times[k]:.3f}s" dur="{times[k + 1] - times[k]:.3f}s"/>{fade}{frame}</g>'
+                    f'<set attributeName="visibility" to="hidden" begin="0s" dur="{onset:.6f}s"/>'
                 )
-            else:
+            for attribute, values in (("d", paths), ("color", colors)):
                 body.append(
-                    f'<g><set attributeName="visibility" to="hidden" begin="0s" dur="{times[k]:.3f}s"/>{frame}</g>'
+                    f'<set attributeName="{attribute}" to="{values[0]}" begin="0s" dur="{turning}s"/>'
+                    + interpolate(attribute, values, turn.times, turning)
                 )
+            body.append("</path>")
+        body.append("</g>")
         outline = "".join(
             canvas.polygon(placed(p)) for p, _ in solid.seen(sc.camera, 0, 0, 0)
         )
-        body.append(drawn(outline, solid.color, stroke, created))
+        body.append(drawn([outline], solid.color, stroke, created))
     # the sphere: Manim's circle, drawn, filled, then lit into a ball
     (cx, cy), r = sc.disc()
     centre = canvas.xy(placed(np.array([[cx, cy]])))[0]
@@ -513,7 +616,7 @@ def logo(
         body.append(
             f'<defs><radialGradient id="{gradient}" cx="0.5" cy="0.5" r="0.5" fx="0.34" fy="0.3">{stop}</radialGradient></defs>'
             f'<circle cx="{num(centre[0])}" cy="{num(centre[1])}" r="{num(radius)}" fill="url(#{gradient})">{fade}{grow}</circle>'
-            + drawn(ring, GREEN, stroke, 1.75)
+            + drawn([ring], GREEN, stroke, 1.75)
         )
     else:
         stop = "".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in stops)
@@ -521,27 +624,20 @@ def logo(
             f'<defs><radialGradient id="{gradient}" cx="0.5" cy="0.5" r="0.5" fx="0.34" fy="0.3">{stop}</radialGradient></defs>'
             f'<circle cx="{num(centre[0])}" cy="{num(centre[1])}" r="{num(radius)}" fill="url(#{gradient})"/>'
         )
-    return canvas.svg("".join(body))
+    return "".join(body)
 
 
 def byline(ground: str) -> str:
-    """The byline, "by Academa", set below the header's logo as its next line, in its units.
+    """The byline, "by Academa", on the header logo's canvas and baseline.
 
-    "by" is in the face of "anim", in a lighter ink; "Academa" in Academa's own. Flush with the
-    𝕄, the byline's tallest ink starts where the word's line ends: a line reaches below its
-    baseline by its descent and half its leading, 0.32 of its em at a line height of 1.2. The
-    viewBox is the header logo's canvas, cut to the byline and the logo's margin, from the
-    logo's left edge down: the byline's place under the logo is in it.
+    Both glyph runs have their baseline at y = 0. Keeping the logo's vertical viewBox means
+    equally tall images align their text at any display size, without CSS offsets. Only the
+    width is cropped to the byline's ink and the shared margin.
     """
-    parts, h, em = word()
+    parts, h, _ = word()
     canvas = Canvas(box(parts, h, scene()), height=HEADER)
     run = [[s * BYLINE * h for s in g] for g in glyphs(BY)]
-    x0, y0, x1, y1 = extent([s for g in run for s in g])
-    run = [[s - [0, 0.32 * em + y1] for s in g] for g in run]
-    (_, top), (right, foot) = canvas.xy(
-        np.array([[x0, -0.32 * em], [x1, y0 - y1 - 0.32 * em]])
-    )
-    margin = canvas.pad * canvas.s
+    right = canvas.xy(np.array([[extent([s for g in run for s in g])[2], 0]]))[0, 0]
     ink = INK[ground]
     # "by" is the run's first two glyphs; Playwrite NO joins "Academa"'s letters with glyphs
     by, name = (
@@ -549,7 +645,7 @@ def byline(ground: str) -> str:
     )
     return canvas.svg(
         f'<path fill="{ink}" fill-opacity="0.72" d="{by}"/><path fill="{ink}" d="{name}"/>',
-        (0, top - margin, right + margin, foot - top + 2 * margin),
+        (0, 0, right + canvas.pad * canvas.s, canvas.height),
     )
 
 
