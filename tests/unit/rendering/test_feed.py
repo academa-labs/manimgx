@@ -46,6 +46,101 @@ from manimgx._engine import Player, Recorder, digest
 from manimgx.rendering import feed
 
 
+def _legacy_patches(
+    cells: np.ndarray, x: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Evaluate patches as the feed did before points-only evaluation."""
+    value, slope = feed._hermite(x)
+    along_t = np.einsum("bq,abuvd->auvqd", value, cells)
+    points = np.einsum("ap,auvqd->uvpqd", value, along_t)
+    ds = np.einsum("ap,auvqd->uvpqd", slope, along_t)
+    dt = np.einsum("ap,bq,abuvd->uvpqd", value, slope, cells, optimize=True)
+    return points, ds, dt
+
+
+def _surface_grid(kind: str) -> np.ndarray:
+    if kind == "realistic":
+        u = v = np.linspace(-3.0, 3.0, 49)
+    elif kind == "strided":
+        u, v = np.linspace(-2.0, 2.0, 9), np.linspace(-1.0, 1.0, 11)
+    else:
+        u = np.linspace(0.0, 2 * np.pi, 9) if kind != "plain" else np.linspace(-1, 1, 4)
+        v = np.linspace(0.0, np.pi, 7) if kind == "pole" else np.linspace(-1, 1, 6)
+    s, t = np.meshgrid(u, v, indexing="ij")
+    if kind == "periodic":
+        xyz = np.stack([np.cos(s), np.sin(s), t + 0.2 * np.cos(2 * s)], axis=-1)
+    elif kind == "pole":
+        xyz = np.stack(
+            [np.sin(t) * np.cos(s), np.sin(t) * np.sin(s), np.cos(t)], axis=-1
+        )
+    else:
+        xyz = np.stack([s, t, 0.8 * np.sin(2 * np.hypot(s, t))], axis=-1)
+    grid = np.concatenate([xyz, np.stack([s, t], axis=-1)], axis=-1)
+    return grid[::2, ::2] if kind == "strided" else grid
+
+
+@pytest.mark.parametrize(
+    ("kind", "steps"),
+    [("plain", 1), ("strided", 2), ("periodic", 4), ("pole", 8), ("realistic", 16)],
+)
+def test_surface_patch_simplifications_are_bit_exact(kind: str, steps: int) -> None:
+    grid = _surface_grid(kind)
+    if kind == "strided":
+        assert not grid.flags.c_contiguous
+    cells = feed._cells(grid)
+    x = np.linspace(0.0, 1.0, steps + 1)
+    expected = _legacy_patches(cells, x)
+    points_only = feed._patches(cells, x, derivatives=False)
+    assert len(points_only) == 1
+    assert points_only[0].tobytes() == expected[0].tobytes()
+    del points_only
+    actual = feed._patches(cells, x)
+    assert actual[0].tobytes() == expected[0].tobytes()
+    assert actual[1].tobytes() == expected[1].tobytes()
+    assert actual[2].tobytes() == expected[2].tobytes()
+
+
+def test_surface_refinement_and_step_selection_keep_their_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grid = _surface_grid("pole")
+    original = feed._patches
+    monkeypatch.setattr(feed, "_patches", _legacy_patches)
+    expected = feed.refine_surface(grid, 4)
+    monkeypatch.setattr(feed, "_patches", original)
+    actual = feed.refine_surface(grid, 4)
+    assert actual[3] == expected[3]
+    assert all(
+        a.tobytes() == b.tobytes()
+        for a, b in zip(actual[:3], expected[:3], strict=True)
+    )
+
+    linear = np.array([[1.2, 0.1, 0.0], [0.0, 0.8, 0.2], [0.3, 0.0, 1.1]])
+    mid = _legacy_patches(feed._cells(grid[..., :3]), np.array([0.5]))[0][:, :, 0, 0]
+    flat = (
+        grid[:-1, :-1, :3] + grid[1:, :-1, :3] + grid[:-1, 1:, :3] + grid[1:, 1:, :3]
+    ) / 4
+    deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
+    selected = int(
+        np.clip(
+            np.ceil(np.sqrt(deviation / feed.SURFACE_TOLERANCE)),
+            1,
+            feed.SURFACE_STEPS,
+        )
+    )
+    requests: list[bool] = []
+
+    def tracked(
+        cells: np.ndarray, x: np.ndarray, *, derivatives: bool = True
+    ) -> tuple[np.ndarray, ...]:
+        requests.append(derivatives)
+        return original(cells, x, derivatives=derivatives)
+
+    monkeypatch.setattr(feed, "_patches", tracked)
+    assert feed.surface_steps(grid, linear) == selected
+    assert requests == [False]
+
+
 class TestDigest:
     @given(data=st.binary(max_size=2048), cut=st.integers(0, 2048))
     def test_it_reads_its_parts_as_one_stream(self, data: bytes, cut: int) -> None:

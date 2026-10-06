@@ -243,12 +243,16 @@ def _cells(g: np.ndarray) -> np.ndarray:
     )
 
 
-def _patches(cells: np.ndarray, x: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Points, ∂/∂s and ∂/∂t of every cell at (s, t) ∈ x × x: each (u, v, len(x), len(x),
-    dims)."""
+def _patches(
+    cells: np.ndarray, x: np.ndarray, *, derivatives: bool = True
+) -> tuple[np.ndarray, ...]:
+    """Points, and when requested their derivatives, of every cell at (s, t) ∈ x × x:
+    each (u, v, len(x), len(x), dims)."""
     value, slope = _hermite(x)
     along_t = np.einsum("bq,abuvd->auvqd", value, cells)
     points = np.einsum("ap,auvqd->uvpqd", value, along_t)
+    if not derivatives:
+        return (points,)
     ds = np.einsum("ap,auvqd->uvpqd", slope, along_t)
     dt = np.einsum("ap,bq,abuvd->uvpqd", value, slope, cells, optimize=True)
     return points, ds, dt
@@ -260,7 +264,9 @@ def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
     SURFACE_TOLERANCE is the target of this estimate, not a guaranteed error bound;
     refinement is capped at SURFACE_STEPS and midpoint sampling can miss curvature.
     """
-    mid = _patches(_cells(g[..., :3]), np.array([0.5]))[0][:, :, 0, 0]
+    mid = _patches(_cells(g[..., :3]), np.array([0.5]), derivatives=False)[0][
+        :, :, 0, 0
+    ]
     flat = (g[:-1, :-1, :3] + g[1:, :-1, :3] + g[:-1, 1:, :3] + g[1:, 1:, :3]) / 4
     deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
     return int(
