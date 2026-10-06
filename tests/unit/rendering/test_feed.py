@@ -79,6 +79,33 @@ def _surface_grid(kind: str) -> np.ndarray:
     return grid[::2, ::2] if kind == "strided" else grid
 
 
+def _legacy_refine_surface(
+    grid: np.ndarray, steps: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Refine a surface with the former contractions and two-axis gather."""
+    x = np.linspace(0.0, 1.0, steps + 1)
+    cells = feed._cells(grid)
+    points, ds, dt = _legacy_patches(cells, x)
+    normal = np.cross(ds[..., :3], dt[..., :3])
+    thin = (
+        np.linalg.norm(normal, axis=-1)
+        <= 1e-10 * (1.0 + np.abs(grid[..., :3]).max()) ** 2
+    )
+    if thin.any():
+        i, j = np.nonzero(thin.any(axis=(2, 3)))
+        _, ds, dt = _legacy_patches(
+            cells[:, :, i, j][:, :, None], 1e-3 + (1.0 - 2e-3) * x
+        )
+        nudged = np.cross(ds[..., :3], dt[..., :3])[0]
+        normal[i, j] = np.where(thin[i, j][..., None], nudged, normal[i, j])
+    order, triangles = feed._face_layout(steps)
+    block, faces = len(order), (len(grid) - 1) * (grid.shape[1] - 1)
+    points = points[:, :, order[:, 0], order[:, 1]].reshape(faces * block, -1)
+    normal = normal[:, :, order[:, 0], order[:, 1]].reshape(faces * block, 3)
+    offsets = np.arange(faces)[:, None, None] * block
+    return points, normal, (triangles[None] + offsets).reshape(-1, 3), block
+
+
 @pytest.mark.parametrize(
     ("kind", "steps"),
     [("plain", 1), ("strided", 2), ("periodic", 4), ("pole", 8), ("realistic", 16)],
@@ -100,20 +127,26 @@ def test_surface_patch_simplifications_are_bit_exact(kind: str, steps: int) -> N
     assert actual[2].tobytes() == expected[2].tobytes()
 
 
-def test_surface_refinement_and_step_selection_keep_their_results(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    grid = _surface_grid("pole")
-    original = feed._patches
-    monkeypatch.setattr(feed, "_patches", _legacy_patches)
-    expected = feed.refine_surface(grid, 4)
-    monkeypatch.setattr(feed, "_patches", original)
-    actual = feed.refine_surface(grid, 4)
-    assert actual[3] == expected[3]
+@pytest.mark.parametrize(
+    ("kind", "steps"),
+    [("plain", 1), ("strided", 2), ("periodic", 4), ("pole", 8), ("realistic", 16)],
+)
+def test_surface_refinement_gather_keeps_every_result(kind: str, steps: int) -> None:
+    grid = _surface_grid(kind)
+    expected = _legacy_refine_surface(grid, steps)
+    actual = feed.refine_surface(grid, steps)
     assert all(
         a.tobytes() == b.tobytes()
         for a, b in zip(actual[:3], expected[:3], strict=True)
     )
+    assert actual[3] == expected[3]
+
+
+def test_surface_step_selection_keeps_its_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grid = _surface_grid("pole")
+    original = feed._patches
 
     linear = np.array([[1.2, 0.1, 0.0], [0.0, 0.8, 0.2], [0.3, 0.0, 1.1]])
     mid = _legacy_patches(feed._cells(grid[..., :3]), np.array([0.5]))[0][:, :, 0, 0]

@@ -312,11 +312,16 @@ def refine_surface(
         nudged = np.cross(ds[..., :3], dt[..., :3])[0]
         normal[i, j] = np.where(thin[i, j][..., None], nudged, normal[i, j])
     order, triangles = _face_layout(m)
-    block, faces = len(order), (len(g) - 1) * (g.shape[1] - 1)
-    points = points[:, :, order[:, 0], order[:, 1]].reshape(faces * block, -1)
-    normal = normal[:, :, order[:, 0], order[:, 1]].reshape(faces * block, 3)
-    offsets = np.arange(faces)[:, None, None] * block
-    return points, normal, (triangles[None] + offsets).reshape(-1, 3), block
+    block, u, v = len(order), len(g) - 1, g.shape[1] - 1
+    selected = order[:, 0] * (m + 1) + order[:, 1]
+    points = np.take(points.reshape(u, v, -1, points.shape[-1]), selected, axis=2)
+    normal = np.take(normal.reshape(u, v, -1, 3), selected, axis=2)
+    return (
+        points.reshape(u * v * block, -1),
+        normal.reshape(u * v * block, 3),
+        (triangles[None] + np.arange(u * v)[:, None, None] * block).reshape(-1, 3),
+        block,
+    )
 
 
 def rotation(phi: float, theta: float, gamma: float) -> np.ndarray:
