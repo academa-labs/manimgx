@@ -1,0 +1,65 @@
+# Manual experiment only: reuse the tested wheel, never rebuild the native engine.
+name: Measure docs rendering throughput
+on:
+  workflow_dispatch:
+    inputs:
+      wheel_run:
+        description: Run containing wheel-ubuntu-24.04 and wheel-macos-26 artifacts
+        required: true
+        default: '37398133677'
+        type: string
+permissions: {}
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      UV_NO_SYNC: '1'
+      WHEEL_RUN: ${{ inputs.wheel_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist
+          run-id: ${{ inputs.wheel_run }}
+          github-token: ${{ github.token }}
+      - name: Install the existing product and docs dependencies
+        run: |
+          uv sync --frozen --no-default-groups --group docs --no-install-project
+          uv pip install --no-deps dist/*.whl
+      - name: Record Linux hardware and software rendering driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers vulkan-tools
+          mkdir -p throughput
+          lscpu > throughput/hardware.txt
+          vulkaninfo --summary >> throughput/hardware.txt 2>&1
+      - name: Record macOS hardware and Metal device
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p throughput
+          system_profiler SPDisplaysDataType SPHardwareDataType > throughput/hardware.txt
+          sysctl hw.logicalcpu hw.memsize >> throughput/hardware.txt
+      - name: Time startup, GPU work, encoding and bounded real clips
+        run: uv run --frozen --no-sync python -m scripts.docs.throughput throughput --frames 12
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: docs-throughput-${{ matrix.os }}
+          path: throughput/
+          if-no-files-found: error
+          retention-days: 7
