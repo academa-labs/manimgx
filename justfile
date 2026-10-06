@@ -82,7 +82,8 @@ test-typescript:
 # Run the tests and measure their coverage: a summary here, every line in htmlcov/
 [group('testing')]
 test-coverage *args:
-    uv run --frozen pytest -n auto --cov --cov-report=term --cov-report=html {{ args }}
+    MANIMGX_COVERAGE_SOURCE="$(uv run --frozen python -c 'import manimgx; print(manimgx.__path__[0])')" \
+        uv run --frozen pytest -n auto --cov --cov-report=term --cov-report=html {{ args }}
 
 # Combine the coverage of several test runs (their .coverage.* files) into htmlcov/ and a table
 [group('testing')]
