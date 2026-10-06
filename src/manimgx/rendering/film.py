@@ -524,19 +524,17 @@ class Film:
         any other error abandons the video.
         """
         try:
-            self._send()
-        except Cut:
-            pass
+            with contextlib.suppress(Cut):
+                self._send()
+            with contextlib.suppress(Cut):  # its take cut it: it hears no more
+                self._end()
         except BaseException:
             self.abort()
             raise
-        with contextlib.suppress(Cut):  # its take cut it as it ended: it hears no more
-            self._end()
 
     def _end(self) -> None:
         """Write the closed film's video, if any, and tell its take how it ends."""
         if self.video is not None and self._player is not None:
-            self.video = None
             sound = self.soundtrack()
             if sound is None:
                 self.export = Export(*self._player.end_export())
@@ -549,6 +547,7 @@ class Film:
                         sound.tobytes(), channels, RATE, BITRATE * channels
                     )
                 )
+            self.video = None
         if self._recorder is not None:
             # what the player plays and shows beside the frames; then the take's end
             if (sound := self.soundtrack()) is not None:

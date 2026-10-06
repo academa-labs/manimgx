@@ -47,6 +47,28 @@ def test_an_error_at_the_last_frame_abandons_the_video(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []  # not the video, nor a part of it
 
 
+def test_a_soundtrack_error_closes_the_native_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_soundtrack(self: m.Film) -> None:
+        raise ValueError("the soundtrack failed")
+
+    monkeypatch.setattr(m.Film, "soundtrack", failed_soundtrack)
+    scene = Held()
+    try:
+        with pytest.raises(ValueError, match="the soundtrack failed"):
+            scene.render(tmp_path / "failed.mp4")
+        player = scene.film._player
+        assert player is not None
+        # Retain the scene and player: cleanup must not depend on garbage collection.
+        player.begin_export(str(tmp_path / "next.mp4"))
+        player.abort_export()
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        if (player := scene.film._player) is not None:
+            player.abort_export()
+
+
 def test_a_video_needs_even_sides(tmp_path: Path) -> None:
     config.pixel_width = 321  # H.264's 4:2:0 halves both sides
     with pytest.raises(ValueError, match="an even width and height, not 321x180"):
