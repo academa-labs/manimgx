@@ -130,10 +130,12 @@ the README.
   its opening once. The word ManimGX, typeset by manimgx's Typst (𝕄 as `$bb(M)$`, "anim" in
   New Computer Modern Bold, "GX" in Playwrite NO), is written in; then Manim's circle,
   square and triangle are drawn and each becomes a solid, a sphere, a cube and a pyramid,
-  every frame a projection of their scene.
+  their projected face paths interpolated continuously by the browser. The SVG contains no
+  scripts or raster frames. Its entrance plays once and then holds; a reader that requests
+  reduced motion sees the finished logo immediately.
   [`scripts/showcase/logo.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/logo.py)
   draws it, the header's still logo (`images/logo-*.svg`) and the favicon;
-  `python -m scripts.showcase.logo` draws them again.
+  `uv run --frozen python -m scripts.showcase.logo` draws them again.
 - **The wall** (`showcase/<film>.gif`): five seconds of six example
   films, three a row, each its own image, linked to its film.
   [`scripts/showcase/wall.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/showcase/wall.py)

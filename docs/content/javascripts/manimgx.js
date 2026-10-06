@@ -14,6 +14,23 @@
     }
   }, { threshold: 0.5 })
 
+  // The README's pictures follow the site's selected palette. Zensical resolves system
+  // preference into this same body attribute. Keep the original media in the DOM so a
+  // cached page restored by instant navigation still knows which source is light or dark.
+  let palette
+  function pictures() {
+    const scheme = document.body.getAttribute("data-md-color-scheme")
+    for (const source of document.querySelectorAll("picture > source[media]")) {
+      const original = source.getAttribute("data-mx-color-media") ?? source.media
+      const match = /^\(prefers-color-scheme:\s*(light|dark)\)$/.exec(original)
+      if (!match) continue
+      source.setAttribute("data-mx-color-media", original)
+      const selected = scheme === "slate" ? "dark" : scheme === "default" ? "light" : null
+      const media = selected === null ? original : selected === match[1] ? "all" : "not all"
+      if (source.media !== media) source.media = media
+    }
+  }
+
   // A rate function explorer, <div class="mx-rates" data-rates="smooth linear …">: a button for
   // each function named, its curve with a dot that rides it as time passes, and under it a
   // square that the function moves, beside a faint one that keeps one speed. It plays while it
@@ -223,8 +240,12 @@
   })
 
   // Every page, including those reached by instant navigation: its films, its math and its
-  // rate function explorers
+  // rate function explorers and theme-aware pictures
   document$.subscribe(() => {
+    palette ??= new MutationObserver(pictures)
+    palette.disconnect()
+    palette.observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] })
+    pictures()
     films.disconnect()
     for (const film of document.querySelectorAll("video.mx-film")) films.observe(film)
     for (const math of document.querySelectorAll(".arithmatex")) {
