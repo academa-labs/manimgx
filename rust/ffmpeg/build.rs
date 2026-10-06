@@ -81,6 +81,7 @@ const C99: &str = "atanf atan2f cbrt cbrtf copysign cosf erf exp2 exp2f expf hyp
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/shim.c");
+    println!("cargo:rerun-if-changed=src/opus/config.h");
     let ffmpeg = &fetch::tree("https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.gz", "c92e6bbcf8183b80ab4771d4fc07dee2d97dd2af0a72f8a6bf13c4242c756ff0");
     let opus = &fetch::tree(
         "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
@@ -91,8 +92,7 @@ fn main() {
     let msvc = target("ENV") == "msvc";
     let mut on: BTreeSet<String> = ON.split_whitespace().map(|name| format!("CONFIG_{}", name.to_uppercase())).collect();
     on.extend(C99.split_whitespace().map(|name| format!("HAVE_{}", name.to_uppercase())));
-    // read() and close(), for av_file_map, from the header each system has them in
-    on.insert(if target("OS") == "windows" { "HAVE_IO_H" } else { "HAVE_UNISTD_H" }.into());
+    on.insert("HAVE_AV_CONFIG_H".into()); // also passed to the compiler, before config.h is read
     if target("POINTER_WIDTH") == "64" {
         on.insert("HAVE_FAST_64BIT".into());
     }
@@ -104,6 +104,13 @@ fn main() {
     }
     let mut config = String::from("#ifndef FFMPEG_CONFIG_H\n#define FFMPEG_CONFIG_H\n#define FFMPEG_CONFIGURATION \"manimgx\"\n");
     config += "#define FFMPEG_LICENSE \"LGPL version 2.1 or later\"\n";
+    // The file-system wrappers use these even without file protocols. Ask the compiler, as
+    // configure does, rather than assuming a target's available C library headers.
+    for header in ["direct.h", "io.h", "unistd.h"] {
+        let name = format!("HAVE_{}", header.replace('.', "_").to_uppercase());
+        config += &format!("#define {name} __has_include(<{header}>)\n");
+        defined.insert(name);
+    }
     for name in tested.difference(&defined).chain(&on).collect::<BTreeSet<_>>() {
         config += &format!("#define {name} {}\n", on.contains(name) as u8);
     }
@@ -138,20 +145,18 @@ fn main() {
 
     let build = || {
         let mut build = cc::Build::new();
-        build.warnings(false).opt_level(3).std("c17"); // FFmpeg counts on dead code being removed
+        build.extra_warnings(false).opt_level(3).std("c17"); // FFmpeg counts on dead code being removed
         if msvc {
             build.define("_USE_MATH_DEFINES", None).define("_CRT_SECURE_NO_WARNINGS", None).define("_CRT_NONSTDC_NO_WARNINGS", None);
+            build.flag("/we4013").flag("/we4133"); // undeclared functions and incompatible pointers
         } else {
-            build.flag("-w").flag("-fno-math-errno").flag("-fno-signed-zeros");
+            build.flag("-Werror=implicit-function-declaration").flag("-Werror=incompatible-pointer-types").flag("-fno-math-errno").flag("-fno-signed-zeros");
         }
         build
     };
     // libopus, its float build: the files its lists name
     let mut libopus = build();
-    libopus.includes(["include", "celt", "silk", "silk/float"].map(|dir| opus.join(dir)));
-    for define in ["OPUS_BUILD", "USE_ALLOCA", "HAVE_LRINT", "HAVE_LRINTF", "ENABLE_HARDENING"] {
-        libopus.define(define, None);
-    }
+    libopus.include("src/opus").define("HAVE_CONFIG_H", None).includes(["include", "celt", "silk", "silk/float"].map(|dir| opus.join(dir)));
     for (list, names) in [("celt_sources.mk", "CELT_SOURCES"), ("silk_sources.mk", "SILK_SOURCES SILK_SOURCES_FLOAT"), ("opus_sources.mk", "OPUS_SOURCES OPUS_SOURCES_FLOAT")] {
         // but silk/debug.c, empty without SILK_DEBUG (an object with no symbols, which ranlib warns of)
         libopus.files(make_list(&opus.join(list), names).iter().filter(|file| *file != "silk/debug.c").map(|file| opus.join(file)));
@@ -161,6 +166,8 @@ fn main() {
     let mut libav = build();
     libav.include(out).include(ffmpeg).include(ffmpeg.join("compat/stdbit")).include(opus.join("include"));
     libav.define("HAVE_AV_CONFIG_H", None).define("_ISOC11_SOURCE", None).define("_FILE_OFFSET_BITS", "64").define("_LARGEFILE_SOURCE", None);
+    // configure exposes POSIX.1-2001 / XSI alongside ISO C, including fdopen in strict C17.
+    libav.define("_POSIX_C_SOURCE", "200112").define("_XOPEN_SOURCE", "600");
     if msvc {
         libav.include(ffmpeg.join("compat/atomics/win32")); // FFmpeg's <stdatomic.h> for MSVC
     }

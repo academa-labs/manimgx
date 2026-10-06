@@ -12,7 +12,7 @@ unsafe extern "C" {
     ) -> c_int;
     fn manimgx_x264_encode(
         encoder: *mut c_void, nv12: *const u8, pts: i64, constant: *const u8, force_key: c_int, sample: *mut *const u8, size: *mut c_int,
-        sample_pts: *mut i64, sample_dts: *mut i64, key: *mut c_int,
+        sample_pts: *mut i64, key: *mut c_int,
     ) -> c_int;
     fn manimgx_x264_delayed(encoder: *mut c_void) -> c_int;
     fn manimgx_x264_close(encoder: *mut c_void);
@@ -22,7 +22,6 @@ unsafe extern "C" {
 pub struct Sample<'a> {
     pub data: &'a [u8],
     pub pts: i64,
-    pub dts: i64,
     pub key: bool,
 }
 
@@ -73,17 +72,17 @@ impl Encoder {
     /// picture, where a player can start). Returns the sample written, if any.
     pub fn encode(&mut self, nv12: Option<&[u8]>, pts: i64, constant: Option<&[u8]>, force_key: bool) -> Result<Option<Sample<'_>>, String> {
         assert!(nv12.is_none_or(|p| p.len() >= self.picture) && constant.is_none_or(|c| c.len() >= self.macroblocks));
-        let (mut sample, mut size, mut sample_pts, mut dts, mut key) = (std::ptr::null(), 0, 0, 0, 0);
+        let (mut sample, mut size, mut sample_pts, mut key) = (std::ptr::null(), 0, 0, 0);
         let status = unsafe {
             manimgx_x264_encode(
                 self.raw, nv12.map_or(std::ptr::null(), <[u8]>::as_ptr), pts, constant.map_or(std::ptr::null(), <[u8]>::as_ptr), force_key as c_int, &mut sample,
-                &mut size, &mut sample_pts, &mut dts, &mut key,
+                &mut size, &mut sample_pts, &mut key,
             )
         };
         if status < 0 {
             return Err("x264 failed to encode a picture".into());
         }
-        Ok((size > 0).then(|| Sample { data: unsafe { std::slice::from_raw_parts(sample, size as usize) }, pts: sample_pts, dts, key: key != 0 }))
+        Ok((size > 0).then(|| Sample { data: unsafe { std::slice::from_raw_parts(sample, size as usize) }, pts: sample_pts, key: key != 0 }))
     }
 
     /// Whether x264 still holds pictures back.

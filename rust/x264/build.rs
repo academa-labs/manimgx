@@ -1,4 +1,4 @@
-//! x264 r3223 from its source (VideoLAN's archive of 0480cb05, fetched), with nothing installed:
+//! x264 r3223 from its source (the GitHub mirror's archive of 0480cb05, fetched), with nothing installed:
 //! the configuration its `configure` would write for the target, its C, and its assembly — on
 //! x86-64 NASM's (the `nasm` crate: NASM from its source, in this script), on AArch64 the C
 //! compiler's. Elsewhere, its C alone.
@@ -10,7 +10,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/shim.c");
     let source = &fetch::tree(
-        "https://code.videolan.org/videolan/x264/-/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz",
+        "https://github.com/mirror/x264/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz",
         "f6be0c17bbcea2e79823e0dc953ad86f605deb41602d606108e1182a5118c434",
     );
     let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
