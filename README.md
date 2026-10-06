@@ -1,9 +1,9 @@
 <p align="center">
   <a href="https://manimgx.academa.ai">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/showcase/logo-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/showcase/logo-light.svg">
-      <img alt="ManimGX" src="https://manimgx.academa.ai/showcase/logo-light.svg" width="640">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/logo-light.svg">
+      <img alt="ManimGX" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/logo-light.svg" width="640">
     </picture>
   </a>
 </p>

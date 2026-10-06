@@ -111,10 +111,12 @@ the User Guide's first page, is the README: `pymdownx.snippets` includes it
 (`--8<-- "README.md"`), so the two can't drift. The README reaches the site's images and
 pages by absolute URLs, for GitHub and PyPI; on the site they become its own paths
 ([`docs/links.py`](https://github.com/academa-labs/manimgx/blob/main/docs/links.py)), so
-`just serve-docs` shows the images it built. The showcase GIFs use this repository's raw
-GitHub URLs, which the same extension makes local showcase paths: the README and Welcome
-page show the same files. The README's picture of its scene ends in
-`#readme`: GitHub and PyPI show it, and the site, which shows the film itself above the
+`just serve-docs` shows the images it built. The showcase logos and GIFs use this repository's
+raw GitHub URLs, which the same extension makes local showcase paths: the README and Welcome
+page show the same files. GitHub selects the banner's light or dark source using its reader's
+chosen theme. On the docs site, `javascripts/manimgx.js` follows the Zensical theme toggle,
+including choices that differ from the system preference. The README's picture of its scene
+ends in `#readme`: GitHub and PyPI show it, and the site, which shows the film itself above the
 code, hides it (`stylesheets/manimgx.css`).
 
 ## The README

@@ -54,6 +54,28 @@ def test_the_welcome_page_uses_the_readme_s_same_showcase_images() -> None:
     assert raw not in html
 
 
+def test_the_banner_keeps_both_github_themes_and_a_light_fallback() -> None:
+    pytest.importorskip("markdown")
+    from docs import links
+
+    readme = README.read_text(encoding="utf-8")
+    banner = re.search(r"<picture>.*?</picture>", readme, re.DOTALL)
+    assert banner is not None
+    raw = f"https://{links.RAW_HOST}{links.RAW_SHOWCASE}"
+    # GitHub's themed-picture component honors its selected theme, including overrides
+    # of the OS preference. Raw repo URLs keep both variants independent of docs deploys.
+    sources = re.findall(
+        r'<source media="\(prefers-color-scheme: (dark|light)\)" srcset="([^"]+)">',
+        banner.group(),
+    )
+    assert sources == [(theme, f"{raw}logo-{theme}.svg") for theme in ("dark", "light")]
+    assert f'src="{raw}logo-light.svg"' in banner.group()
+    local = links.paths(banner.group())
+    for theme in ("dark", "light"):
+        assert f'srcset="/showcase/logo-{theme}.svg"' in local
+    assert 'src="/showcase/logo-light.svg"' in local
+
+
 def test_raw_showcase_urls_become_local_without_losing_url_parts() -> None:
     pytest.importorskip("markdown")
     from docs import links

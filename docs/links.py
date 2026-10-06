@@ -5,9 +5,9 @@ absolute URLs (`https://manimgx.academa.ai/...`); included as the Welcome page, 
 the deployed site for them, even in a preview. Once a page is rendered, every URL an element
 holds (`src`, `srcset`, `href`, `poster`) whose host is the site's keeps only its path, so a
 page shows the images and links of the site it is on, as it was built, whatever wrote the
-URL. The showcase GIFs use the repository's raw GitHub URLs to bypass GitHub's image proxy's
-size limit; those become local showcase paths too. Text is left as it is: a code block's `<`
-is escaped, so no tag is ever in it.
+URL. The showcase images use the repository's raw GitHub URLs, avoiding the image proxy's
+size limit and updating independently of docs deployments; those become local showcase paths
+too. Text is left as it is: a code block's `<` is escaped, so no tag is ever in it.
 """
 
 import re
