@@ -121,7 +121,9 @@
       <figure>
         <figcaption>where they differ: black, then red → yellow → white as the difference grows</figcaption>
         {#key `${ce} ${manimgx}`}
-          <canvas {@attach differences(ce, manimgx)}></canvas>
+          <canvas {@attach differences(ce, manimgx, (message) => {
+            review.error = `Cannot compare frames: ${message}`
+          })}></canvas>
         {/key}
       </figure>
     {:else}

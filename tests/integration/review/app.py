@@ -16,7 +16,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from tests.integration.corpus import references, typecheck
 from tests.integration.corpus.case import (
     FPS,
@@ -34,7 +34,7 @@ from tests.integration.corpus.case import (
     settings,
 )
 from tests.integration.corpus.compare import slots
-from tests.integration.corpus.frames import Pixels, decode
+from tests.integration.corpus.frames import Pixels, decode, frame_hash
 
 PANEL = Path(__file__).resolve().parent / "web" / "dist"
 
@@ -102,7 +102,7 @@ class RenderIn(BaseModel):
 
 class SettingsIn(BaseModel):
     metric: str
-    tolerance: float
+    tolerance: float = Field(ge=0, le=255, allow_inf_nan=False)
 
 
 class SettingsOut(SettingsIn):
@@ -116,10 +116,10 @@ class TypeReports:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._report: typecheck.TypeReport | None = None
-        self._made_for: tuple[int, ...] = ()
+        self._made_for: tuple[tuple[str, str], ...] = ()
 
     def get(self, cases: list[Case]) -> typecheck.TypeReport:
-        stamp = tuple(case.scene.stat().st_mtime_ns for case in cases)
+        stamp = tuple((case.name, case.source_hash()) for case in cases)
         with self._lock:
             if self._report is None or stamp != self._made_for:
                 self._report, self._made_for = typecheck.report(cases), stamp
@@ -300,11 +300,9 @@ def _frames(name: str, engine: Engine, stamp: int) -> dict[str, Pixels]:
     render = None if facts is None else facts.render(engine)
     if facts is None or not isinstance(render, Frames):
         return {}
-    hashes = render.hashes()
     found: dict[str, Pixels] = {}
-    for index, pixels in enumerate(decode(case.video(engine), facts.size)):
-        if index < len(hashes) and hashes[index] not in found:
-            found[hashes[index]] = pixels
+    for pixels in decode(case.video(engine), facts.size):
+        found.setdefault(frame_hash(pixels.tobytes()), pixels)
     return found
 
 

@@ -16,11 +16,12 @@
 
   let { slots, at, metric, tolerance, onselect }: Props = $props()
 
-  type Kind = 'same' | 'differs' | 'manimgx-only' | 'ce-only'
+  type Kind = 'same' | 'differs' | 'unmeasured' | 'manimgx-only' | 'ce-only'
 
   const legend: { kind: Kind; text: string }[] = [
     { kind: 'same', text: 'same' },
     { kind: 'differs', text: 'differs' },
+    { kind: 'unmeasured', text: 'not compared' },
     { kind: 'manimgx-only', text: 'manimgx only' },
     { kind: 'ce-only', text: 'ce only' },
   ]
@@ -28,7 +29,9 @@
   const kind = (slot: Slot): Kind => {
     if (slot.ce === null) return 'manimgx-only'
     if (slot.manimgx === null) return 'ce-only'
-    return (slot.errors?.[metric] ?? 0) <= tolerance ? 'same' : 'differs'
+    const error = slot.errors?.[metric]
+    if (error === undefined) return 'unmeasured'
+    return error <= tolerance ? 'same' : 'differs'
   }
 
   const kinds = $derived(slots.map(kind))
@@ -90,6 +93,10 @@
 
   .differs {
     background: var(--differs);
+  }
+
+  .unmeasured {
+    background: var(--faint);
   }
 
   .manimgx-only {
