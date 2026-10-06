@@ -168,8 +168,11 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    x264 makes GPL-3.0-or-later as a whole. The image installs manimgx from PyPI, so it comes
    after PyPI.
 8. **Publish the GitHub release:** the draft becomes public last, once PyPI, npm and
-   ghcr.io have their files. GitHub's immutable releases lock a published release's files
-   and tag, which is why the files are attached while the release is a draft.
+   ghcr.io have their files. Publishing alone does not lock its files or tag: that requires
+   GitHub's [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+   to be enabled for the repository. This workflow attaches every file while the release
+   is a draft and does not change that setting. Recorded artifact digests and provenance
+   attestations verify acquired bytes; they do not enable GitHub's immutability policy.
 
 ### 5. [`create-wheels.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/create-wheels.yaml): the wheels
 

@@ -6,8 +6,9 @@
 # source distribution, and the font packages' versions it doesn't have yet (the fonts change
 # rarely, and are released with the manimgx that first requires them); npm gets the package for
 # the browser, which installs that PyPI release; ghcr.io gets the Docker image; then the GitHub
-# release is published, which makes it immutable. On a pull request that changes how releases
-# are made, it builds everything and publishes nothing.
+# release is published. GitHub locks its assets and tag only if repository release immutability
+# is enabled; this workflow does not change that setting. On a pull request that changes how
+# releases are made, it builds everything and publishes nothing.
 
 name: Release
 
