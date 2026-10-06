@@ -1,0 +1,73 @@
+# Temporary diagnosis: retain a repaired wheel before its bounded phase probe.
+name: Diagnose Linux wheel startup
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Create wheels run whose exact source to reproduce
+        type: string
+        default: "37409973765"
+        required: true
+
+permissions: {}
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve the original wheel's source
+        id: source
+        run: |
+          [[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" > "$RUNNER_TEMP/source-run.json"
+          revision=$(jq -r .head_sha "$RUNNER_TEMP/source-run.json")
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          [[ $(jq -r .head_repository.full_name "$RUNNER_TEMP/source-run.json") == "$GITHUB_REPOSITORY" ]]
+          [[ $(jq -r .path "$RUNNER_TEMP/source-run.json") == .github/workflows/create-wheels.yaml ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          path: source
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Build the original wheel and attribute startup
+        run: |
+          mkdir -p diagnostic retained-wheels
+          cp "$RUNNER_TEMP/source-run.json" diagnostic/
+          cp scripts/release/linux_startup.py source/scripts/release/linux_startup.py
+          export MANIMGX_SOURCES="/host$GITHUB_WORKSPACE/sources"
+          export CIBW_REPAIR_WHEEL_COMMAND="auditwheel repair -w {dest_dir} {wheel} && python {project}/scripts/release/linux_sources.py {dest_dir} && cp {dest_dir}/*.whl /host$GITHUB_WORKSPACE/retained-wheels/"
+          export CIBW_TEST_COMMAND="python {project}/scripts/release/linux_startup.py /host$GITHUB_WORKSPACE/diagnostic {project}"
+          cd source
+          uvx cibuildwheel@4.2.1 --only cp313-manylinux_x86_64 --output-dir ../wheels 2>&1 | tee ../diagnostic/build.log
+        env:
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --cap-add=SYS_PTRACE --security-opt=seccomp=unconfined"
+          CIBW_BEFORE_TEST: dnf -q -y install gdb && uv pip install {project}/fonts/manimgx-fonts {project}/fonts/manimgx-fonts-cjk
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: linux-startup-${{ inputs.source_run }}
+          path: |
+            diagnostic/
+            retained-wheels/
+          retention-days: 7
+          if-no-files-found: error
