@@ -410,7 +410,7 @@ def test_restored_partial_build_resumes_and_repairs_only_missing_or_damaged_film
     # the overall build failed. Progress is not part of any film's identity.
     archive = shutil.make_archive(str(source_tree / "snapshot"), "tar", examples.DOCS)
     shutil.rmtree(examples.DOCS)
-    shutil.unpack_archive(archive, examples.DOCS)
+    shutil.unpack_archive(archive, examples.DOCS, filter="data")
     draw.clear()
     examples.main([])
     assert draw == ["Beta"]
