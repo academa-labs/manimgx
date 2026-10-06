@@ -3,7 +3,8 @@
 from itertools import groupby
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 from tests.integration.corpus.frozen import Comparison, Difference
 
 
@@ -61,12 +62,14 @@ def test_every_frame_is_compared_across_independent_hold_boundaries(
     assert expected.drawn == [index for index, _ in expected.timeline]
 
 
-@pytest.mark.parametrize("index, repeat", [(1, 1), (-1, 1), (0, 0), (0, -1), (0, 3)])
+@pytest.mark.parametrize(
+    ("index", "repeat"), [(1, 1), (-1, 1), (0, 0), (0, -1), (0, 3)]
+)
 def test_gaps_overlaps_and_nonpositive_or_excess_holds_fail(
     index: int, repeat: int
 ) -> None:
     comparison = Comparison(Film([0, 0]), lambda *_: None)
-    with pytest.raises(ValueError, match="timeline|more frames"):
+    with pytest.raises(ValueError, match=r"timeline|more frames"):
         comparison.add(index, repeat, bytes(3))
 
 
