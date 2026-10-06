@@ -118,7 +118,7 @@ impl Pack {
 
 /// How an upload is made from its arrays.
 enum Recipe {
-    Path { centroid_area: [f32; 6], points: u64, subpaths: u64, grown: Vec<(u64, bool)> },
+    Path { centroid_area: [f32; 6], points: u64, subpaths: u64, grown: Vec<(u32, u64, bool)>, applied: usize },
     Points(u64),
     Mesh { outline: u32, block: u32, arrays: [u64; 4] },
     Rows(u64),
@@ -127,12 +127,24 @@ enum Recipe {
 
 impl Recipe {
     /// Put the shape (brush, texture) `key` into the player.
-    fn make(&self, key: u64, pack: &mut Pack, player: &mut Player) -> Result<(), String> {
+    fn make(&mut self, key: u64, frame: u32, pack: &mut Pack, player: &mut Player) -> Result<(), String> {
+        if !matches!(self, Recipe::Path { .. }) && player.has(key) {
+            return Ok(());
+        }
         match self {
-            Recipe::Path { centroid_area, points, subpaths, grown } => {
-                player.add_path(key, &pack.get(*points)?, &pack.get(*subpaths)?, *centroid_area)?;
-                for &(tail, closed) in grown {
+            Recipe::Path { centroid_area, points, subpaths, grown, applied } => {
+                // A shot sees only growth that had arrived when it was recorded. The
+                // path's bounds, joints and closure belong to that version too: cropping
+                // a fully grown path's curve window cannot recover its earlier picture.
+                let wanted = grown.partition_point(|&(first, _, _)| first <= frame);
+                if !player.has(key) || *applied > wanted {
+                    player.evict(&[key]);
+                    player.add_path(key, &pack.get(*points)?, &pack.get(*subpaths)?, *centroid_area)?;
+                    *applied = 0;
+                }
+                for &(_, tail, closed) in &grown[*applied..wanted] {
                     player.grow_path(key, &pack.get(tail)?, closed)?;
+                    *applied += 1;
                 }
             }
             Recipe::Points(data) => player.add_points(key, &pack.get(*data)?)?,
@@ -229,10 +241,8 @@ impl Take {
         for frame in &frames {
             for keys in take::slots(bytemuck::cast_slice(&frame.records)) {
                 for key in keys.into_iter().filter(|&k| k != 0) {
-                    if !player.has(key)
-                        && let Some(recipe) = recipes.get(&key)
-                    {
-                        recipe.make(key, pack, player)?;
+                    if let Some(recipe) = recipes.get_mut(&key) {
+                        recipe.make(key, shot.first, pack, player)?;
                     }
                     used.insert(key, self.draws);
                 }
@@ -353,7 +363,7 @@ impl Projector {
                 (t.ended, t.failed) = (true, f.u8()? != 0);
                 return Ok(());
             }
-            take::PATH => (f.u64()?, Recipe::Path { centroid_area: f.f32s()?, points: f.u64()?, subpaths: f.u64()?, grown: Vec::new() }),
+            take::PATH => (f.u64()?, Recipe::Path { centroid_area: f.f32s()?, points: f.u64()?, subpaths: f.u64()?, grown: Vec::new(), applied: 0 }),
             take::POINTS => (f.u64()?, Recipe::Points(f.u64()?)),
             take::MESH => (f.u64()?, Recipe::Mesh { outline: f.u32()?, block: f.u32()?, arrays: [f.u64()?, f.u64()?, f.u64()?, f.u64()?] }),
             take::ROWS => (f.u64()?, Recipe::Rows(f.u64()?)),
@@ -366,9 +376,8 @@ impl Projector {
             take::GROW => {
                 let (key, closed, tail) = (f.u64()?, f.u8()? != 0, f.u64()?);
                 if let Some(Recipe::Path { grown, .. }) = t.recipes.get_mut(&key) {
-                    grown.push((tail, closed));
+                    grown.push((t.frames, tail, closed));
                 }
-                t.player.evict(&[key]); // made again, grown, when next drawn
                 return Ok(());
             }
             take::FRAME => {

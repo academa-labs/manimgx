@@ -85,6 +85,51 @@ def test_independent_takes_own_their_resources_when_keys_overlap() -> None:
         assert first.render(0) == red
 
 
+@pytest.mark.config(pixel_width=960, pixel_height=540, frame_rate=10)
+@pytest.mark.parametrize("closes", [False, True], ids=["curved", "closed-then-open"])
+def test_growing_paths_keep_their_historical_picture_when_seeking(closes: bool) -> None:
+    class Growing(m.Scene):
+        def construct(self) -> None:
+            starts = [m.LEFT + m.UP, m.LEFT + m.DOWN, 2 * m.LEFT]
+            ends = [m.RIGHT, m.RIGHT + m.UP, m.RIGHT + m.DOWN]
+            colors = [m.RED, m.GREEN, m.BLUE]
+            dots = m.VGroup(
+                *[m.Dot(point, color=color) for point, color in zip(starts, colors)]
+            )
+            targets = m.VGroup(
+                *[m.Dot(point, color=color) for point, color in zip(ends, colors)]
+            )
+            self.add(dots, targets)
+            for dot in dots:
+                self.add(m.TracedPath(dot.get_center, stroke_color=dot.get_color()))
+            self.wait()
+            if closes:
+                self.play(m.Rotate(dots, m.TAU), run_time=2)
+                self.play(dots.animate.shift(m.RIGHT), run_time=1)
+            else:
+                self.play(
+                    m.Transform(dots, targets, path_func=m.counterclockwise_path()),
+                    run_time=2,
+                )
+            self.wait()
+
+    expected: list[bytes] = []
+    Growing().render(
+        frames=lambda frame: expected.extend([frame.pixels()] * frame.repeat)
+    )
+    chunks: list[bytes] = []
+    Growing().render(take=chunks.append)
+    replay = Replay(b"".join(chunks))
+    assert replay.frames == len(expected)
+    forward = list(range(replay.frames))
+    for index in [
+        *reversed(forward),
+        *forward,
+        *np.random.default_rng(7).permutation(forward),
+    ]:
+        assert replay.render(int(index)) == expected[index]
+
+
 def test_a_replay_rejects_incomplete_failed_and_multiple_takes() -> None:
     recorder = Recorder(32, 24, 30)
     view, records, cameras = Feeder(32, 24, recorder).frame(m.Camera(), [])
