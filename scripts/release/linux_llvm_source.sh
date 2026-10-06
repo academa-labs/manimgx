@@ -55,7 +55,7 @@ cp "$work/llvm-build/CMakeCache.txt" "$output/"
 # The first four-core build completed 1540/2205 default targets in 30 minutes.
 # Build the verifier tools and Mesa's native MCJIT/LTO dependency closure; unrelated
 # LLVM utilities and libraries do not belong in this driver build.
-targets=(llvm-config llc opt LLVMX86Disassembler LLVMMCJIT LLVMLTO)
+targets=(llvm-config llc opt LLVMX86Disassembler LLVMX86TargetMCA LLVMMCJIT LLVMLTO)
 ninja -C "$work/llvm-build" -n all > "$output/llvm-all-plan.txt"
 ninja -C "$work/llvm-build" -n "${targets[@]}" > "$output/llvm-build-plan.txt"
 /usr/bin/time -v -o "$output/llvm-build-time.txt" \
