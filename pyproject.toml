@@ -132,7 +132,7 @@ build-frontend = "build[uv]"
 # the installed wheel renders a scene to a video, with the fonts it is released with: this
 # repository's, which PyPI may not have yet
 before-test = "uv pip install {project}/fonts/manimgx-fonts {project}/fonts/manimgx-fonts-cjk"
-test-sources = ["scripts/release/smoke_test.py"]
+test-sources = ["scripts/release/smoke_test.py", "rust/ffmpeg/tests/silence.opus"]
 test-command = "python scripts/release/smoke_test.py"
 
 [tool.cibuildwheel.linux]
@@ -143,6 +143,8 @@ before-all = [
     "sh scripts/release/build_lavapipe.sh {package}/src/manimgx/lavapipe",
 ]
 environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+environment-pass = ["MANIMGX_SOURCES"]
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel} && python {project}/scripts/release/linux_sources.py {dest_dir}"
 
 [tool.cibuildwheel.pyodide]
 # the browser's wheel (`just build-wheel pyodide`): the engine without the GPU (typesetting,

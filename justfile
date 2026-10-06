@@ -173,24 +173,28 @@ build-npm:
 build-sdist:
     uv build --sdist --out-dir dist
 
-# (the source distribution with every crate rust/Cargo.lock names and each archive the engine's
-# build fetches, and the cargo configuration that reads them: the source of all the wheels hold,
-# which builds them offline. A wheel is built from it, which reads the crates from it alone and
-# downloads the archives into it)
+# (the Linux builds' source artifacts merged into release-sources/, with the source distribution,
+# every crate and each checked archive the engine uses. System build tools are prerequisites;
+# distribution source RPMs describe the exact libraries bundled by the Linux builds)
 # Build the wheels' complete source into dist/, from the source distribution
 [group('release')]
-build-source: build-sdist
+build-source sources="release-sources": build-sdist
     #!/usr/bin/env bash
     set -euo pipefail
     version="$(uv version --short)"
+    sources="$(realpath "{{ sources }}")"
+    uv run --no-project scripts/release/linux_sources.py --verify "${sources}"
     work="$(mktemp -d)"
     trap 'rm -rf "${work}"' EXIT
     tar -xzf "dist/manimgx-${version}.tar.gz" -C "${work}"
     cd "${work}/manimgx-${version}"
+    cp -R "${sources}" sources
     mkdir .cargo
     cargo vendor --locked --manifest-path rust/Cargo.toml vendor > .cargo/config.toml
     printf '\n[net]\noffline = true\n\n[env]\nMANIMGX_SOURCES = { value = "sources", relative = true }\n' \
         >> .cargo/config.toml
+    CARGO_TARGET_DIR="${work}/target" MANIMGX_SOURCES="$PWD/sources" \
+        sh scripts/release/build_lavapipe.sh "${work}/lavapipe" --sources-only
     CARGO_TARGET_DIR="${work}/target" uv build --wheel --out-dir "${work}/wheel" .
     tar -cf - -C "${work}" "manimgx-${version}" | xz -T0 -9 \
         > "{{ justfile_directory() }}/dist/manimgx-${version}-source.tar.xz"

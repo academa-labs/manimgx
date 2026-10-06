@@ -251,7 +251,7 @@ the GPL-3.0-or-later. Its section 6 (and the LGPL's, which refers to it) asks
 that whoever gets the wheels can get their complete source, from where the wheels are or from
 a place the wheels point to, for as long as the wheels are offered: all of it, the crates too,
 not links to where others publish them, which can go. Each GitHub release carries it,
-`manimgx-X.Y.Z-source.tar.xz`, which builds the wheels offline (see
+`manimgx-X.Y.Z-source.tar.xz`, with the sources and build recipes (see
 [Others' sources](engine.md#others-sources)); the wheels' notice, the README (PyPI's page) and
 the release's notes point to it, and the README and the notes say what FFmpeg asks every page
 that offers it to say. A release is never deleted while PyPI offers its wheels.
@@ -273,12 +273,18 @@ What writes and builds, a folder for each thing it makes:
     `dist/manimgx-<os>-<arch>.tar.gz` (a `.zip` on Windows), after running what it made once.
   - [`smoke_test.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/smoke_test.py)
     renders a scene with an installed manimgx: the check a wheel or an executable passes
-    before it is kept.
+    before it is kept. It decodes generated PCM and the reference Opus fixture, exports
+    their soundtrack and reopens the MP4's AAC sound. Pyodide records the same scene and
+    checks the take's version, frame count, sound and successful end, and its embedded player.
   - [`build_lavapipe.sh`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/build_lavapipe.sh)
     builds Mesa's lavapipe for a Linux wheel, in the manylinux image (cibuildwheel's
     `before-all`): Mesa and glslang from their sources, checked against pinned hashes, with
     the image's LLVM linked in, exporting only what Vulkan's loader calls. It writes
-    `src/manimgx/lavapipe/libvulkan_lvp.so`, which the wheel then takes in.
+    `src/manimgx/lavapipe/libvulkan_lvp.so`, which the wheel then takes in. Its checked
+    archives go through the engine's source store. After repair, `linux_sources.py` uses
+    auditwheel's SBOM and RPM metadata to retain the exact distribution source packages
+    for bundled libraries and LLVM. These are sources and provenance; the system build
+    tools are not a frozen, hermetic environment.
   - [`licenses.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/licenses.py)
     (`just licenses`) writes the wheels' third-party notice (see
     [The package](#the-package)).

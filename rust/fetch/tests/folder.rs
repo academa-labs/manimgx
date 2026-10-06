@@ -78,6 +78,25 @@ fn an_empty_folder_gathers_archives_and_a_full_one_builds_offline() {
 }
 
 #[test]
+fn release_tooling_collects_and_reuses_the_same_verified_source_store() {
+    use sha2::{Digest, Sha256};
+    let source = Source::new();
+    let bytes = fs::read(source.path("served/tree.tar.gz")).unwrap();
+    let hash = Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    for out in ["first", "offline"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_fetch-file"))
+            .args([&source.url, &hash])
+            .env("OUT_DIR", source.path(out))
+            .env("MANIMGX_SOURCES", source.path("sources"))
+            .output().unwrap();
+        success(output);
+        assert_eq!(fs::read(source.path(out).join(&hash)).unwrap(), bytes);
+        assert_eq!(fs::read(source.path("sources/tree.tar.gz")).unwrap(), bytes);
+        if out == "first" { fs::remove_file(source.path("served/tree.tar.gz")).unwrap(); }
+    }
+}
+
+#[test]
 fn no_archive_is_retained_without_a_source_store_and_the_tree_is_reused_offline() {
     let source = Source::new();
     success(source.build("first").env_remove("MANIMGX_SOURCES").output().unwrap());

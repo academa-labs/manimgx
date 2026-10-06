@@ -243,11 +243,13 @@ def write(
         " and notices they come with, each text once, after what it covers. FFmpeg is"
         " under the LGPL-2.1-or-later, and x264, in every wheel but Pyodide's, under"
         " the GPL-2.0-or-later, which makes such a wheel, as a whole, GPL-3.0-or-later."
-        " Its complete source, which builds it offline, is on the GitHub release of its"
+        " Its complete source and build recipes are on the GitHub release of its"
         " version, https://github.com/academa-labs/manimgx/releases/tag/vX.Y.Z for"
         " manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's source distribution"
         " with every crate rust/Cargo.lock names and each archive a workspace's crate"
-        " fetches. The Linux wheels' lavapipe is in LICENSE-LAVAPIPE. Written by"
+        " fetches, with the Linux builds' Mesa/glslang archives and exact distribution"
+        " source RPMs. System build tools remain prerequisites. The Linux wheels' lavapipe"
+        " is in LICENSE-LAVAPIPE. Written by"
         " scripts/release/licenses.py. The Windows wheels' DXC is in LICENSE-DXC."
     )
     parts = [textwrap.fill(header, 84, break_on_hyphens=False) + "\n"]

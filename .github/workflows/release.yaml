@@ -95,6 +95,7 @@ jobs:
 
   sdist:
     name: Source distributions
+    needs: wheels
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -110,9 +111,14 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      # the source distribution, and the wheels' complete source made from it: a wheel is built
-      # from that with Rust and a C compiler alone, the crates read from it, the archives the
-      # engine's build fetches downloaded into it, so it holds all the wheels are built from
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: sources-linux-*
+          path: release-sources
+          merge-multiple: true
+
+      # Native archives and Cargo sources, plus the exact distribution source packages
+      # retained by the Linux jobs which linked and repaired the wheels.
       - name: Build the source distribution and the complete source
         run: just build-source
 
@@ -195,7 +201,7 @@ jobs:
             printf '\n---\n\n'
             echo "The wheels and executables hold FFmpeg, under the LGPL, and all but the" \
               "browser's wheel hold x264, under the GPL, which makes them, as a whole," \
-              "GPL-3.0-or-later. Their complete source, which builds them offline, is" \
+              "GPL-3.0-or-later. Their complete source and build recipes are" \
               "[manimgx-${VERSION}-source.tar.xz](${source}): the source of manimgx, of every" \
               "crate, and of each library the engine is built from. This software uses code of" \
               "[FFmpeg](https://ffmpeg.org) licensed under the LGPLv2.1 and its source can be" \

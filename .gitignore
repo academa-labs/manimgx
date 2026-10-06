@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 build/
 dist/
+/sources/
+/release-sources/
 
 # Docs: the built site, its cache, the rendered examples, the generated gallery and the command
 # line's reference

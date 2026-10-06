@@ -4,7 +4,8 @@
 # image before it builds a wheel (`sh scripts/release/build_lavapipe.sh DIRECTORY`, the package's
 # manimgx/lavapipe, beside the engine): Mesa from its source (and glslang, which compiles some of
 # lavapipe's shaders as Mesa builds), with the image's LLVM linked in, into
-# DIRECTORY/libvulkan_lvp.so.
+# DIRECTORY/libvulkan_lvp.so. With --sources-only, collect the same checked inputs without
+# building. MANIMGX_SOURCES retains them for the release's source archive and offline reuse.
 set -eu
 
 mesa=26.2.3
@@ -15,23 +16,29 @@ glslang_sha256=9c09b901149c729df745057dafa815278aaa101b84d2b6e14f16a42de52f97f2
 mkdir -p "$1"
 out=$(cd "$1" && pwd)
 work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+export MANIMGX_SOURCES="${MANIMGX_SOURCES:-$root/sources}"
+fetch_file() {
+  OUT_DIR="$work" cargo run --quiet --locked --manifest-path "$root/rust/Cargo.toml" \
+    --package fetch --bin fetch-file -- "$1" "$2"
+}
+fetch_file "https://github.com/KhronosGroup/glslang/archive/refs/tags/$glslang.tar.gz" "$glslang_sha256"
+fetch_file "https://archive.mesa3d.org/mesa-$mesa.tar.xz" "$mesa_sha256"
+if [ "${2-}" = --sources-only ]; then exit 0; fi
 # libxml2: the image's LLVM lists it among its system libraries
-dnf -q -y install llvm-devel llvm-static libxml2-devel
+dnf -q -y install llvm-devel llvm-static libxml2-devel dnf-plugins-core
 python=/opt/python/cp313-cp313/bin/python
 "$python" -m pip -q install --root-user-action=ignore meson ninja mako pyyaml cmake
 export PATH="$work/bin:/opt/python/cp313-cp313/bin:$PATH"
 cd "$work"
 
-curl -sSfL -o glslang.tar.gz "https://github.com/KhronosGroup/glslang/archive/refs/tags/$glslang.tar.gz"
-echo "$glslang_sha256  glslang.tar.gz" | sha256sum -c --quiet
-tar -xzf glslang.tar.gz
+tar -xzf "$glslang_sha256"
 cmake -S "glslang-$glslang" -B glslang-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$work" \
   -DENABLE_OPT=OFF -DENABLE_HLSL=OFF -DGLSLANG_TESTS=OFF -DBUILD_EXTERNAL=OFF -DENABLE_GLSLANG_JS=OFF
 ninja -C glslang-build install
 
-curl -sSfL -o mesa.tar.xz "https://archive.mesa3d.org/mesa-$mesa.tar.xz"
-echo "$mesa_sha256  mesa.tar.xz" | sha256sum -c --quiet
-tar -xJf mesa.tar.xz
+tar -xJf "$mesa_sha256"
 # lavapipe alone, for no window system, with no disk cache; exporting the loader's interface alone
 # (Mesa's src/vulkan/vulkan-icd-symbols.txt), not the LLVM linked in
 echo '{ global: vk_icdGetInstanceProcAddr; vk_icdGetPhysicalDeviceProcAddr; vk_icdNegotiateLoaderICDInterfaceVersion; local: *; };' > lvp.map
@@ -45,4 +52,3 @@ meson setup mesa-build "mesa-$mesa" --buildtype=release -Db_ndebug=true \
   -Dspirv-tools=disabled -Dintel-rt=disabled -Dgallium-va=disabled
 ninja -C mesa-build src/gallium/targets/lavapipe/libvulkan_lvp.so
 strip --strip-unneeded -o "$out/libvulkan_lvp.so" mesa-build/src/gallium/targets/lavapipe/libvulkan_lvp.so
-rm -rf "$work"

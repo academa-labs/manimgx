@@ -128,8 +128,8 @@ See [Documentation](documentation.md#deployment) for how the site is served.
 2. **Test**, on a tag: it runs the Test workflow.
 3. **Build:** the wheels (`create-wheels.yaml`), the source distribution and the wheels'
    complete source (`just build-source`: the source distribution with every crate and each
-   archive the engine's build fetches, which a wheel is built from, offline for the crates,
-   gathering the archives, so it holds all the wheels are built from; see
+   archive the engine's build fetches, plus the exact distribution sources retained by the
+   Linux wheel jobs; the source archive waits for those platform builds; see
    [Others' sources](engine.md#others-sources)), the font packages (`just build-fonts`), and
    the executables, from the wheels (`create-executables.yaml`).
 4. **Draft the GitHub release**, on a tag: it signs each file's provenance (an attestation

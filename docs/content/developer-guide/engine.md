@@ -341,17 +341,25 @@ offline; one shared by your checkouts downloads each archive once; and a build i
 one gathers what it was built from. A build script fetches the same archives on every target,
 whatever it compiles of them, so one build gathers what every build reads.
 
-That is how a release ships the wheels' complete source, which x264's GPL and FFmpeg's LGPL
-ask for: `manimgx-X.Y.Z-source.tar.xz`, on the GitHub release (`just build-source` makes it).
+The release ships `manimgx-X.Y.Z-source.tar.xz` beside the wheels (`just build-source` makes it).
 It is the source distribution with `vendor/`, every crate `rust/Cargo.lock` names
 (`cargo vendor`), `sources/`, the archives, and a `.cargo/config.toml` that reads them,
-offline. The wheel the recipe builds from it gathers the archives into `sources/`, and shows
-that nothing else is needed. Unpacked, it builds a wheel with the tools alone (Rust, a C
-compiler, and maturin, which uv installs), reading nothing else from the network:
+offline. Mesa and glslang use the same store through `fetch-file`, pinned by their archive
+hashes. The Linux wheel jobs also retain the exact source RPMs of statically linked LLVM
+and the libraries auditwheel actually bundles, identified by auditwheel's SBOM. Each
+platform's manifest records its wheel hash, binary package versions and source hashes.
+`just build-source` consumes both Linux source artifacts, merged into `release-sources/`,
+and checks those hashes before adding them to the source archive.
+
+The archive supplies the distributed components' source; it does not freeze the operating
+system or compiler toolchain. Rebuilding lavapipe uses its recorded source RPMs and build
+recipes with the required Linux build tools. The engine itself builds without fetching
+native sources or Cargo crates once Rust, a C compiler and the Python build dependencies
+(including maturin) are installed:
 
 ```sh
 tar -xf manimgx-X.Y.Z-source.tar.xz
-cd manimgx-X.Y.Z && uv build --wheel
+cd manimgx-X.Y.Z && uv build --wheel --no-build-isolation --offline
 ```
 
 Each is built by its crate's build script with the `cc` crate, the C compiler alone, the same
