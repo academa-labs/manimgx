@@ -20,7 +20,7 @@ from manimgx import _engine
 from manimgx.rendering import feed
 from manimgx.rendering.film import Cut, Frame
 
-START, FRAME, NOTE, SOUND, END = 0, 8, 9, 10, 12
+START, FRAME, NOTE, SOUND, END = 14, 8, 9, 10, 12
 
 
 class Held(m.Scene):
@@ -61,7 +61,7 @@ def test_a_take_holds_the_frames_a_video_would() -> None:
     take, count = record(Held())
     (op, start), *rest = messages(take)
     assert op == START
-    assert struct.unpack("<IId", start) == (320, 180, 30.0)
+    assert struct.unpack("<IIId", start) == (_engine.TAKE_VERSION, 320, 180, 30.0)
     repeats = [
         struct.unpack_from("<I", fields)[0] for op, fields in rest if op == FRAME
     ]

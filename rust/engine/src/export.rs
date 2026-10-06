@@ -42,16 +42,28 @@ impl Player {
         dirty
     }
 
-    pub(crate) fn push_frames(&mut self, gpu: &mut Gpu, frames: Vec<Frame>, repeat: u32, key: bool) -> Result<(), String> {
+    pub(crate) fn push_frames(&mut self, gpu: &mut Gpu, frames: Vec<Frame>, repeat: u32, key: bool, capture: bool) -> Result<(), String> {
         let mut export = self.export.take().ok_or("no export is open")?;
-        let result = self.push_into(gpu, &mut export, frames, repeat, key);
+        let result = (|| {
+            // A pixel consumer waits for this frame. Settle older draws before making it,
+            // so their overflow retries cannot replace its captured pixels.
+            if capture {
+                while !export.pending.is_empty() { self.retire(gpu, &mut export)?; }
+            }
+            self.push_into(gpu, &mut export, frames, repeat, key, capture)?;
+            if capture {
+                self.retire(gpu, &mut export)?;
+                self.map_pixels(gpu)?;
+            }
+            Ok(())
+        })();
         self.export = Some(export);
         result
     }
 
     /// Draw a frame into the export and convert only the macroblocks a change can touch — every
     /// one when camera views are drawn too (their pictures change with no record changing).
-    fn push_into(&mut self, gpu: &mut Gpu, export: &mut Export, frames: Vec<Frame>, repeat: u32, key: bool) -> Result<(), String> {
+    fn push_into(&mut self, gpu: &mut Gpu, export: &mut Export, frames: Vec<Frame>, repeat: u32, key: bool, capture: bool) -> Result<(), String> {
         let (columns, rows) = (export.width.div_ceil(16), export.height.div_ceil(16));
         let total = columns * rows;
         if export.pending.len() == RING {
@@ -71,12 +83,13 @@ impl Player {
         // read (see `retire`)
         let lists = self.lists.as_ref().filter(|_| composited && !listed.is_empty()).map(|l| l.capacity);
         self.convert(gpu, export, &mut command, &listed, slot, lists.is_some());
+        if capture { self.copy_pixels(&mut command); }
         gpu.queue.submit(Some(command.finish()));
         export.map(slot, listed.len());
         gpu.device.poll(wgpu::PollType::Poll).map_err(|e| e.to_string())?;
         let first = export.previous.is_none();
         let kept = lists.map(|capacity| (frames.clone(), capacity));
-        export.pending.push_back(Pending { slot, listed, repeat, first, key, kept });
+        export.pending.push_back(Pending { slot, listed, repeat, first, key, kept, capture });
         export.previous = frames.into_iter().last();
         export.drawn += 1;
         Ok(())
@@ -134,6 +147,7 @@ impl Player {
                     let (mut command, ..) = self.encode(gpu, frames)?;
                     capacity = self.lists.as_ref().map_or(0, |l| l.capacity);
                     self.convert(gpu, export, &mut command, &p.listed, p.slot, true);
+                    if p.capture { self.copy_pixels(&mut command); }
                     gpu.queue.submit(Some(command.finish()));
                     export.map(p.slot, p.listed.len());
                     export.wait(&gpu.device, p.slot)?;
@@ -158,6 +172,7 @@ pub(crate) struct Pending {
     first: bool,
     key: bool,
     kept: Option<(Vec<Frame>, u64)>, // a frame composited through the lists, and their capacity
+    capture: bool, // copy its final successful draw for a simultaneous pixel consumer
 }
 
 /// A video being written: each frame drawn, converted to NV12 where it changed, read back and

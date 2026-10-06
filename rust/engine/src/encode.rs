@@ -122,7 +122,7 @@ impl Encoder {
         let pts = self.pts;
         self.pts += duration as i64;
         if let Some(sample) = self.x264.encode(Some(nv12), pts, constant, key)? {
-            self.mp4.sample(sample.data, sample.pts, sample.dts, sample.key).map_err(|e| e.to_string())?;
+            self.mp4.sample(sample.data, sample.pts, sample.key).map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -133,7 +133,7 @@ impl Encoder {
         let Self { mut x264, mut mp4, pts } = self;
         while x264.delayed() {
             if let Some(sample) = x264.encode(None, 0, None, false)? {
-                mp4.sample(sample.data, sample.pts, sample.dts, sample.key).map_err(|e| e.to_string())?;
+                mp4.sample(sample.data, sample.pts, sample.key).map_err(|e| e.to_string())?;
             }
         }
         mp4.finish(pts, audio).map_err(|e| e.to_string())

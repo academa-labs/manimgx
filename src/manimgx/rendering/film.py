@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Literal, get_args
 from warnings import deprecated
 
 from manimgx import _engine
+from manimgx.animation import clock
 from manimgx.config import config
 from manimgx.rendering import feed
 from manimgx.rendering.feed import CameraView, Feeder
@@ -260,7 +261,7 @@ class Film:
             raise ValueError(
                 f"a video needs an even width and height, not {width}x{height}"
             )
-        self.fps = Fraction(fps).limit_denominator(1000)
+        self.fps = clock.rational(fps)
         """How many frames a second the film has: the configuration's when it began."""
         # the GPU draws the film; or its take is recorded, to be drawn by manimgx's player: by
         # choice, or where the engine has no GPU (in Pyodide)
@@ -412,6 +413,8 @@ class Film:
         view, records, cameras = self.feeder.frame(camera, mobjects)
         if self._player is None:
             raise RuntimeError("a film recorded as a take is drawn by manimgx's player")
+        if self._player.pressured():
+            self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
         return self._player.render(view, records, cameras)
 
     @deprecated("manimgx's machinery: the scene calls it", category=None)
@@ -479,17 +482,38 @@ class Film:
             self._flush()
         if (player := self._player) is None:
             return
-        if self.video is not None:
-            player.push(view, records, repeat, cameras, self._pending_key)
-        if self.frames is not None:
-            self.frames(
-                Frame(
-                    self._first,
-                    repeat,
-                    lambda: player.render(view, records, cameras),
-                    self._pending_key,
-                )
-            )
+        if (self.video is not None or self.frames is not None) and player.pressured():
+            self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
+        key = self._pending_key
+        if self.frames is None:
+            if self.video is not None:
+                player.push(view, records, repeat, cameras, key)
+            return
+        sent = self.video is None
+
+        def push() -> None:
+            nonlocal sent
+            if not sent:
+                player.push(view, records, repeat, cameras, key)
+                sent = True
+
+        def draw() -> bytes:
+            nonlocal sent
+            if sent:
+                return player.render(view, records, cameras)
+            # A pixel consumer and the encoder share one completed GPU draw. Defer export
+            # until the callback asks: metadata-only callbacks keep the asynchronous path.
+            pixels = player.push(view, records, repeat, cameras, key, capture=True)
+            sent = True
+            assert pixels is not None
+            return pixels
+
+        try:
+            self.frames(Frame(self._first, repeat, draw, key))
+        except Cut:
+            push()  # the frame that cuts a film still belongs to its video
+            raise
+        push()
 
     @deprecated("manimgx's machinery: the scene calls it", category=None)
     def close(self) -> None:
@@ -500,19 +524,17 @@ class Film:
         any other error abandons the video.
         """
         try:
-            self._send()
-        except Cut:
-            pass
+            with contextlib.suppress(Cut):
+                self._send()
+            with contextlib.suppress(Cut):  # its take cut it: it hears no more
+                self._end()
         except BaseException:
             self.abort()
             raise
-        with contextlib.suppress(Cut):  # its take cut it as it ended: it hears no more
-            self._end()
 
     def _end(self) -> None:
         """Write the closed film's video, if any, and tell its take how it ends."""
         if self.video is not None and self._player is not None:
-            self.video = None
             sound = self.soundtrack()
             if sound is None:
                 self.export = Export(*self._player.end_export())
@@ -525,6 +547,7 @@ class Film:
                         sound.tobytes(), channels, RATE, BITRATE * channels
                     )
                 )
+            self.video = None
         if self._recorder is not None:
             # what the player plays and shows beside the frames; then the take's end
             if (sound := self.soundtrack()) is not None:

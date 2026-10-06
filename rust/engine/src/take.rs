@@ -4,7 +4,8 @@
 //! reads it back and draws any of its frames on demand (`web`).
 //!
 //! A message is its length (u32), its op (u8), then its fields, little-endian; a byte string is
-//! its length (u32), then its bytes. A take begins with START and ends with END (whether its
+//! its length (u32), then its bytes. A take begins with START: its format version (u32), width
+//! and height (u32 each), and frame rate (f64). It ends with END (whether its
 //! scene failed: a take cut short has none); NOTE carries the director's notes (JSON: the plays,
 //! the sections, the captions) to whoever shows the take, and SOUND the film's sound, an audio
 //! file its player plays beside the frames.
@@ -18,15 +19,19 @@
 //! the same record slot drew the frame before: the writer learns what replaces what from the
 //! frames' records, so a film changing a little from frame to frame is sent as its changes.
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 use std::collections::HashMap;
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 use std::sync::Arc;
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 use crate::pack::{self, Kind};
 
-pub(crate) const START: u8 = 0;
+/// The wire contract, including the layouts of views, records, uploads and coded arrays.
+/// Bump when a writer's output can no longer be read with the same meaning by an older reader.
+pub(crate) const VERSION: u32 = 1;
+// Opcode 0 was the unversioned START. A different opcode makes old readers reject this one.
+pub(crate) const START: u8 = 14;
 pub(crate) const PATH: u8 = 1;
 pub(crate) const POINTS: u8 = 2;
 pub(crate) const MESH: u8 = 3;
@@ -50,7 +55,7 @@ pub(crate) fn slots(records: &[u8]) -> impl Iterator<Item = [u64; KEYS]> + '_ {
 }
 
 /// An upload the writer holds until a frame shows it (so it knows what it replaces).
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 struct Upload {
     op: u8,
     key: u64,
@@ -60,7 +65,7 @@ struct Upload {
 }
 
 /// Writes a take's messages into a buffer, taken out as it fills (`drain`).
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 #[derive(Default)]
 pub(crate) struct Writer {
     buffer: Vec<u8>,
@@ -73,7 +78,7 @@ pub(crate) struct Writer {
     records: HashMap<u64, u64>, // a view's last records array (0: the frame's; else a camera's)
 }
 
-#[cfg(any(feature = "python", test))]
+#[cfg(any(feature = "python", all(test, not(target_arch = "wasm32"))))]
 impl Writer {
     fn begin(&mut self, op: u8) -> usize {
         let at = self.buffer.len();
@@ -99,6 +104,7 @@ impl Writer {
 
     pub(crate) fn start(&mut self, width: u32, height: u32, fps: f64) {
         let at = self.begin(START);
+        self.put(&VERSION.to_le_bytes());
         self.put(&width.to_le_bytes());
         self.put(&height.to_le_bytes());
         self.put(&fps.to_le_bytes());
@@ -110,10 +116,14 @@ impl Writer {
     pub(crate) fn points(&mut self, key: u64, vertices: &[u8]) {
         self.hold(POINTS, key, &[], vec![(Kind::Points, vertices)]);
     }
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn mesh(&mut self, key: u64, points: &[u8], uvs: &[u8], normals: &[u8], triangles: &[u8], outline: u32, block: u32) {
-        let head: Vec<u8> = [outline.to_le_bytes(), block.to_le_bytes()].concat();
-        self.hold(MESH, key, &head, vec![(Kind::MeshPoints, points), (Kind::MeshUvs, uvs), (Kind::MeshNormals, normals), (Kind::MeshTriangles, triangles)]);
+    pub(crate) fn mesh(&mut self, key: u64, mesh: &crate::mesh::Mesh<'_>) {
+        let head: Vec<u8> = [mesh.outline.to_le_bytes(), mesh.block.to_le_bytes()].concat();
+        self.hold(MESH, key, &head, vec![
+            (Kind::MeshPoints, bytemuck::cast_slice(&mesh.points)),
+            (Kind::MeshUvs, bytemuck::cast_slice(&mesh.uvs)),
+            (Kind::MeshNormals, bytemuck::cast_slice(&mesh.normals)),
+            (Kind::MeshTriangles, bytemuck::cast_slice(&mesh.triangles)),
+        ]);
     }
     pub(crate) fn rows(&mut self, key: u64, rows: &[u8]) {
         self.hold(ROWS, key, &[], vec![(Kind::Rows, rows)]);
@@ -303,7 +313,7 @@ pub(crate) fn messages(stream: &[u8]) -> (Vec<&[u8]>, usize) {
     (out, at)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
@@ -323,11 +333,15 @@ mod tests {
         w.start(960, 540, 30.0);
         let points = |t: f64| -> Vec<u8> { bytemuck::cast_slice(&(0..900).map(|i| ((i as f64) * 0.1 + t).sin()).collect::<Vec<f64>>()).to_vec() };
         let triangles: Vec<u8> = bytemuck::cast_slice(&(0..300u32).collect::<Vec<u32>>()).to_vec();
-        w.mesh(7, &points(0.0), &[], &[], &triangles, 0, 0);
+        let uvs = [[0.0f64; 2]; 300];
+        let normals = [[0.0f64, 0.0, 1.0]; 300];
+        let before = points(0.0);
+        let after = points(0.01);
+        w.mesh(7, &crate::mesh::Mesh::new(&before, bytemuck::cast_slice(&uvs), bytemuck::cast_slice(&normals), &triangles, 0, 0).unwrap());
         let mut seen_by_camera = record(7);
         seen_by_camera[56] = 1; // other flags: other records
         w.frame(&[3; 192], &record(7), 1, &[(9, 64, 32, vec![5; 192], seen_by_camera)]);
-        w.mesh(8, &points(0.01), &[], &[], &triangles, 0, 0); // the next frame's: replaces 7
+        w.mesh(8, &crate::mesh::Mesh::new(&after, bytemuck::cast_slice(&uvs), bytemuck::cast_slice(&normals), &triangles, 0, 0).unwrap()); // the next frame's: replaces 7
         w.frame(&[3; 192], &record(7), 2, &[]);
         w.frame(&[3; 192], &record(8), 1, &[]);
         w.sound(&[8; 44]);
@@ -370,6 +384,45 @@ mod tests {
         }
         assert!(decoded.values().any(|d| d[..] == pack::canonical(Kind::MeshPoints, &points(0.01))[..]));
         let mut s = Fields(messages[0]);
-        assert_eq!((s.u8().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.f64().unwrap()), (START, 960, 540, 30.0));
+        assert_eq!((s.u8().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.u32().unwrap(), s.f64().unwrap()), (START, VERSION, 960, 540, 30.0));
+    }
+
+    #[test]
+    fn a_recorded_mesh_keeps_normals_derived_before_positions_are_rounded() {
+        let points = [[-0.6f64, -0.6, 1e8], [0.6, -0.6, 1e8 + 1.0], [0.0, 0.6, 1e8]];
+        let uvs = [[0.25f64, 0.5], [0.5, 0.75], [0.75, 1.0]];
+        let mesh = crate::mesh::Mesh::new(bytemuck::cast_slice(&points), bytemuck::cast_slice(&uvs), &[], bytemuck::cast_slice(&[0u32, 1, 2]), 0, 0).unwrap();
+        // The GPU positions have lost their small z difference. Deriving normals from those
+        // positions would turn this tilted face into a flat one and change its lighting.
+        assert!(mesh.points.iter().all(|v| v[2] as f32 == 1e8));
+        assert_eq!(mesh.normals[0], [-1.2, 0.6, 1.44]);
+        let mut writer = Writer::default();
+        writer.start(320, 240, 10.0);
+        writer.mesh(1, &mesh);
+        writer.frame(&[0; 192], &record(1), 1, &[]);
+        writer.close(false);
+        let stream = writer.drain();
+        let mut arrays = HashMap::new();
+        for message in messages(&stream).0 {
+            let mut fields = Fields(message);
+            if fields.u8().unwrap() != ARRAY { continue; }
+            let (_key, base, kind, mode, data) = (fields.u64().unwrap(), fields.u64().unwrap(), fields.u8().unwrap(), fields.u8().unwrap(), fields.string().unwrap());
+            assert_eq!(base, 0);
+            arrays.insert(kind, pack::decode(Kind::from_u8(kind).unwrap(), mode, data, None, None).unwrap());
+        }
+        let wide = |kind: Kind| {
+            let f: Vec<f32> = bytemuck::pod_collect_to_vec(&arrays[&(kind as u8)]);
+            bytemuck::cast_slice(&f.into_iter().map(f64::from).collect::<Vec<_>>()).to_vec()
+        };
+        let (points, uvs, normals) = (wide(Kind::MeshPoints), wide(Kind::MeshUvs), wide(Kind::MeshNormals));
+        let replay = crate::mesh::Mesh::new(&points, &uvs, &normals, &arrays[&(Kind::MeshTriangles as u8)], 0, 0).unwrap();
+        for (before, after) in mesh.points.iter().zip(&*replay.points) {
+            assert_eq!(before.map(|v| v as f32), after.map(|v| v as f32));
+        }
+        for (before, after) in mesh.normals.iter().zip(&*replay.normals) {
+            assert_eq!(before.map(|v| v as f32), after.map(|v| v as f32));
+        }
+        assert_eq!(replay.uvs, mesh.uvs);
+        assert_eq!(replay.triangles, mesh.triangles);
     }
 }
