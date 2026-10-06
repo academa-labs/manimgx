@@ -25,7 +25,6 @@ from typing import (
     Literal,
     Never,
     Self,
-    TypedDict,
     TypeIs,
     Unpack,
     cast,
@@ -35,6 +34,7 @@ from warnings import deprecated
 
 import numpy as np
 import numpy.typing as npt
+from typing_extensions import TypedDict
 
 from manimgx import caches
 from manimgx.animation import clock
@@ -85,7 +85,6 @@ from manimgx.drawing.paint import (
     BLACK,
     WHITE,
     Colors,
-    Look,
     ManimColor,
     Material,
     Paint,
@@ -95,6 +94,7 @@ from manimgx.drawing.paint import (
     Style,
     StyleBase,
     StyleSnapshot,
+    _Look,
     color_gradient,
     frozen,
     interpolate_color,
@@ -527,10 +527,8 @@ class GridArrangement(TypedDict, total=False):
     fills columns top to bottom, from the left)."""
 
 
-class Beside(TypedDict, total=False):
-    """How [next_to][manimgx.Mobject.next_to] aligns a mobject beside another: its
-    keywords but the direction and the gap, for the methods that pass them on
-    ([arrange][manimgx.Mobject.arrange])."""
+class _Beside(TypedDict, total=False):
+    """Beside's keys, open, for the keywords that add to them."""
 
     aligned_edge: Vector3DLike
     """The edge, as a direction, along which the two line up besides the side they meet
@@ -547,7 +545,13 @@ class Beside(TypedDict, total=False):
     it keeps (default (1, 1, 1))."""
 
 
-class Placement(Beside, total=False):
+class Beside(_Beside, total=False, closed=True):
+    """How [next_to][manimgx.Mobject.next_to] aligns a mobject beside another: its
+    keywords but the direction and the gap, for the methods that pass them on
+    ([arrange][manimgx.Mobject.arrange])."""
+
+
+class Placement(_Beside, total=False, closed=True):
     """How [next_to][manimgx.Mobject.next_to] places a mobject beside another: its
     keywords but the direction, for the methods that pass them on."""
 
@@ -555,7 +559,7 @@ class Placement(Beside, total=False):
     """The gap between the two, in scene units (default 0.25)."""
 
 
-class BackgroundOptions(Look, total=False):
+class BackgroundOptions(_Look, total=False, closed=True):
     """A background rectangle's keywords but its color and opacity: those of
     [add_background_rectangle][manimgx.Mobject.add_background_rectangle] and its
     variants."""
@@ -575,7 +579,7 @@ class BackgroundOptions(Look, total=False):
     """The outline's color (default: the rectangle's color)."""
 
 
-class Pivot(TypedDict, total=False):
+class Pivot(TypedDict, total=False, closed=True):
     """The point a transformation keeps fixed: given, or a point of the mobject's
     bounding box.
 
@@ -4259,7 +4263,9 @@ class Mobject:
         animation's [Transform options][manimgx.animation.transform.TransformOptions]; a
         `path_arc` or a `path_func` among them replaces the motion. Call it with a
         function — `square.animate(lambda s: s.shift(UP))` — to record that function as
-        a call.
+        a call. Call a method of your own class so: through `animate`, a type checker
+        knows only manimgx's methods, but it checks a function against the mobject's
+        class.
 
         Examples:
             ```python
@@ -4544,7 +4550,8 @@ class ValueTracker[V: (float, complex) = float](Mobject):
     change the number at once.
 
     Args:
-        value: The number it starts with.
+        value: The real number it starts with; use
+            [ComplexValueTracker][manimgx.ComplexValueTracker] for complex numbers.
         **kwargs: [Style keywords][manimgx.drawing.paint.Style], as any mobject takes (a
             tracker is not drawn).
 
@@ -4569,6 +4576,14 @@ class ValueTracker[V: (float, complex) = float](Mobject):
         ```
     """
 
+    @overload
+    def __init__(
+        self: "ValueTracker[float]", value: float = 0, **kwargs: Unpack[Style]
+    ) -> None: ...
+    @overload
+    def __init__(
+        self: "ComplexValueTracker", value: complex = 0, **kwargs: Unpack[Style]
+    ) -> None: ...
     def __init__(self, value: V = 0, **kwargs: Unpack[Style]) -> None:
         super().__init__(**kwargs)
         self.points = np.zeros((1, 3))
@@ -6095,25 +6110,25 @@ class VDict[T: Mobject = Mobject](Mobject):
     """
 
     @overload  # `VDict({...})`: members of any kinds
-    def __init__(
+    def __init__[Key: Hashable](
         self: "VDict[Mobject]",
         mapping_or_iterable: (
-            Mapping[Hashable, Mobject] | Iterable[tuple[Hashable, Mobject]]
+            Mapping[Key, Mobject] | Iterable[tuple[Key, Mobject]]
         ) = {},
         show_keys: bool = False,
         **kwargs: Unpack[Style],
     ) -> None: ...
     @overload  # `VDict[Circle]({...})`: declared
-    def __init__(
+    def __init__[Key: Hashable](
         self,
-        mapping_or_iterable: Mapping[Hashable, T] | Iterable[tuple[Hashable, T]] = {},
+        mapping_or_iterable: Mapping[Key, T] | Iterable[tuple[Key, T]] = {},
         show_keys: bool = False,
         **kwargs: Unpack[Style],
     ) -> None: ...
-    def __init__(
+    def __init__[Key: Hashable](
         self,
         mapping_or_iterable: (
-            Mapping[Hashable, Mobject] | Iterable[tuple[Hashable, Mobject]]
+            Mapping[Key, Mobject] | Iterable[tuple[Key, Mobject]]
         ) = {},
         show_keys: bool = False,
         **kwargs: Unpack[Style],
@@ -6126,8 +6141,8 @@ class VDict[T: Mobject = Mobject](Mobject):
             mapping_or_iterable  # ty: ignore[invalid-argument-type]  # a VDict[T] is given T
         )
 
-    def add(  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]  # CE's: by key
-        self, mapping_or_iterable: Mapping[Hashable, T] | Iterable[tuple[Hashable, T]]
+    def add[Key: Hashable](  # pyright: ignore[reportIncompatibleMethodOverride]  # ty: ignore[invalid-method-override]  # CE's: by key
+        self, mapping_or_iterable: Mapping[Key, T] | Iterable[tuple[Key, T]]
     ) -> Self:
         """Add members by key, after the group's.
 

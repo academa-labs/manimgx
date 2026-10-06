@@ -124,7 +124,9 @@ class Config:
 
     # CE's dict-style access (`config["frame_width"]`), typed by key
     @overload
-    def __getitem__(self, key: Literal["pixel_width", "pixel_height"]) -> int: ...
+    def __getitem__(
+        self, key: Literal["pixel_width", "pixel_height", "simulation_rate"]
+    ) -> int: ...
     @overload
     def __getitem__(
         self,
@@ -151,7 +153,9 @@ class Config:
 
     @overload
     def __setitem__(
-        self, key: Literal["pixel_width", "pixel_height"], value: int
+        self,
+        key: Literal["pixel_width", "pixel_height", "simulation_rate"],
+        value: int,
     ) -> None: ...
     @overload
     def __setitem__(

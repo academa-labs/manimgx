@@ -49,6 +49,7 @@ from manimgx.drawing.paint import (
     Look,
     ParsableManimColor,
     Style,
+    _Style,
 )
 from manimgx.mobject import Mobject, Placement, VGroup, VMobject, _family, _family_box
 from manimgx.mobjects.shapes import (
@@ -85,7 +86,7 @@ if TYPE_CHECKING:
     )
 
 
-class FrameOptions(Style, total=False):
+class FrameOptions(_Style, total=False, closed=True):
     """The keywords of a rectangle made around a mobject, as a
     [SurroundingRectangle][manimgx.SurroundingRectangle] or a
     [BackgroundRectangle][manimgx.BackgroundRectangle] is: its margin and its corners,
@@ -175,6 +176,8 @@ class BackgroundRectangle(SurroundingRectangle):
         *mobjects: The mobjects to go behind.
         buff: The margin around them, in scene units: one for all sides, or
             (horizontal, vertical).
+        corner_radius: The radius of its corners, in scene units: 0 for square
+            corners.
 
     Examples:
         ```python
@@ -200,11 +203,12 @@ class BackgroundRectangle(SurroundingRectangle):
         self,
         *mobjects: Mobject,
         buff: float | tuple[float, float] = 0,
+        corner_radius: float = 0.0,
         **kwargs: Unpack[Style],
     ) -> None:
         if kwargs.get("color") is None:  # not given (None too): the scene's, when made
             kwargs["color"] = config.background_color
-        super().__init__(*mobjects, buff=buff, **kwargs)
+        super().__init__(*mobjects, buff=buff, corner_radius=corner_radius, **kwargs)
         self.original_fill_opacity: float = self.fill_opacity
 
 
@@ -541,7 +545,7 @@ class LabeledPolygram(Polygram):
         self.add(self.label)
 
 
-class BraceOptions(Style, total=False):
+class BraceOptions(_Style, total=False, closed=True):
     """A [brace][manimgx.Brace]'s keywords but its direction, for the classes that pass
     them on.
 
@@ -738,7 +742,7 @@ type LabelMaker = Callable[
 ]  # strings (MathTex takes several) to a label
 
 
-class BraceLabelOptions(Style, total=False):
+class BraceLabelOptions(_Style, total=False, closed=True):
     """A [brace label][manimgx.BraceLabel]'s keywords but its label's class, for the
     classes that choose it.
 

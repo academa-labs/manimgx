@@ -31,9 +31,10 @@ __all__ = [
     "Torus",
 ]
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from typing import TYPE_CHECKING, ClassVar, Literal, Self, TypedDict, Unpack, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, Unpack, cast
 
 import numpy as np
+from typing_extensions import TypedDict
 
 from manimgx.caches import forgets
 from manimgx.constants import (
@@ -71,6 +72,7 @@ from manimgx.drawing.paint import (
     ManimColor,
     ParsableManimColor,
     Style,
+    _Style,
     rgbas_by_value,
 )
 from manimgx.mobject import MeshMobject, Mobject, VectorizedPoint, VGroup, VMobject
@@ -111,10 +113,8 @@ class ThreeDVMobject(VMobject):
     v2: float
 
 
-class SurfaceLook(Style, total=False):
-    """A [Surface][manimgx.Surface]'s keywords but its function, ranges and resolution,
-    for the shapes that set those (spheres, cylinders, …): its checkerboard, with the
-    style keywords."""
+class _SurfaceLook(_Style, total=False):
+    """SurfaceLook's keys, open, for the keywords that add to them."""
 
     surface_piece_config: Style | None
     """Accepted for Manim compatibility; ignored."""
@@ -127,7 +127,13 @@ class SurfaceLook(Style, total=False):
     """Accepted for Manim compatibility; ignored."""
 
 
-class SurfaceOptions(SurfaceLook, total=False):
+class SurfaceLook(_SurfaceLook, total=False, closed=True):
+    """A [Surface][manimgx.Surface]'s keywords but its function, ranges and resolution,
+    for the shapes that set those (spheres, cylinders, …): its checkerboard, with the
+    style keywords."""
+
+
+class SurfaceOptions(_SurfaceLook, total=False, closed=True):
     """A [Surface][manimgx.Surface]'s keywords but its function and ranges, for the
     shapes that pass them on ([Cone][manimgx.Cone]): its resolution and checkerboard,
     with the style keywords."""
@@ -886,7 +892,7 @@ class Cylinder(_DirectedSurface):
         return self
 
 
-class Line3DOptions(SurfaceLook, total=False):
+class Line3DOptions(_SurfaceLook, total=False, closed=True):
     """A [Line3D][manimgx.Line3D]'s keywords but its ends, for the methods that pass
     them on ([parallel_to][manimgx.Line3D.parallel_to],
     [perpendicular_to][manimgx.Line3D.perpendicular_to]): its thickness and resolution,
@@ -1230,7 +1236,7 @@ class Torus(Surface):
         return _revolve(self.R - self.r * np.cos(v), -self.r * np.sin(v), u)
 
 
-class PolyhedronOptions(TypedDict, total=False):
+class PolyhedronOptions(TypedDict, total=False, closed=True):
     """How a [Polyhedron][manimgx.Polyhedron]'s faces and its graph of vertices and
     edges look, for the solids that set their own vertices and faces
     ([Tetrahedron][manimgx.Tetrahedron], [ConvexHull3D][manimgx.ConvexHull3D], …)."""

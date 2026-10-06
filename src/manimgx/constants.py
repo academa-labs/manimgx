@@ -182,7 +182,7 @@ class LineJointType(Enum):
     """Corners cut straight across."""
     MITER = 3
     """Pointed corners, where the stroke's edges meet; cut straight across where the
-    point would be more than ten stroke widths long."""
+    point would lie more than five stroke widths from the path's corner."""
 
 
 class CapStyleType(Enum):
