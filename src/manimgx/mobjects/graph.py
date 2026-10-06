@@ -255,6 +255,109 @@ def _kamada_kawai_layout(
     return dict(zip(nodes, x, strict=True))
 
 
+def _spectral_layout(
+    graph: NxGraph,
+    weight: str | None = "weight",
+    scale: float = 1,
+    center: Point3DLike | None = None,
+    dim: int = 2,
+    store_pos_as: str | None = None,
+) -> dict[Hashable, np.ndarray]:
+    """Laplacian coordinates with axes fixed by node order, including repeated eigenvalues.
+
+    An eigensolver chooses arbitrary signs and arbitrary orthonormal bases of repeated
+    eigenspaces. Projecting node coordinate axes into each whole space and choosing the
+    largest remaining projection avoids magnifying a nearly zero coordinate into an axis.
+    Node order breaks numerical ties. Unresolved neighboring spaces are oriented jointly;
+    like any spectral embedding, nearly degenerate weights can make coordinates sensitive
+    to perturbations. The constant direction is removed explicitly, also for disconnected
+    graphs.
+    """
+    import networkx as nx
+
+    nodes, n = list(graph), len(graph)
+    origin = np.zeros(dim) if center is None else np.asarray(center, dtype=float)
+    if dim < 1 or origin.shape != (dim,):
+        raise ValueError(
+            "a layout needs a positive dimension and a center of that dimension"
+        )
+    if n == 0:
+        return {}
+    points = np.zeros((n, dim))
+    if n > 1:
+        adjacency = nx.to_numpy_array(graph, weight=weight)
+        if not np.isfinite(adjacency).all():
+            raise ValueError("spectral edge weights must be finite")
+        if magnitude := float(np.abs(adjacency).max()):
+            adjacency /= magnitude
+        if graph.is_directed():
+            adjacency += adjacency.T.copy()
+        laplacian = np.diag(adjacency.sum(axis=1)) - adjacency
+        values, vectors = np.linalg.eigh(laplacian)
+        rounding = np.finfo(float).eps * n
+        # Cluster only eigenvalues indistinguishable at this solve's backward error:
+        # its measured residual plus the rounding in an n-term matrix product.
+        error = np.linalg.norm(laplacian @ vectors - vectors * values)
+        error += rounding * np.sqrt(n) * np.linalg.norm(laplacian, ord=np.inf)
+        cuts = [0, *(np.flatnonzero(np.diff(values) > 2 * error) + 1), n]
+        columns: list[np.ndarray] = []
+        group = 0
+        while group + 1 < len(cuts):
+            start, end = cuts[group : group + 2]
+            space = vectors[:, start:end]
+            projection = space @ space.T
+            constant = bool(np.any(np.abs(values[start:end]) <= error))
+            if constant:
+                projection -= np.full((n, n), 1 / n)
+            gap = min(
+                values[start] - values[start - 1] if start else np.inf,
+                values[end] - values[end - 1] if end < n else np.inf,
+            )
+            # Residual/gap estimates the uncertainty of a space, not just its eigenvalue.
+            uncertainty = rounding + error / (gap - error)
+            wanted = min(end - start - int(constant), dim - len(columns))
+            basis: list[np.ndarray] = []
+            projection -= projection.mean(axis=0)
+            for _ in range(2):
+                for previous in columns:
+                    projection -= np.outer(previous, previous @ projection)
+            for _ in range(wanted):
+                lengths = np.linalg.norm(projection, axis=0)
+                largest = float(lengths.max())
+                if largest <= 2 * uncertainty:
+                    break
+                pivot = int(np.flatnonzero(lengths >= largest - uncertainty)[0])
+                direction = projection[:, pivot] / lengths[pivot]
+                basis.append(direction)
+                # Pivoted, twice-orthogonalized projections keep later axes away from
+                # directions already chosen, without amplifying tiny first-node entries.
+                for _ in range(2):
+                    projection -= np.outer(direction, direction @ projection)
+            if len(basis) < wanted:
+                # These directions cannot be resolved from a neighboring space with
+                # this solve's accuracy. Orient their joint space instead of silently
+                # losing a low-frequency coordinate or replacing it with a higher one.
+                neighbors = [i for i in (group, group + 1) if 0 < i < len(cuts) - 1]
+                if not neighbors:
+                    raise ValueError("spectral coordinates could not be resolved")
+                boundary = min(
+                    neighbors, key=lambda i: values[cuts[i]] - values[cuts[i] - 1]
+                )
+                del cuts[boundary]
+                columns, group = [], 0
+                continue
+            columns.extend(basis)
+            if len(columns) == dim:
+                break
+            group += 1
+        points[:, : len(columns)] = np.array(columns).T
+    points = nx.rescale_layout(points, scale=scale) + origin
+    positions = dict(zip(nodes, points, strict=True))
+    if store_pos_as is not None:
+        nx.set_node_attributes(graph, positions, store_pos_as)
+    return positions
+
+
 LayoutName = Literal[
     "circular",
     "kamada_kawai",
@@ -267,8 +370,8 @@ LayoutName = Literal[
     "tree",
 ]
 """The names of the layouts a graph is laid out by (see
-[GenericGraph][manimgx.mobjects.graph.GenericGraph]): NetworkX's, and `"partite"` and
-`"tree"` of their own."""
+[GenericGraph][manimgx.mobjects.graph.GenericGraph]). The spectral layout fixes its axes by
+node order, so an eigensolver's arbitrary choice of basis does not rotate or skew a graph."""
 
 
 def _layout(name: LayoutName) -> LayoutFunction[Hashable]:
@@ -280,7 +383,7 @@ def _layout(name: LayoutName) -> LayoutFunction[Hashable]:
         "partite": _partite_layout,
         "planar": nx.layout.planar_layout,
         "shell": nx.layout.shell_layout,
-        "spectral": nx.layout.spectral_layout,
+        "spectral": _spectral_layout,
         "spiral": nx.layout.spiral_layout,
         "spring": nx.layout.spring_layout,
         "tree": _tree_layout,
