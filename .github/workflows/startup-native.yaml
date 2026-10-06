@@ -8,6 +8,11 @@ on:
         description: Optional Test run whose wheel is compared on this same runner
         required: false
         type: string
+      area_experiment:
+        description: Apply the isolated constant-storage area candidate before building
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -55,7 +60,16 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/contents/uv.lock?ref=${commit}" \
             --header 'Accept: application/vnd.github.raw+json' > baseline/uv.lock
 
-      - name: Build the ordinary candidate wheel and frozen runtime
+      - name: Apply the isolated streaming-area experiment
+        if: ${{ inputs.area_experiment }}
+        run: |
+          git apply scripts/engine/area_streaming.patch
+          git diff --binary > startup-area.patch
+          cargo test --locked --release --manifest-path rust/Cargo.toml \
+            -p manimgx-engine --no-default-features --features render,player,export \
+            area_contract
+
+      - name: Build the candidate wheel and frozen runtime
         run: |
           uv build --wheel --python 3.13 --out-dir dist
           uv sync --frozen --no-install-project
@@ -101,6 +115,8 @@ jobs:
           Path(f"startup-{mode}-wheel.json").write_text(json.dumps({
               "source": commit, "wheel": wheel.name,
               "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "patch_sha256": hashlib.sha256(Path("startup-area.patch").read_bytes()).hexdigest()
+                  if mode == "production" and Path("startup-area.patch").exists() else None,
               "package": str(package),
           }, indent=2), encoding="utf-8")
           PYTHON
@@ -144,6 +160,7 @@ jobs:
             startup-*/
             startup-*.log
             startup-*-wheel.json
+            startup-area.patch
             !startup-*/recording.take
           if-no-files-found: error
           retention-days: 7
