@@ -1,8 +1,8 @@
 {
   "verdict": "working",
-  "note": "",
+  "note": "Reviewed the rotated geometry and changed edge pixels: accept double-precision plane placement and projection (aa74c9f).",
   "source": "sha256:0bfd63aab32950ccb1c3870b34dc2b10bf553b858ce40a1f2b11b903803c026b",
-  "manimgx": "sha256:309c91559976c5d6268db80660f7b3c1c533942073b90719e32beacc81cbcb83",
+  "manimgx": "sha256:68d6afb36efaf5230b2b1cc0b803563f208b00b63852cd0d645c52818bcc8609",
   "ce": "sha256:727675b8ac9b2fbfc7a693ecfa0c29342e4e5bb74edc08308c40bf5ab6faebb7",
-  "at": "2026-10-04"
+  "at": "2026-10-06"
 }

@@ -1,8 +1,8 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:55cb4dd57a70363aa1d968a54dc39136c962d2a16ef2a0d22c34286f060a292f",
+  "note": "Sampled the canonical frames: the animation override removes the text while retaining the circle.",
+  "source": "sha256:7854aa97a1532e3286776827f991e687a70b17659c3e5431c148198986efec9a",
   "manimgx": "sha256:a1ba379219b59224746e3963ba9c7233433f496d5bdb3752fbe66d37ae2c9c5d",
   "ce": "sha256:31b97bc01ab5ea5f3118fb8bdba3baeb1186eda0e3a10dc63d94bc774e23f49c",
-  "at": "2026-10-04"
+  "at": "2026-10-05"
 }

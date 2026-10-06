@@ -5,12 +5,12 @@
   "manimgx": {
     "duration": 0.0,
     "frames": [
-      ["601296928db32300", 1]
+      ["b7237002214b6282", 1]
     ],
     "timeline": [
       [0.0, 1]
     ],
-    "id": "sha256:c9367b601021ae104dadac1b596035a36d04fbdd77bcf50b668d8c1809260521"
+    "id": "sha256:b984dc8c596ffd4d4c5754f97c0fc6215887a033d08f92535d1791630f6940be"
   },
   "ce": {
     "manim": "0.21.0",
@@ -26,7 +26,7 @@
   "comparison": {
     "metrics": ["local_max", "mae", "rmse", "max"],
     "pairs": [
-      [0, 0, 59.45, 0.2, 3.41, 193.0]
+      [0, 0, 52.82, 0.19, 2.98, 182.0]
     ],
     "unpaired": []
   }

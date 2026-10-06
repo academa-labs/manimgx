@@ -1,8 +1,8 @@
 {
   "verdict": "working",
-  "note": "Codex visual review of the compact Surface topology reference update: unique sample positions and derived cell topology preserve the reviewed geometry, lighting and color behavior; changed floating-point packing produces sparse raster/edge/stroke differences. Baseline and candidate movies were compared across all 2 frames; frame count, duration and timeline are unchanged. Largest changed area: 9 pixels/frame out of 518400; maximum channel delta 57/255; maximum frame RMSE 0.089767/255. This is a new review, not an attribution to an earlier reviewer, and it does not assert Manim CE equivalence. CE comparisons were recomputed from this movie and the existing unchanged CE movie; the automatic CE verdict remains authoritative. Evidence: topology-v3 proof sha256:91f4ac3378af19d1782176eade8c2868aa74fa1a4e10cd124400c35886c55929.",
+  "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels. Previous review: Codex visual review of the compact Surface topology reference update: unique sample positions and derived cell topology preserve the reviewed geometry, lighting and color behavior; changed floating-point packing produces sparse raster/edge/stroke differences. Baseline and candidate movies were compared across all 2 frames; frame count, duration and timeline are unchanged. Largest changed area: 9 pixels/frame out of 518400; maximum channel delta 57/255; maximum frame RMSE 0.089767/255. This is a new review, not an attribution to an earlier reviewer, and it does not assert Manim CE equivalence. CE comparisons were recomputed from this movie and the existing unchanged CE movie; the automatic CE verdict remains authoritative. Evidence: topology-v3 proof sha256:91f4ac3378af19d1782176eade8c2868aa74fa1a4e10cd124400c35886c55929.",
   "source": "sha256:e1cf94fa0db590303e28a5d62cb9873dc5123d00ac2f1ce8c41616e64970df6c",
-  "manimgx": "sha256:26eb3f5be61985e85a4792fb7031f6c5f313343d73bcae23de924f83191744a4",
+  "manimgx": "sha256:9158cd6e38b54d0024dab3c71ca9544796008c1141f1b6b60def2e3fc493874e",
   "ce": "sha256:86d3010de932e7d633bfd43a4d5b73244b1bfb89ad166ac499b9efc927512961",
-  "at": "2026-10-04"
+  "at": "2026-10-06"
 }

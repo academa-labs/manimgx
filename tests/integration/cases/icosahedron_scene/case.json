@@ -5,12 +5,12 @@
   "manimgx": {
     "duration": 1.0,
     "frames": [
-      ["b77181cf41965c25", 11]
+      ["a4c4dee588087b96", 11]
     ],
     "timeline": [
       [0.0, 11]
     ],
-    "id": "sha256:4c56382f9321a82c1e1b4b090ed2b855c08616a821bb4fbaf8e3ebcb7b5bed2a"
+    "id": "sha256:f0f504f5bab766edb8eb9deece0a615cefe21d9a76444608779a245f7066b359"
   },
   "ce": {
     "manim": "0.21.0",

@@ -62,16 +62,18 @@ def render(case: Case, wanted: set[Engine]) -> tuple[Facts, str]:
                 isinstance(previous, Frames)
                 and previous.runs == result.frames.runs
                 and video.exists()
+                and case.video_hash(engine).exists()
+                and case.video_hash(engine).read_text(encoding="ascii")
+                == f"{hashlib.sha256(video.read_bytes()).hexdigest()}  {video.name}\n"
             ):
                 notes.append(f"{engine} unchanged")
             else:
                 shutil.move(fresh, video)
-                if previous != result.frames or not case.video_hash(engine).exists():
-                    digest = hashlib.sha256(video.read_bytes()).hexdigest()
-                    case.video_hash(engine).write_text(
-                        f"{digest}  {video.name}\n",
-                        encoding="ascii",
-                    )
+                digest = hashlib.sha256(video.read_bytes()).hexdigest()
+                case.video_hash(engine).write_text(
+                    f"{digest}  {video.name}\n",
+                    encoding="ascii",
+                )
                 notes.append(f"{engine} {'new' if previous is None else 'changed'}")
     kept = None if old is None or changed else old.comparison
     facts = _facts(case, source, renders["manimgx"], renders["ce"], ce_version, kept)
