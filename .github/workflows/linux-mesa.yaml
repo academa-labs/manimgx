@@ -86,17 +86,19 @@ jobs:
               rpm -qa | sort > diagnostic/rpm-packages.txt
               sha256sum diagnostic/driver/libvulkan_lvp.so retained/retained-wheels/*.whl > diagnostic/artifact-hashes.txt
               cp diagnostic/driver/libvulkan_lvp.so /tmp/probe/lib/python3.13/site-packages/manimgx/lavapipe/libvulkan_lvp.so
-              for variant in default ir-o0 codegen-o0 both-o0; do
-                set --
+              for variant in default default-dump ir-o0 codegen-o0 both-o0; do
+                set -- MANIMGX_DIAGNOSTIC_DUMP_DIR="/work/diagnostic/$variant/bitcode"
                 case "$variant" in
-                  ir-o0) set -- MANIMGX_DIAGNOSTIC_IR_O0=true ;;
-                  codegen-o0) set -- MANIMGX_DIAGNOSTIC_CODEGEN_O0=true ;;
-                  both-o0) set -- MANIMGX_DIAGNOSTIC_IR_O0=true MANIMGX_DIAGNOSTIC_CODEGEN_O0=true ;;
+                  default) set -- ;;
+                  ir-o0) set -- "$@" MANIMGX_DIAGNOSTIC_IR_O0=true ;;
+                  codegen-o0) set -- "$@" MANIMGX_DIAGNOSTIC_CODEGEN_O0=true ;;
+                  both-o0) set -- "$@" MANIMGX_DIAGNOSTIC_IR_O0=true MANIMGX_DIAGNOSTIC_CODEGEN_O0=true ;;
                 esac
                 mkdir -p "diagnostic/$variant/bitcode"
-                env MANIMGX_DIAGNOSTIC_DUMP_DIR="/work/diagnostic/$variant/bitcode" "$@" \
+                env "$@" \
                   /tmp/probe/bin/python scripts/release/linux_startup.py "diagnostic/$variant" source --case square --timeout 60 || result=1
                 for bitcode in diagnostic/"$variant"/bitcode/*.bc; do
+                  test -f "$bitcode" || continue
                   llvm-dis "$bitcode" -o "${bitcode%.bc}.ll"
                 done
               done
