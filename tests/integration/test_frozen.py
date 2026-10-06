@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from tests.integration.corpus.case import SIZE, Case, Frames
-from tests.integration.corpus.frames import Recorder
+from tests.integration.corpus.frames import Recorder, decode
 from tests.integration.corpus.frozen import Movie, dependencies, prepare
 from tests.integration.corpus.frozen_probe import compare
 
@@ -150,3 +150,19 @@ def test_reference_movie_must_decode_exactly_its_recorded_frames(
         else:
             with pytest.raises(ValueError, match="reference movie"):
                 read()
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_lossless_storage_policies_preserve_pixels_and_holds(
+    tmp_path: Path, compact: bool
+) -> None:
+    size = (32, 18)
+    # Asymmetric RGB values exercise all channels, including the image edges.
+    first = bytes((i * 73 + 19) % 256 for i in range(size[0] * size[1] * 3))
+    second = bytes(255 - value for value in first)
+    path = tmp_path / "reference.mkv"
+    recorder = Recorder(size, 10, path, compact=compact)
+    recorder.add(first, 3)
+    recorder.add(second)
+    assert [repeat for _, repeat in recorder.close()] == [3, 1]
+    assert [frame.tobytes() for frame in decode(path, size)] == [first] * 3 + [second]

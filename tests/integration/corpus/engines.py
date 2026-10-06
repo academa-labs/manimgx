@@ -59,6 +59,7 @@ def run(
     source: Path | None = None,
     differences: Path | None = None,
     log: Path | None = None,
+    compact_video: bool = True,
 ) -> Result:
     """Render `case` with `engine`; its frames go to `video` too, if given."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -69,6 +70,8 @@ def run(
             command += ["--video", str(video)]
         if mp4:
             command.append("--mp4")
+        if not compact_video:
+            command.append("--fast-video")
         for flag, path in (
             ("--reference", reference),
             ("--source", source),

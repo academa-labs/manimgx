@@ -37,6 +37,7 @@ def render(
     *,
     comparison: Comparison | None = None,
     source: bytes | None = None,
+    compact_video: bool = True,
 ) -> tuple[bytes, Frames, int]:
     """(source, frames, frame count of the film)."""
     source = scene_path.read_bytes() if source is None else source
@@ -45,7 +46,7 @@ def render(
     config.frame_rate = FPS
     module = load(scene_path, source, f"corpus_scene_{scene_path.parent.name}")
     scene = the_scene(module, manimgx.Scene)()
-    recorder = Recorder(SIZE, FPS, video)
+    recorder = Recorder(SIZE, FPS, video, compact=compact_video)
 
     def observe(frame: Frame) -> None:
         pixels = rgb(frame.pixels(), SIZE)
@@ -96,6 +97,7 @@ def main() -> None:
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--differences", type=Path)
+    parser.add_argument("--fast-video", action="store_true")
     args = parser.parse_args()
     if args.package is not None and not Path(manimgx.__file__).resolve().is_relative_to(
         args.package.resolve()
@@ -148,6 +150,7 @@ def main() -> None:
             mp4,
             comparison=comparison,
             source=None if args.source is None else args.source.read_bytes(),
+            compact_video=not args.fast_video,
         )
         if movie is not None:
             movie.finish()

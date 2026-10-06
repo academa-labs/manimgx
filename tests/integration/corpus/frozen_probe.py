@@ -47,6 +47,7 @@ def compare(
         package=package,
         video=output / "reference.mkv",
         log=output / "reference.log",
+        compact_video=False,
     )
     if isinstance(baseline.frames, Failure):
         return {"status": "error", "error": baseline.frames.error}
