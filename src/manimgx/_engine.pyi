@@ -88,9 +88,11 @@ class Player:
         repeat: int = 1,
         cameras: Sequence[CameraView] = ...,
         key: bool = False,
-    ) -> None:
+        capture: bool = False,
+    ) -> bytes | None:
         """The next frame of the video, shown for `repeat` frames; `key`: a keyframe, where a
-        player can start (a section's first frame)."""
+        player can start (a section's first frame). With `capture`, return the same draw's
+        full-quality RGBA8 pixels, waiting for any overflow retries."""
 
     def abort_export(self) -> None:
         """Abandon the video: nothing is written."""

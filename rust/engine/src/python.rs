@@ -19,27 +19,21 @@ pyo3::create_exception!(_engine, TypstError, pyo3::exceptions::PyException);
 impl Player {
     /// The common readback for directly evaluated frames and recorded takes.
     fn readback<'py>(&mut self, py: Python<'py>, frames: Vec<crate::render::Frame>) -> PyResult<Bound<'py, PyBytes>> {
-        let (width, height) = (self.width, self.height);
         py.detach(|| {
             with_gpu(|gpu| -> Result<(), String> {
                 // drawn again while its see-through fragments overflow the lists
                 loop {
                     let (mut encoder, _, composited) = self.encode(gpu, &frames)?;
                     let t = self.targets.as_ref().expect("targets");
-                    let pixels = t.padded as u64 * height as u64;
-                    encoder.copy_texture_to_buffer(
-                        wgpu::TexelCopyTextureInfo { texture: t.frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-                        wgpu::TexelCopyBufferInfo { buffer: &t.readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.padded), rows_per_image: Some(height) } },
-                        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                    );
+                    let pixels = t.padded as u64 * self.height as u64;
+                    self.copy_pixels(&mut encoder);
                     let lists = self.lists.as_ref().filter(|_| composited);
                     if let Some(lists) = lists {
                         encoder.copy_buffer_to_buffer(&lists.appended, 0, &t.readback, pixels, Some(COUNT_BYTES));
                     }
                     let capacity = lists.map(|l| l.capacity);
                     gpu.queue.submit(Some(encoder.finish()));
-                    t.readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-                    gpu.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
+                    self.map_pixels(gpu)?;
                     let Some(capacity) = capacity else { return Ok(()) };
                     let appended = count(&t.readback.slice(pixels..).get_mapped_range().map_err(|e| e.to_string())?);
                     if !self.overflowed(gpu, appended, capacity) {
@@ -50,6 +44,11 @@ impl Player {
             })?
         })
         .map_err(PyRuntimeError::new_err)?;
+        self.pixels(py)
+    }
+
+    fn pixels<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let (width, height) = (self.width, self.height);
         // copied once: from the mapped buffer into the bytes Python gets
         let t = self.targets.as_ref().expect("targets");
         let mapped = t.readback.slice(..t.padded as u64 * height as u64).get_mapped_range().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -157,10 +156,12 @@ impl Player {
     #[cfg(feature = "export")]
     /// The next frame of the video, shown for `repeat` frames: a view and its records, with
     /// `cameras` drawn first (as for `render`); `key`: a keyframe, where a player can start.
-    #[pyo3(signature = (view, records, repeat = 1, cameras = Vec::new(), key = false))]
-    fn push(&mut self, py: Python<'_>, view: &[u8], records: &[u8], repeat: u32, cameras: Vec<CameraView>, key: bool) -> PyResult<()> {
+    #[pyo3(signature = (view, records, repeat = 1, cameras = Vec::new(), key = false, capture = false))]
+    #[allow(clippy::too_many_arguments)]
+    fn push<'py>(&mut self, py: Python<'py>, view: &[u8], records: &[u8], repeat: u32, cameras: Vec<CameraView>, key: bool, capture: bool) -> PyResult<Option<Bound<'py, PyBytes>>> {
         let frames = self.views(view, records, cameras).map_err(PyValueError::new_err)?;
-        py.detach(|| with_gpu(|gpu| self.push_frames(gpu, frames, repeat, key))?).map_err(PyRuntimeError::new_err)
+        py.detach(|| with_gpu(|gpu| self.push_frames(gpu, frames, repeat, key, capture))?).map_err(PyRuntimeError::new_err)?;
+        capture.then(|| self.pixels(py)).transpose()
     }
 
     #[cfg(feature = "export")]

@@ -1758,6 +1758,22 @@ fn run(pass: &mut wgpu::RenderPass, current: &mut *const wgpu::RenderPipeline, p
 }
 
 impl Player {
+    /// Copy the drawn frame's full-quality RGBA rows, independently of video conversion.
+    pub(crate) fn copy_pixels(&self, encoder: &mut wgpu::CommandEncoder) {
+        let t = self.targets.as_ref().expect("targets");
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: t.frame.color.texture(), mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &t.readback, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(t.padded), rows_per_image: Some(self.height) } },
+            wgpu::Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 },
+        );
+    }
+
+    pub(crate) fn map_pixels(&self, gpu: &Gpu) -> Result<(), String> {
+        self.targets.as_ref().expect("targets").readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        gpu.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Bring the GPU up to date: images made textures, the store's arrays sent — only what was
     /// appended since last time; everything when they were packed or outgrew their buffers — and
     /// room for `count` instances, `views` views and `sprites` sprites.

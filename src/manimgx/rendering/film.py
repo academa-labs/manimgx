@@ -483,17 +483,36 @@ class Film:
             return
         if (self.video is not None or self.frames is not None) and player.pressured():
             self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
-        if self.video is not None:
-            player.push(view, records, repeat, cameras, self._pending_key)
-        if self.frames is not None:
-            self.frames(
-                Frame(
-                    self._first,
-                    repeat,
-                    lambda: player.render(view, records, cameras),
-                    self._pending_key,
-                )
-            )
+        key = self._pending_key
+        if self.frames is None:
+            if self.video is not None:
+                player.push(view, records, repeat, cameras, key)
+            return
+        sent = self.video is None
+
+        def push() -> None:
+            nonlocal sent
+            if not sent:
+                player.push(view, records, repeat, cameras, key)
+                sent = True
+
+        def draw() -> bytes:
+            nonlocal sent
+            if sent:
+                return player.render(view, records, cameras)
+            # A pixel consumer and the encoder share one completed GPU draw. Defer export
+            # until the callback asks: metadata-only callbacks keep the asynchronous path.
+            pixels = player.push(view, records, repeat, cameras, key, capture=True)
+            sent = True
+            assert pixels is not None
+            return pixels
+
+        try:
+            self.frames(Frame(self._first, repeat, draw, key))
+        except Cut:
+            push()  # the frame that cuts a film still belongs to its video
+            raise
+        push()
 
     @deprecated("manimgx's machinery: the scene calls it", category=None)
     def close(self) -> None:
