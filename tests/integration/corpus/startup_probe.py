@@ -62,8 +62,9 @@ def workload(scene: Path, output: Path) -> None:
     from manimgx import _engine
     def measure(name, action):
         started = time.perf_counter()
+        cpu_started = time.process_time()
         result = action()
-        print(json.dumps({'phase': name, 'seconds': time.perf_counter() - started}), flush=True)
+        print(json.dumps({'phase': name, 'seconds': time.perf_counter() - started, 'cpu_seconds': time.process_time() - cpu_started}), flush=True)
         return result
     replay = measure('decode', lambda: _engine.Replay(Path(sys.argv[1]).read_bytes()))
     print(json.dumps(measure('device_and_eager_pipelines', _engine.adapter_info)), flush=True)
@@ -76,14 +77,16 @@ def workload(scene: Path, output: Path) -> None:
     for sweep in range(2):
         for shot, (frame, repeat) in enumerate(replay.timeline):
             started = time.perf_counter()
+            cpu_started = time.process_time()
             pixels = replay.render(frame)
             seconds = time.perf_counter() - started
+            cpu_seconds = time.process_time() - cpu_started
             digest = hashlib.sha256(pixels).hexdigest()
             if sweep == 0:
                 expected.append(digest)
             else:
                 assert digest == expected[shot]
-            print(json.dumps({'sweep': sweep, 'frame': frame, 'repeat': repeat, 'seconds': seconds, 'sha256': digest}), flush=True)
+            print(json.dumps({'sweep': sweep, 'frame': frame, 'repeat': repeat, 'seconds': seconds, 'cpu_seconds': cpu_seconds, 'sha256': digest}), flush=True)
     """,
             str(output / "recording.take"),
         ],
