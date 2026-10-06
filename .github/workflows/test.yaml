@@ -66,6 +66,18 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
+      - name: Install the browser engine target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: web-player
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Check the browser engine
+        run: just check-rust-web
+
       - name: Test the browser package
         run: just test-typescript
 

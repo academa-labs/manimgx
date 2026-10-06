@@ -1522,9 +1522,9 @@ impl Canvas {
 
 pub(crate) struct Targets {
     pub(crate) frame: Canvas,
-    #[cfg(feature = "python")]
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) readback: wgpu::Buffer, // the frame's pixels, then the lists' count (see `Lists`)
-    #[cfg(feature = "python")]
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) padded: u32,
 }
 
@@ -1759,6 +1759,7 @@ fn run(pass: &mut wgpu::RenderPass, current: &mut *const wgpu::RenderPipeline, p
 
 impl Player {
     /// Copy the drawn frame's full-quality RGBA rows, independently of video conversion.
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) fn copy_pixels(&self, encoder: &mut wgpu::CommandEncoder) {
         let t = self.targets.as_ref().expect("targets");
         encoder.copy_texture_to_buffer(
@@ -1768,6 +1769,7 @@ impl Player {
         );
     }
 
+    #[cfg(any(feature = "python", feature = "export"))]
     pub(crate) fn map_pixels(&self, gpu: &Gpu) -> Result<(), String> {
         self.targets.as_ref().expect("targets").readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
@@ -1850,19 +1852,19 @@ impl Player {
     pub(crate) fn targets(&mut self, gpu: &Gpu) -> &Targets {
         let (width, height) = (self.width, self.height);
         self.targets.get_or_insert_with(|| {
-            #[cfg(feature = "python")]
+            #[cfg(any(feature = "python", feature = "export"))]
             let padded = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
             Targets {
                 frame: Canvas::new(gpu, width, height),
                 // read back natively (`render`); in the browser a frame goes to its canvas
-                #[cfg(feature = "python")]
+                #[cfg(any(feature = "python", feature = "export"))]
                 readback: gpu.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("readback"),
                     size: (padded * height) as u64 + COUNT_BYTES,
                     usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                     mapped_at_creation: false,
                 }),
-                #[cfg(feature = "python")]
+                #[cfg(any(feature = "python", feature = "export"))]
                 padded,
             }
         })

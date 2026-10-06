@@ -54,6 +54,12 @@ check:
 check-typescript:
     cd browser && bun install --frozen-lockfile && bun run check
 
+# Check the browser engine without the native extension's features (target installed by CI)
+[group('development')]
+check-rust-web:
+    cargo check --locked --manifest-path rust/Cargo.toml -p manimgx-engine \
+        --target wasm32-unknown-unknown --no-default-features --features web
+
 # Testing:
 
 # Run the tests in parallel; arguments go to pytest (`just test tests/docs -x`)
