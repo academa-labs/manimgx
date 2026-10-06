@@ -3,6 +3,7 @@ The release must route only that project's distributions to it, and publish the 
 before anything that installs manimgx from PyPI.
 """
 
+import base64
 import hashlib
 import io
 import json
@@ -16,7 +17,7 @@ from typing import TextIO
 
 import pytest
 import yaml
-from scripts.release import create_executable, linux_sources, smoke_test
+from scripts.release import create_executable, linux_sources, publish_npm, smoke_test
 
 ROOT = Path(__file__).parents[1]
 JOBS = yaml.safe_load(
@@ -136,8 +137,86 @@ def test_engine_publisher_excludes_fonts_and_github_only_artifacts() -> None:
 
 def test_consumers_wait_for_the_font_packages() -> None:
     assert "pypi-fonts" in JOBS["pypi"]["needs"]
-    for job in ["npm", "docker", "publish"]:
+    for job in ["npm", "publish"]:
         assert "pypi" in JOBS[job]["needs"]
+
+
+def test_every_artifact_is_built_before_public_source_and_registry_uploads() -> None:
+    def ancestors(name: str) -> set[str]:
+        needs = JOBS[name].get("needs", [])
+        parents = {needs} if isinstance(needs, str) else set(needs)
+        return parents | {parent for item in parents for parent in ancestors(item)}
+
+    builds = {"test", "wheels", "sdist", "executables", "npm-build", "docker-build"}
+    assert builds <= ancestors("github-release")
+    for publisher in ["pypi-fonts", "pypi", "npm", "docker"]:
+        assert "github-release" in ancestors(publisher)
+    public_source = "\n".join(
+        step.get("run", "") for step in JOBS["github-release"]["steps"]
+    )
+    assert "--draft=false" in public_source
+
+
+def test_registry_uploads_use_built_artifacts_without_rebuilding() -> None:
+    npm = JOBS["npm"]["steps"]
+    assert any(step.get("with", {}).get("name") == "npm" for step in npm)
+    assert not any("build-npm" in step.get("run", "") for step in npm)
+    docker = JOBS["docker"]["steps"]
+    assert any(step.get("with", {}).get("pattern") == "docker-*" for step in docker)
+    command = "\n".join(step.get("run", "") for step in docker)
+    assert "skopeo copy --all --preserve-digests" in command
+    assert "docker buildx build" not in command
+    image = (ROOT / "docker/Dockerfile").read_text(encoding="utf-8")
+    release = image.split("FROM runtime AS release", 1)[1].split(
+        "FROM runtime AS published", 1
+    )[0]
+    assert "--require-hashes --requirements /wheels/requirements.txt" in release
+    assert "--no-deps /wheels/*.whl" in release
+
+
+@pytest.mark.parametrize("state", ["new", "identical", "different", "unauthorized"])
+def test_npm_retry_requires_the_exact_tarball(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    archive = tmp_path / "package.tgz"
+    with tarfile.open(archive, "w:gz") as package:
+        body = json.dumps({"name": "manimgx", "version": "0.1.0"}).encode()
+        member = tarfile.TarInfo("package/package.json")
+        member.size = len(body)
+        package.addfile(member, io.BytesIO(body))
+    integrity = (
+        "sha512-"
+        + base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+    )
+    uploaded = []
+
+    def run(command: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
+        if command[1] == "publish":
+            uploaded.append(Path(command[2]).read_bytes())
+            return subprocess.CompletedProcess(command, 0, "", "")
+        assert command == ["npm", "view", "manimgx@0.1.0", "dist.integrity", "--json"]
+        if state == "new" and not uploaded:
+            return subprocess.CompletedProcess(
+                command, 1, '{"error":{"code":"E404"}}', ""
+            )
+        if state == "unauthorized":
+            return subprocess.CompletedProcess(
+                command, 1, '{"error":{"code":"E401"}}', ""
+            )
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps("other" if state == "different" else integrity), ""
+        )
+
+    monkeypatch.setattr(subprocess, "run", run)
+    if state == "different":
+        with pytest.raises(ValueError, match="different artifact bytes"):
+            publish_npm.publish(archive)
+    elif state == "unauthorized":
+        with pytest.raises(RuntimeError, match="cannot inspect"):
+            publish_npm.publish(archive)
+    else:
+        publish_npm.publish(archive)
+    assert uploaded == ([archive.read_bytes()] if state == "new" else [])
 
 
 def test_release_smoke_records_decoded_audio_and_a_complete_versioned_take() -> None:

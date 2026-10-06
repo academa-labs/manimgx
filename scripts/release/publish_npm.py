@@ -1,0 +1,54 @@
+"""Publish a built npm tarball, accepting a retry only when the registry has its exact bytes."""
+
+import argparse
+import base64
+import hashlib
+import json
+import subprocess
+import tarfile
+from pathlib import Path
+
+
+def publish(archive: Path) -> None:
+    with tarfile.open(archive) as package:
+        metadata = package.extractfile("package/package.json")
+        if metadata is None:
+            raise ValueError("npm archive has no package.json")
+        manifest = json.load(metadata)
+    name = f"{manifest['name']}@{manifest['version']}"
+    integrity = "sha512-" + base64.b64encode(
+        hashlib.sha512(archive.read_bytes()).digest()
+    ).decode("ascii")
+
+    def exists() -> bool:
+        result = subprocess.run(
+            ["npm", "view", name, "dist.integrity", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        record = json.loads(result.stdout)
+        if result.returncode:
+            if (
+                isinstance(record, dict)
+                and record.get("error", {}).get("code") == "E404"
+            ):
+                return False
+            raise RuntimeError(f"cannot inspect {name}: {result.stdout}{result.stderr}")
+        if record != integrity:
+            raise ValueError(f"{name} already exists with different artifact bytes")
+        return True
+
+    if not exists():
+        subprocess.run(
+            ["npm", "publish", str(archive), "--provenance", "--access", "public"],
+            check=True,
+        )
+        if not exists():
+            raise RuntimeError(f"{name} was not available after publication")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("archive", type=Path)
+    publish(parser.parse_args().archive)

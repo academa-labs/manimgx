@@ -131,13 +131,17 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    archive the engine's build fetches, plus the exact distribution sources retained by the
    Linux wheel jobs; the source archive waits for those platform builds; see
    [Others' sources](engine.md#others-sources)), the font packages (`just build-fonts`), and
-   the executables, from the wheels (`create-executables.yaml`).
+   the executables, from the wheels (`create-executables.yaml`), and the packed npm artifact.
+   Each Linux architecture builds its Docker image from these same wheel and font artifacts,
+   with external dependencies authenticated against `uv.lock`. The images pass the product
+   smoke test without network access. BuildKit retains their provenance and SBOM in OCI archives.
 4. **Draft the GitHub release**, on a tag: it signs each file's provenance (an attestation
    of the workflow, the commit and the run that built it, which
    `gh attestation verify FILE --repo academa-labs/manimgx` checks), and drafts the release
    `manimgx X.Y.Z` with the files (the complete source too, which PyPI doesn't get), its notes
    the changelog's section for the version (`just release-notes`), then where the complete
-   source is, which x264's and FFmpeg's licenses ask for.
+   source is, which x264's and FFmpeg's licenses ask for. The draft then becomes public,
+   making those sources available before registry uploads start.
 5. **Publish to PyPI:** the font packages first, then manimgx's wheels and source
    distribution, with `uv publish`, each with its
    [PEP 740](https://peps.python.org/pep-0740/) attestation. `--check-url` skips files PyPI
@@ -150,9 +154,10 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    GitHub environments with release tags (`v*`) allowed. Pending publishers need distinct
    workflow/environment combinations, even when their project names differ. Publishing
    uses the workflow's OIDC token: no PyPI token is stored.
-6. **Publish to npm:** the package for the browser (`just build-npm`), which installs this
+6. **Publish to npm:** the already-built tarball for the browser, which installs this
    release of manimgx from PyPI, so it comes after PyPI; by trusted publishing too, with
-   provenance. For the first release, before the package exists on npm, create a
+   provenance. A retry accepts an existing version only when its SHA512 integrity matches
+   the exact tarball. For the first release, before the package exists on npm, create a
    short-lived granular token with read/write access to all packages and bypass 2FA,
    and store it as `NPM_TOKEN` in the GitHub `npm` environment (allow only `v*` tags).
    The token is passed only to the publishing step. Once the package exists, configure
@@ -160,15 +165,15 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    `release.yaml`, and environment `npm`; enable direct publishing (`npm publish`),
    since the workflow does not stage releases. Then revoke the token and delete the
    GitHub secret: subsequent releases use OIDC.
-7. **Publish the Docker image:** [docker/github-builder](https://github.com/docker/github-builder)
-   builds `docker/Dockerfile` for the version, for `linux/amd64` and `linux/arm64`,
-   with a signed provenance and SBOM (each package the image holds, with its license), and
-   pushes it to `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
+7. **Publish the Docker image:** copy the tested OCI archives without changing their digests,
+   including the provenance and SBOM, and assemble the `linux/amd64` and `linux/arm64`
+   platform index. Its provenance is signed, and it is published to
+   `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
    `X.Y.Z` only), labeled `MIT AND GPL-3.0-or-later`: manimgx's code, and the engine, which
-   x264 makes GPL-3.0-or-later as a whole. The image installs manimgx from PyPI, so it comes
-   after PyPI.
-8. **Publish the GitHub release:** the draft becomes public last, once PyPI, npm and
-   ghcr.io have their files. Publishing alone does not lock its files or tag: that requires
+   x264 makes GPL-3.0-or-later as a whole. It needs no new package resolution or image build.
+8. **Confirm completion:** all registry uploads have succeeded and the GitHub release is
+   public. Publication across registries is not atomic; a failed destination can be retried
+   using the retained artifacts. Publishing alone does not lock the release's files or tag: that requires
    GitHub's [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
    to be enabled for the repository. This workflow attaches every file while the release
    is a draft and does not change that setting. Recorded artifact digests and provenance
