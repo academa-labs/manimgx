@@ -10,6 +10,9 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 work=$(mktemp -d)
 cleanup() {
   if [ -n "${monitor-}" ]; then kill "$monitor" 2>/dev/null || true; fi
+  for log in "$work"/mesa-tmp/*/mesa-build/meson-logs/meson-log.txt; do
+    if [ -f "$log" ]; then cp "$log" "$output/meson-log.txt"; fi
+  done
   du -sk "$work" >> "$output/disk-kib.log"
   if [ -f /sys/fs/cgroup/memory.peak ]; then cat /sys/fs/cgroup/memory.peak > "$output/cgroup-memory-peak-bytes.txt"; fi
   rm -rf "$work"
@@ -37,7 +40,7 @@ rpm -qa | sort > "$output/rpm-packages.txt"
 c++ --version > "$output/cxx-version.txt"
 (
   while sleep 5; do
-    du -sk "$work" >> "$output/disk-kib.log"
+    du -sk "$work" >> "$output/disk-kib.log" 2>/dev/null || true
   done
 ) &
 monitor=$!
@@ -45,25 +48,42 @@ monitor=$!
 # readers are unused by the in-memory JIT. No SDK LLVM objects enter this build.
 cmake -S "$source/llvm" -B "$work/llvm-build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DCMAKE_INSTALL_PREFIX="$work/llvm-prefix" \
   -DLLVM_DEFAULT_TARGET_TRIPLE="$(llvm-config --host-target)" \
   -DLLVM_TARGETS_TO_BUILD=Native -DLLVM_ENABLE_RTTI=ON \
   -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF \
-  -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=OFF \
+  -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=ON \
   -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF
 cp "$work/llvm-build/CMakeCache.txt" "$output/"
 cp "$work/llvm-build/tools/llvm-config/LibraryDependencies.inc" "$output/"
-# The first four-core build completed 1540/2205 default targets in 30 minutes.
-# Build the verifier tools and Mesa's native MCJIT/LTO dependency closure; unrelated
-# LLVM utilities and libraries do not belong in this driver build.
-targets=(llvm-config llc opt LLVMX86Disassembler LLVMX86TargetMCA LLVMMCJIT LLVMLTO LLVMInterpreter)
+# Meson's llvm-config --shared-mode query checks every configured library, even
+# when linking a subset. Use LLVM's complete native library distribution target.
+targets=(llvm-libraries llvm-config llc opt)
 ninja -C "$work/llvm-build" -n all > "$output/llvm-all-plan.txt"
 ninja -C "$work/llvm-build" -n "${targets[@]}" > "$output/llvm-build-plan.txt"
 /usr/bin/time -v -o "$output/llvm-build-time.txt" \
   timeout --kill-after=10s 3600s cmake --build "$work/llvm-build" --parallel "$(nproc)" --target "${targets[@]}"
-export PATH="$work/llvm-build/bin:$PATH"
-test "$(command -v llvm-config)" = "$work/llvm-build/bin/llvm-config"
+cmake --build "$work/llvm-build" --parallel "$(nproc)" --target \
+  install-llvm-libraries install-llvm-headers install-llvm-config install-llc install-opt
+# Retain the reusable compiler before downstream verification or Mesa can fail.
+(
+  cd "$work/llvm-prefix"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum
+) > "$output/llvm-files.sha256"
+tar -czf "$output/llvm-toolchain.tar.gz" -C "$work" llvm-prefix
+(
+  cd "$output"
+  sha256sum llvm-toolchain.tar.gz CMakeCache.txt destination-class.patch \
+    sources/llvm-project-21.1.8.src.tar.xz
+) > "$output/llvm-inputs.sha256"
+export PATH="$work/llvm-prefix/bin:$PATH"
+test "$(command -v llvm-config)" = "$work/llvm-prefix/bin/llvm-config"
 llvm-config --version --prefix --cxxflags > "$output/llvm-config.txt"
+llvm-config --shared-mode > "$output/llvm-shared-mode.txt"
+llvm-config --link-static --libfiles bitwriter engine mcdisassembler mcjit core \
+  executionengine scalaropts transformutils instcombine coroutines native lto \
+  > "$output/llvm-mesa-libraries.txt"
 features=+64bit,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+avx,+f16c,+fma,+avx2,+avx512f,+avx512cd,+avx512bw,+avx512dq,+avx512vl,+avx512vbmi
 target=(-mtriple=x86_64-redhat-linux-gnu -mcpu=znver5 -mattr="$features" -code-model=large -relocation-model=static)
 opt -passes=verify -disable-output "$output/optimized.bc"
@@ -77,6 +97,10 @@ regression=(-mtriple=x86_64-- -run-pass=greedy -verify-machineinstrs -verify-reg
 llc "${regression[@]}" -o "$output/patched-subregister.mir"
 cmp "$output/installed-subregister.mir" "$output/patched-subregister.mir"
 "$python" "$root/scripts/release/linux_mesa.py" prepare "$project" "$output/patched-mesa"
+# The outer cleanup retains Meson's failure log before removing its scratch tree.
+sed -i 's/trap '\''rm -rf "$work"'\'' EXIT HUP INT TERM/trap : EXIT HUP INT TERM/' \
+  "$project/scripts/release/build_lavapipe.diagnostic.sh"
+grep -qx 'trap : EXIT HUP INT TERM' "$project/scripts/release/build_lavapipe.diagnostic.sh"
 cat >> "$project/scripts/release/build_lavapipe.diagnostic.sh" <<'PROVENANCE'
 cp mesa-build/meson-logs/meson-log.txt "$out/meson-log.txt"
 ninja -C mesa-build -t commands src/gallium/targets/lavapipe/libvulkan_lvp.so > "$out/build-commands.txt"
