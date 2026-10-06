@@ -203,6 +203,19 @@ installation cache: it uses its embedded Python and bundled lavapipe. macOS uses
 Windows uses WARP. Each executable is kept as
 `executable-<platform>`: `manimgx-<os>-<arch>.tar.gz`, or a `.zip` on Windows.
 
+The interpreter is an exact Python Build Standalone release and target archive, verified
+by SHA-256. The executable archive includes `build-inputs.json`, the original `PYTHON.json`,
+and `LICENSE-PYTHON`; the metadata and notices also remain inside the embedded Python.
+The source artifact retains the launcher's locked sources and `python-inputs.tar.xz`,
+which contains the interpreter's build recipe, metadata, declared notices, and the source
+inputs used to recover missing notices. This provenance archive is not the complete
+corresponding source of every interpreter dependency.
+
+Windows' interpreter also carries Microsoft's proprietary `vcruntime140.dll` and
+`vcruntime140_1.dll`, recorded as `vcruntime:140` in `PYTHON.json`. These are binary
+redistributables governed by [Microsoft's distribution terms](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files),
+not open-source components supplied by the source archive.
+
 ### 7. [`ai.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/ai.yaml): Claude on issues and pull requests
 
 Claude runs through [claude-code-action](https://github.com/anthropics/claude-code-action),
