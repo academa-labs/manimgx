@@ -2,12 +2,15 @@
 
 import json
 import os
+import re
 import time
 import webbrowser
 from fractions import Fraction
+from html import escape
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
+from urllib.parse import quote
 
 import typer
 from PIL import Image
@@ -264,7 +267,7 @@ def present(
     if pdf and last:
         pictures.append(last[0].pixels())  # the film's last picture ends the last slide
     html = video.with_suffix(".html")
-    html.write_text(page(film, video.name, kind.__name__), encoding="utf-8")
+    html.write_text(page(film, Path(video.name), kind.__name__), encoding="utf-8")
     slides = len(film.sections)
     typer.echo(
         f"{video}  {float(made.clock):.2f} s, {look}, {slides} slides (rendered in"
@@ -287,7 +290,8 @@ def page(film: Film, video: str | os.PathLike[str], title: str = "manimgx") -> s
 
     Args:
         film: The film, rendered.
-        video: Where the page finds its video.
+        video: Where the page finds its video: a URL string, or a filesystem path
+            (relative to the page, unless absolute).
         title: The page's title.
 
     Returns:
@@ -303,8 +307,12 @@ def page(film: Film, video: str | os.PathLike[str], title: str = "manimgx") -> s
         "captions": [[c.start, c.end, c.text] for c in film.captions()],
     }
     html = (files("manimgx") / "cli" / "present.html").read_text(encoding="utf-8")
-    return (
-        html.replace("DECK_TITLE", title)
-        .replace("DECK_VIDEO", Path(video).as_posix())
-        .replace("DECK_JSON", json.dumps(deck).replace("</", "<\\/"))
-    )
+    if not isinstance(video, str):
+        path = Path(video)
+        video = path.as_uri() if path.is_absolute() else quote(path.as_posix())
+    values = {
+        "DECK_TITLE": escape(title),
+        "DECK_VIDEO": escape(video),
+        "DECK_JSON": json.dumps(deck).replace("</", "<\\/"),
+    }
+    return re.sub(r"DECK_(?:TITLE|VIDEO|JSON)", lambda match: values[match[0]], html)

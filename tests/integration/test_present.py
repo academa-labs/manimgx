@@ -4,6 +4,7 @@ video, the page and a handout of the pictures the slides end on.
 """
 
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 
 import av
@@ -70,6 +71,54 @@ def test_the_pages_help_names_the_key_that_opens_the_presenter_view() -> None:
     assert 'case "P": openPresenter()' in html
     assert 'case "p": back()' in html
     assert "Shift+P: presenter view" in shown
+
+
+@pytest.mark.parametrize(
+    ("video", "expected"),
+    [
+        (
+            'https://example.org/talk.mp4?a=1&label="DECK_JSON"',
+            'https://example.org/talk.mp4?a=1&label="DECK_JSON"',
+        ),
+        (Path("slides/DECK_TITLE & #1.mp4"), "slides/DECK_TITLE%20%26%20%231.mp4"),
+    ],
+)
+def test_the_page_preserves_urls_paths_and_text(
+    video: str | Path, expected: str
+) -> None:
+    class Document(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.tags: list[tuple[str, dict[str, str | None]]] = []
+            self.title = ""
+            self.in_title = False
+
+        def handle_starttag(
+            self, tag: str, attrs: list[tuple[str, str | None]]
+        ) -> None:
+            self.tags.append((tag, dict(attrs)))
+            self.in_title = tag == "title"
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "title":
+                self.in_title = False
+
+        def handle_data(self, data: str) -> None:
+            if self.in_title:
+                self.title += data
+
+    title = "A & B </title><img> DECK_VIDEO DECK_JSON"
+    film = m.Film(take=lambda _: None)
+    html = page(film, video, title)
+    document = Document()
+    document.feed(html)
+    assert document.title == title
+    assert "img" not in [tag for tag, _ in document.tags]
+    assert [
+        (attrs["src"], set(attrs)) for tag, attrs in document.tags if tag == "video"
+    ] == [(expected, {"id", "src", "preload", "playsinline"})]
+    deck = json.loads(html.split("const deck = ", 1)[1].split(";", 1)[0])
+    assert deck["frames"] == film.frame_count
 
 
 def test_present_writes_the_video_the_page_and_a_handout(tmp_path: Path) -> None:
