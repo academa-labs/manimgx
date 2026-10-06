@@ -71,34 +71,34 @@ html {
   .md-header__title .md-header__topic:first-child {
     visibility: hidden;
   }
+
+  .mx-lockup {
+    margin-inline: 0.6rem;
+  }
 }
 
-/* The header's lockup (partials/header.html): the logo, and "by Academa" below it. Each is a
-   header button of its own, a link that fades alone when hovered; stacked, they drop the
-   padding between them. The byline is drawn in the logo's units, the logo's height being 60:
-   its viewBox, 0 51.3 132 30.2, says where it starts under the logo's top and how tall it
-   is (tests/docs/test_overrides.py checks these numbers against it). It lies over the logo's
-   foot, where only GX's tail reaches, and is above it: the later of two header buttons */
+/* The header's two links share an SVG canvas height and text baseline (showcase/logo.py).
+   Their artwork sets the alignment; CSS only sizes and spaces the single row */
 .mx-lockup {
-  --mx-unit: calc(var(--mx-logo) / 60);
-  display: grid;
-  justify-items: start;
+  --mx-logo: 1.818rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .mx-lockup > .md-logo {
-  padding-block: 0;
+  margin: 0;
+  padding: 0;
 }
 
-.mx-lockup > [data-md-component="logo"] {
-  margin-bottom: 0;
+/* The tabs sit directly under the single-line header, with equal space above and below */
+.md-tabs__item {
+  height: auto;
 }
 
-.mx-lockup > .mx-byline {
-  margin-top: calc((51.3 - 60) * var(--mx-unit));
-}
-
-.mx-byline img.mx-logo {
-  height: calc(30.2 * var(--mx-unit));
+.md-tabs__link {
+  margin-top: 0;
+  padding-block: 0.4rem;
 }
 
 /* The footer's band (partials/academa.html): academa.ai's footer, its ground and its

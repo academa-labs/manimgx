@@ -31,6 +31,39 @@ def test_favicon_is_unchanged() -> None:
     )
 
 
+@pytest.mark.parametrize("ground", logo.INK)
+def test_the_byline_and_word_have_the_same_typeset_baseline(ground: str) -> None:
+    byline = logo.byline(ground)
+    assert byline == (logo.CONTENT / "images" / f"byline-{ground}.svg").read_text(
+        encoding="utf-8"
+    )
+    word = ET.fromstring(logo.logo(ground, height=logo.HEADER, opening=False))
+    parts, height, _ = logo.word()
+    run = [s * logo.BYLINE * height for g in logo.glyphs(logo.BY)[:2] for s in g]
+
+    def baseline(svg: ET.Element, outline: logo.Outline) -> float:
+        # Recover the baseline from the serialized glyph coordinates: SVG y = b - scale*y.
+        # This checks the actual artwork, including its crop, not just matching image sizes.
+        path = svg.find(f"{SVG}path")
+        assert path is not None
+        points = np.array(re.findall(r"-?\d+(?:\.\d+)?", path.attrib["d"]), float)
+        drawn = points.reshape(-1, 2)[:, 1]
+        glyph = np.concatenate(
+            [np.vstack([s[0, :1], s[:, 1:].reshape(-1, 2)]) for s in outline]
+        )[:, 1]
+        scale, intercept = np.linalg.lstsq(
+            np.column_stack([-glyph, np.ones_like(glyph)]), drawn, rcond=None
+        )[0]
+        assert scale > 0
+        assert np.max(np.abs(drawn - (intercept - scale * glyph))) < 0.06
+        top = float(svg.attrib["viewBox"].split()[1])
+        return float(intercept - top)
+
+    assert baseline(ET.fromstring(byline), run) == pytest.approx(
+        baseline(word, parts[0]), abs=0.1
+    )
+
+
 def test_faces_enter_when_they_turn_toward_the_camera() -> None:
     scene = logo.scene()
     for solid in (scene.cube, scene.tetrahedron):

@@ -11,8 +11,8 @@ shapes made solid, seen through a camera and written as SVG paths.
   edge on. The browser interpolates projected face paths at its refresh rate, then stops;
   reduced motion shows the completed logo immediately.
 - `images/logo-dark.svg` and `images/logo-light.svg`: the logo, still, for the site's header.
-- `images/byline-dark.svg` and `images/byline-light.svg`: "by Academa", set below the header's
-  logo, in its units.
+- `images/byline-dark.svg` and `images/byline-light.svg`: "by Academa", beside the header's
+  logo, sharing its canvas height and text baseline.
 - `images/academa-dark.svg` and `images/academa-light.svg`: Academa's wordmark, its name in
   Playwrite NO, for the footer.
 - `images/favicon.svg`: the three solids.
@@ -51,7 +51,7 @@ TURN_SECONDS = 0.95
 TURN_KEYS = 17  # projection samples, interpolated at the display's refresh rate
 HEADER = 60  # the header's logo: its height, in the SVG's units
 BY = '#text(font: "New Computer Modern")[x#h(1em)by #text(font: "Playwrite NO")[Academa]]'
-BYLINE = 0.58  # the byline's em over the 𝕄's height: the smallest that reads
+BYLINE = 0.5684  # the byline's em over the 𝕄's height
 ACADEMA = '#text(font: "Playwrite NO")[x#h(1em)Academa]'  # Academa's wordmark
 
 type Outline = list[np.ndarray]
@@ -628,23 +628,16 @@ def logo_body(
 
 
 def byline(ground: str) -> str:
-    """The byline, "by Academa", set below the header's logo as its next line, in its units.
+    """The byline, "by Academa", on the header logo's canvas and baseline.
 
-    "by" is in the face of "anim", in a lighter ink; "Academa" in Academa's own. Flush with the
-    𝕄, the byline's tallest ink starts where the word's line ends: a line reaches below its
-    baseline by its descent and half its leading, 0.32 of its em at a line height of 1.2. The
-    viewBox is the header logo's canvas, cut to the byline and the logo's margin, from the
-    logo's left edge down: the byline's place under the logo is in it.
+    Both glyph runs have their baseline at y = 0. Keeping the logo's vertical viewBox means
+    equally tall images align their text at any display size, without CSS offsets. Only the
+    width is cropped to the byline's ink and the shared margin.
     """
-    parts, h, em = word()
+    parts, h, _ = word()
     canvas = Canvas(box(parts, h, scene()), height=HEADER)
     run = [[s * BYLINE * h for s in g] for g in glyphs(BY)]
-    x0, y0, x1, y1 = extent([s for g in run for s in g])
-    run = [[s - [0, 0.32 * em + y1] for s in g] for g in run]
-    (_, top), (right, foot) = canvas.xy(
-        np.array([[x0, -0.32 * em], [x1, y0 - y1 - 0.32 * em]])
-    )
-    margin = canvas.pad * canvas.s
+    right = canvas.xy(np.array([[extent([s for g in run for s in g])[2], 0]]))[0, 0]
     ink = INK[ground]
     # "by" is the run's first two glyphs; Playwrite NO joins "Academa"'s letters with glyphs
     by, name = (
@@ -652,7 +645,7 @@ def byline(ground: str) -> str:
     )
     return canvas.svg(
         f'<path fill="{ink}" fill-opacity="0.72" d="{by}"/><path fill="{ink}" d="{name}"/>',
-        (0, top - margin, right + margin, foot - top + 2 * margin),
+        (0, 0, right + canvas.pad * canvas.s, canvas.height),
     )
 
 
