@@ -5,6 +5,7 @@ Remove this script and startup-native.yaml after first-execution costs are attri
 """
 
 import argparse
+import json
 from pathlib import Path
 
 TIMING = r"""
@@ -87,6 +88,27 @@ def instrument(root: Path) -> None:
         'crate::startup_timing::time("wait_map", || self.map_pixels(gpu))?;',
     )
     vector = root / "vector.rs"
+    weighted = """var acc = vec3<f32>(0.0);
+    for (var k = 0u; k < 4u; k++) {
+        acc += w[k] * control(first + k).xyz;
+    }
+    return acc;"""
+    contracted = """return (((vec3<f32>(0.0) + w.x * control(first).xyz)
+        + w.y * control(first + 1u).xyz)
+        + w.z * control(first + 2u).xyz)
+        + w.w * control(first + 3u).xyz;"""
+    if (root / "vector.wgsl").read_text(encoding="utf-8").count(weighted) != 1:
+        raise ValueError("expected exactly one four-control weighted sum")
+    parts = '[include_str!("vector.wgsl"), include_str!("light.wgsl"), include_str!("vector_buffers.wgsl"), include_str!("vector_compute.wgsl")].concat()'
+    replace(
+        vector,
+        f'super::sampled_shader(device, "vector", &{parts}, multisampled)',
+        f"let mut source = {parts};\n"
+        '        if std::env::var("MANIMGX_DIAGNOSTIC_WEIGHTED").as_deref() == Ok("1") {\n'
+        f"            source = source.replace({json.dumps(weighted)}, {json.dumps(contracted)});\n"
+        "        }\n"
+        '        super::sampled_shader(device, "vector", &source, multisampled)',
+    )
     replace(
         vector,
         "flatten: wgpu::ComputePipeline,",
