@@ -1,0 +1,106 @@
+# Temporary artifact investigation: this publishes nothing and changes no release policy.
+name: Diagnose Linux executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      wheel_run:
+        description: Create wheels run supplying the Linux ARM64 wheel
+        type: string
+        default: "37409973765"
+        required: true
+
+permissions: {}
+
+jobs:
+  executable:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Resolve the wheel's exact source
+        id: source
+        run: |
+          [[ "$WHEEL_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WHEEL_RUN" > "$RUNNER_TEMP/wheel-run.json"
+          revision=$(jq -r .head_sha "$RUNNER_TEMP/wheel-run.json")
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          [[ $(jq -r .head_repository.full_name "$RUNNER_TEMP/wheel-run.json") == "$GITHUB_REPOSITORY" ]]
+          [[ $(jq -r .path "$RUNNER_TEMP/wheel-run.json") == .github/workflows/create-wheels.yaml ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WHEEL_RUN: ${{ inputs.wheel_run }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-linux-arm64
+          path: dist
+          run-id: ${{ inputs.wheel_run }}
+          github-token: ${{ github.token }}
+
+      # Reproduce the current packaging host before challenging its portability.
+      - name: Build the existing executable recipe
+        id: build
+        run: |
+          mkdir -p diagnostic
+          cp "$RUNNER_TEMP/wheel-run.json" diagnostic/
+          git rev-parse HEAD | tee diagnostic/source.txt
+          sha256sum dist/*.whl | tee diagnostic/wheel-sha256.txt
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libvulkan1 mesa-vulkan-drivers
+          uv run --no-project scripts/release/create_executable.py 2>&1 | tee diagnostic/build.log
+          mkdir dist/executable
+          tar -xzf dist/manimgx-linux-arm64.tar.gz -C dist/executable
+          sha256sum dist/executable/manimgx | tee diagnostic/executable-sha256.txt
+          readelf --version-info dist/executable/manimgx | tee diagnostic/launcher-versions.txt
+          readelf -d dist/executable/manimgx | tee diagnostic/launcher-libraries.txt
+
+      - name: Fresh Ubuntu without Python, GPU drivers, or network
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          docker pull ubuntu:24.04
+          docker image inspect ubuntu:24.04 --format '{{json .RepoDigests}}' | tee diagnostic/ubuntu-image.txt
+          docker run --rm --network none -v "$PWD:/source:ro" ubuntu:24.04 sh -euxc '
+            if command -v python || command -v python3; then exit 1; fi
+            test -z "$(find /lib /usr/lib -iname "*vulkan*" -print -quit)"
+            ldd --version | head -1
+            sha256sum /source/dist/executable/manimgx
+            /source/dist/executable/manimgx self python /source/scripts/release/smoke_test.py /source/dist/executable/manimgx
+          ' 2>&1 | tee diagnostic/ubuntu-runtime.log
+
+      - name: Fresh glibc 2.28 without Python, GPU drivers, or network
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          docker pull debian:buster-slim
+          docker image inspect debian:buster-slim --format '{{json .RepoDigests}}' | tee diagnostic/debian-image.txt
+          docker run --rm --network none -v "$PWD:/source:ro" debian:buster-slim sh -euxc '
+            if command -v python || command -v python3; then exit 1; fi
+            test -z "$(find /lib /usr/lib -iname "*vulkan*" -print -quit)"
+            ldd --version | head -1
+            sha256sum /source/dist/executable/manimgx
+            /source/dist/executable/manimgx self python /source/scripts/release/smoke_test.py /source/dist/executable/manimgx
+          ' 2>&1 | tee diagnostic/debian-runtime.log
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: executable-diagnostic-${{ inputs.wheel_run }}
+          path: |
+            diagnostic/
+            dist/manimgx-linux-arm64.tar.gz
+          retention-days: 7
+          if-no-files-found: error
