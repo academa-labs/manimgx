@@ -21,7 +21,7 @@ export triple
 triple=$(llvm-config --host-target)
 export reduction_output="$output"
 opt -passes=verify -disable-output optimized.bc
-printf '%s  %s\n' 1a496fc0ed8ed75f3223be4aafa3e76905855a88aae1e14f62673cc87e91a1f9 "$checkpoint/reduced.ll" | sha256sum --check
+printf '%s  %s\n' c82634220c9ee2229a66cf32007ae26ffbebb5af60540bf17af892ff52d9a175 "$checkpoint/reduced.ll" | sha256sum --check
 cp "$checkpoint/reduced.ll" original.ll
 cat > interesting.sh <<'TEST'
 #!/bin/bash
