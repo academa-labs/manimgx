@@ -1,5 +1,4 @@
-# Temporary first-execution investigation. Instrumentation only enters this manual build;
-# its artifact is diagnostic evidence, never a release or reference wheel.
+# Measure the ordinary product wheel: cold processes remain part of the contract.
 name: Native startup experiment
 
 on:
@@ -31,56 +30,89 @@ jobs:
           shared-key: engine
           save-if: false
 
-      - name: Instrument this disposable build
-        run: |
-          uv run --no-project --python 3.13 python tests/integration/corpus/instrument_startup.py
-          git diff -- rust/engine/src > native-instrumentation.patch
-
-      - name: Build and install the diagnostic wheel
+      - name: Build and install the production wheel
         run: |
           uv build --wheel --python 3.13 --out-dir dist
           uv sync --frozen --no-install-project
           uv pip install --no-deps dist/*.whl
 
-      - name: Measure combined and independent flatten kernels
+      - name: Measure cold and warm scenes
+        env:
+          UV_NO_SYNC: "1"
+        run: uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-production --fresh 2>&1 | tee startup-production.log
+
+      - name: Measure the full Clifford CLI and its first draws
         env:
           UV_NO_SYNC: "1"
         run: |
-          uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-combined --fresh 2>&1 | tee startup-combined.log
-          MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-families --fresh 2>&1 | tee startup-families.log
-          MANIMGX_DIAGNOSTIC_WEIGHTED=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-weighted --fresh 2>&1 | tee startup-weighted.log
-          MANIMGX_DIAGNOSTIC_WEIGHTED=1 MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-weighted-families --fresh 2>&1 | tee startup-weighted-families.log
-
-      - name: Isolate flattening from coverage execution
-        env:
-          UV_NO_SYNC: "1"
-          MANIMGX_DIAGNOSTIC_SPLIT: "1"
-        run: |
-          uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-split 2>&1 | tee startup-split.log
-          MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-families-split 2>&1 | tee startup-families-split.log
-          MANIMGX_DIAGNOSTIC_EMPTY_FLATTEN=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-empty-flatten 2>&1 | tee startup-empty-flatten.log
-          MANIMGX_DIAGNOSTIC_WEIGHTED=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-weighted-split 2>&1 | tee startup-weighted-split.log
-          MANIMGX_DIAGNOSTIC_WEIGHTED=1 MANIMGX_DIAGNOSTIC_FLATTEN_SPLIT=1 uv run --frozen --no-sync python -m tests.integration.corpus.startup_probe startup-weighted-families-split 2>&1 | tee startup-weighted-families-split.log
-
-      - name: Verify instrumentation preserved every scene
-        run: |
-          uv run --no-project --python 3.13 python - <<'PY'
+          uv run --frozen --no-sync python - <<'PYTHON'
           import json
+          import subprocess
+          import sys
+          import time
           from pathlib import Path
-          modes = ["combined", "families", "weighted", "weighted-families", "split", "families-split", "empty-flatten", "weighted-split", "weighted-families-split"]
-          runs = [json.loads(Path(f"startup-{mode}/startup.json").read_text()) for mode in modes]
-          assert all(run["records"] == runs[0]["records"] for run in runs[1:])
-          print("All combined, independent-output and split-pass frames agree exactly.")
-          PY
+
+          output = Path("startup-clifford").resolve()
+          output.mkdir()
+          scene = Path("examples/clifford_torus.py").resolve()
+          timings = {}
+          failures = []
+          programs = {
+              "cli": ["-m", "manimgx", "render", str(scene), "--resolution", "64x36", "--fps", "5", "--output", str(output / "video.mp4")],
+              "authoring": ["-c", """
+          import json, sys, time
+          from pathlib import Path
+          import manimgx as m
+          from manimgx.cli.scenes import scene
+          started = time.perf_counter()
+          kind = scene(Path(sys.argv[1]), None)
+          m.config.pixel_width, m.config.pixel_height, m.config.frame_rate = 64, 36, 5
+          with Path(sys.argv[2]).open('wb') as stream:
+              film = kind().render(take=stream.write)
+          print(json.dumps({'seconds': time.perf_counter() - started, 'frames': film.frame_count}), flush=True)
+          """, str(scene), str(output / "recording.take")],
+              "replay": ["-c", """
+          import hashlib, json, sys, time
+          from pathlib import Path
+          from manimgx import _engine
+          def measure(name, action):
+              started = time.perf_counter()
+              result = action()
+              print(json.dumps({'phase': name, 'seconds': time.perf_counter() - started}), flush=True)
+              return result
+          replay = measure('decode', lambda: _engine.Replay(Path(sys.argv[1]).read_bytes()))
+          print(json.dumps(measure('device_and_eager_pipelines', _engine.adapter_info)), flush=True)
+          for frame in dict.fromkeys([0, replay.frames // 2, replay.frames - 1]):
+              first = measure(f'frame_{frame}_first', lambda: replay.render(frame))
+              repeat = measure(f'frame_{frame}_repeat', lambda: replay.render(frame))
+              assert first == repeat
+              print(json.dumps({'frame': frame, 'sha256': hashlib.sha256(first).hexdigest()}), flush=True)
+          """, str(output / "recording.take")],
+          }
+          try:
+              for phase, command in programs.items():
+                  started = time.perf_counter()
+                  with (output / f"{phase}.log").open("wb") as log:
+                      try:
+                          subprocess.run([sys.executable, *command], stdout=log, stderr=subprocess.STDOUT, timeout=300, check=True)
+                      except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                          failures.append(f"{phase}: {error}")
+                      finally:
+                          timings[phase] = time.perf_counter() - started
+                          print(phase, timings[phase], flush=True)
+          finally:
+              (output / "timings.json").write_text(json.dumps({"seconds": timings, "failures": failures}, indent=2))
+          if failures:
+              raise RuntimeError("; ".join(failures))
+          PYTHON
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
           name: native-startup-windows
           path: |
-            native-instrumentation.patch
-            rust/engine/src/startup_timing.rs
             startup-*/
             startup-*.log
+            !startup-clifford/recording.take
           if-no-files-found: error
           retention-days: 7
