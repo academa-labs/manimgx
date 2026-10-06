@@ -3,6 +3,7 @@
 import difflib
 import hashlib
 import json
+import re
 import subprocess
 import tarfile
 import tomllib
@@ -38,6 +39,10 @@ def main() -> None:
         packed.extractall(target, filter="data")
     hal = target / source.name / "src" / "dx12"
     changes: dict[Path, tuple[str, str]] = {}
+    shaders = {
+        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in (rust / "engine" / "src").glob("*.wgsl")
+    }
 
     def edit(path: Path, old: str, new: str) -> None:
         before, current = changes.get(
@@ -166,6 +171,106 @@ impl Drop for StartupTimer {
         '        eprintln!("native-phase\\t{}\\twait-map\\texport\\t{:.9}", std::process::id(), trace.elapsed().as_secs_f64());\n'
         "        self.mapped[slot].store(false, Ordering::Release);",
     )
+    # GPU timestamps share the original command submission. Only Python readback
+    # frames collect queries; the asynchronous CLI export ring stays unchanged.
+    helper = rust / "engine" / "src" / "startup_trace.rs"
+    changes[helper] = (
+        "",
+        Path(__file__).with_name("trace_timestamps.rs").read_text(encoding="utf-8"),
+    )
+    edit(
+        rust / "engine" / "src" / "lib.rs",
+        "mod render;",
+        'mod render;\n#[cfg(feature = "render")]\nmod startup_trace;',
+    )
+    edit(
+        render,
+        "        let (device, queue) = adapter",
+        "        let timestamps = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;\n"
+        '        if !adapter.features().contains(timestamps) { return Err("diagnostic requires GPU timestamp queries in encoders and passes".into()); }\n'
+        "        let required_features = required_features | timestamps;\n"
+        "        let (device, queue) = adapter",
+    )
+    edit(
+        render,
+        "        let vector = vector::Vector::new(&device, &queue);",
+        "        crate::startup_trace::init(&device, &queue);\n"
+        "        let vector = vector::Vector::new(&device, &queue);",
+    )
+    edit(
+        render,
+        "\n        let mut encoder = gpu.device.create_command_encoder(&Default::default());",
+        "\n        let mut encoder = gpu.device.create_command_encoder(&Default::default());\n"
+        "        crate::startup_trace::start(&mut encoder);",
+    )
+    edit(
+        python,
+        "                    let (mut encoder, _, composited) = self.encode(gpu, &frames)?;",
+        "                    crate::startup_trace::begin();\n"
+        "                    let (mut encoder, _, composited) = self.encode(gpu, &frames)?;",
+    )
+    edit(
+        python,
+        "                    let command = encoder.finish();",
+        "                    crate::startup_trace::resolve(&mut encoder);\n"
+        "                    let command = encoder.finish();",
+    )
+    edit(
+        python,
+        "                    self.map_pixels(gpu)?;",
+        "                    crate::startup_trace::map();\n"
+        "                    self.map_pixels(gpu)?;\n"
+        "                    crate::startup_trace::collect()?;",
+    )
+    vector = rust / "engine" / "src" / "vector.rs"
+    edit(
+        vector,
+        "        for (pipeline, count) in self.flatten.iter().zip([group.fills, group.strokes]) {",
+        "        for (family, (pipeline, count)) in self.flatten.iter().zip([group.fills, group.strokes]).enumerate() {",
+    )
+    edit(
+        vector,
+        'label: Some("flatten"), timestamp_writes: None',
+        'label: Some("flatten"), timestamp_writes: crate::startup_trace::compute(if family == 0 { "flatten_fill" } else { "flatten_stroke" })',
+    )
+    # Four dispatches occupy one compute pass. Mark each directly; no extra
+    # pass/submission barriers are introduced to obtain separate measurements.
+    for label, dispatch in (
+        ("composite", "pass.dispatch_workgroups(tiles_x, tiles_y, 1);"),
+        ("keep", "pass.dispatch_workgroups(tiles_x, tiles_y, 1);"),
+        ("count", "pass.dispatch_workgroups(1, 1, 1);"),
+        ("settle", "pass.dispatch_workgroups_indirect(&self.crossings.1, 0);"),
+    ):
+        before, current = changes.get(
+            vector, (text := vector.read_text(encoding="utf-8"), text)
+        )
+        start = current.index(f"pass.set_pipeline({label});")
+        end = current.index(dispatch, start) + len(dispatch)
+        part = current[start:end]
+        indent = current[current.rfind("\n", 0, start) + 1 : start]
+        replacement = (
+            f'let timestamp = crate::startup_trace::dispatch_begin(&mut pass, "{label}");\n'
+            + indent
+            + part
+            + f"\n{indent}crate::startup_trace::dispatch_end(&mut pass, timestamp);"
+        )
+        changes[vector] = before, current[:start] + replacement + current[end:]
+    for name in ("render", "vector", "environment", "occlusion", "bloom"):
+        path = rust / "engine" / "src" / f"{name}.rs"
+        before, current = changes.get(
+            path, (text := path.read_text(encoding="utf-8"), text)
+        )
+        pattern = r'(wgpu::(Render|Compute)PassDescriptor\s*\{\s*label: Some\("([^"\n]+)"\),(?:(?!timestamp_writes).)*?timestamp_writes: )None'
+
+        def timestamps(match: re.Match[str]) -> str:
+            prefix, kind, label = match.groups()
+            if label == "composite":
+                return match.group()  # its four dispatches are measured separately
+            return f'{prefix}crate::startup_trace::{kind.lower()}("{label}")'
+
+        current, count = re.subn(pattern, timestamps, current, flags=re.DOTALL)
+        assert count > 0, path
+        changes[path] = before, current
     manifest = rust / "Cargo.toml"
     before = manifest.read_text(encoding="utf-8")
     assert "[patch.crates-io]" not in before
@@ -188,6 +293,10 @@ impl Drop for StartupTimer {
             )
         )
         path.write_text(after, encoding="utf-8", newline="\n")
+    assert all(
+        hashlib.sha256((root / p).read_bytes()).hexdigest() == digest
+        for p, digest in shaders.items()
+    )
     (root / "startup-trace.patch").write_text(patch, encoding="utf-8", newline="\n")
     registered = (
         f'name = "wgpu-hal"\nversion = "{package["version"]}"\n'
@@ -220,6 +329,7 @@ impl Drop for StartupTimer {
                 "lock_sha256": hashlib.sha256(
                     (rust / "Cargo.lock").read_bytes()
                 ).hexdigest(),
+                "shader_sha256": shaders,
             },
             indent=2,
         ),
