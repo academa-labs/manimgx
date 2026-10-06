@@ -3,14 +3,16 @@
 import dataclasses
 import difflib
 import importlib.util
+import linecache
 import os
 import re
 import sys
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
-from types import ModuleType
+from types import CodeType, ModuleType
 from typing import Annotated, Self
 
 import typer
@@ -184,6 +186,14 @@ class Mistake(Exception):
     """The command was given wrong; the message says how to give it."""
 
 
+class Source(SourceFileLoader):
+    """Current authoring source, with no timestamp-bytecode reuse or cache writes."""
+
+    def get_code(self, fullname: str) -> CodeType:
+        linecache.cache.pop(self.path, None)
+        return self.source_to_code(self.get_data(self.path), self.path)
+
+
 def load(path: Path) -> ModuleType:
     """Run the file as a module named by its stem, with its directory first on the path (so it
     imports its neighbours) — not as `__main__`, so its own `if __name__ == "__main__":` block
@@ -196,6 +206,7 @@ def load(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem, path)
     if spec is None or spec.loader is None:
         raise Mistake(f"{path}: not a Python file")
+    spec.loader = Source(path.stem, str(path.resolve()))
     module = importlib.util.module_from_spec(spec)
     sys.modules[path.stem] = module  # dataclasses and pickles resolve names through it
     sys.path.insert(0, str(path.resolve().parent))

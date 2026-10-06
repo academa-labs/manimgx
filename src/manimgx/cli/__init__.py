@@ -1,14 +1,13 @@
-"""The manimgx command line: a scene rendered to video, drawn as stills, checked, presented,
+"""The manimgx command line: a scene rendered to video, inspected, presented,
 and previewed live.
 
     manimgx render scene.py [Scene] [-o video.mp4]      the video, a storyboard, layout problems
-    manimgx still scene.py [Scene] [-t 0,2.5,end]       frames at those times, on one sheet
-    manimgx check scene.py [Scene]                      timeline, storyboard, layout problems
+    manimgx inspect scene.py [Scene] [-t 0,2.5,end]    timeline, storyboard, layout problems
     manimgx present scene.py [Scene]                    its sections as slides, in the browser
     manimgx preview scene.py [Scene]                    a window playing it, again on each save
 
 What a command writes goes to stdout, one line per file, then its report; errors go to stderr.
-Exit 0 on success, 1 when the scene fails (or `check` finds problems), 2 when the command is
+Exit 0 on success, 1 when the scene fails (or `inspect` finds problems), 2 when the command is
 wrong. Help is plain text when piped (an agent's shell), rich on a terminal.
 """
 
@@ -19,7 +18,7 @@ from manimgx import _engine
 # A command that draws starts the GPU before the rest of the command line loads (its modules,
 # then the scene's file), so that the GPU comes up meanwhile; `--version`, `--help` and
 # `preview` (its window draws its takes) never bring it up.
-DRAWING = ("render", "still", "check", "present")
+DRAWING = ("render", "inspect", "present")
 if sys.argv[1:2] and sys.argv[1] in DRAWING and not {"-h", "--help"} & set(sys.argv):
     _engine.start_gpu()
 
@@ -28,7 +27,7 @@ from typing import Annotated
 
 import typer
 
-from manimgx.cli.export import check, present, render, still
+from manimgx.cli.export import inspect, present, render
 from manimgx.cli.preview import preview
 
 app = typer.Typer(
@@ -65,16 +64,15 @@ def manimgx(
     `construct`. Work in a loop:
 
     \b
-        manimgx check scene.py              timeline, storyboard, layout problems
-        manimgx still scene.py -t 1.5,end   the frames at 1.5 s and at the end
+        manimgx inspect scene.py            timeline, storyboard, layout problems
+        manimgx inspect scene.py -t 1.5,end  inspect specific moments
         manimgx render scene.py             the video (MP4), with the same report
 
     Files are written beside the scene file; each command prints what it wrote."""
 
 
 app.command()(render)
-app.command()(still)
-app.command()(check)
+app.command()(inspect)
 app.command()(preview)
 app.command()(present)
 

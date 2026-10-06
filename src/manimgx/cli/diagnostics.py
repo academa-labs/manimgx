@@ -2,6 +2,7 @@
 
 import inspect
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from pathlib import Path
 from types import FrameType
 
@@ -12,7 +13,6 @@ from manimgx.config import config
 from manimgx.constants import DL, UR
 from manimgx.drawing.geometry import subpath_ranges
 from manimgx.mobject import Mobject
-from manimgx.rendering.film import Play
 from manimgx.scene import Scene
 
 PACKAGE = str(Path(manimgx.__file__).parent)
@@ -65,9 +65,10 @@ def written_frame() -> FrameType | None:
     return frame
 
 
-def names(
-    scene: Scene, frame: FrameType | None
-) -> tuple[dict[int, str], dict[str, Mobject]]:
+type Names = tuple[dict[int, str], dict[str, Mobject]]
+
+
+def names(scene: Scene, frame: FrameType | None) -> Names:
     """The code's names for the scene's objects — its running variables, then the scene's
     attributes, and indices into the groups they name, a few levels deep — and the groups by
     their bare names."""
@@ -152,19 +153,22 @@ class View:
     framed: bool  # the camera has moved or zoomed: it frames part of a larger world
 
 
-def view(scene: Scene) -> View:
-    """What the viewer sees now — called from inside a play hook: the scene's code (whose
-    variables name things) is up the stack."""
+def view(scene: Scene, known: Names | None = None) -> View:
+    """What the viewer sees now. Names from the running code take precedence over `known`,
+    which preserves local names after `construct` returns."""
     (x0, y0), (x1, y1) = (scene.camera.frame.get_corner(c)[:2] for c in (DL, UR))
     frame = (float(x0), float(y0), float(x1), float(y1))
     w, h = config.frame_width / 2, config.frame_height / 2
     framed = max(abs(a - b) for a, b in zip(frame, (-w, -h, w, h), strict=True)) > 1e-3
-    return View(frame, seen(scene, written_frame()), framed)
+    current = names(scene, written_frame())
+    if known is not None:
+        current = (known[0] | current[0], known[1] | current[1])
+    return View(frame, seen(scene, current), framed)
 
 
-def seen(scene: Scene, frame: FrameType | None) -> list[Thing]:
+def seen(scene: Scene, scope: Names) -> list[Thing]:
     """What the viewer sees now, in draw order."""
-    named, bare = names(scene, frame)
+    named, bare = scope
     order = {id(leaf): i for i, leaf in enumerate(scene.display_list())}
     out: list[Thing] = []
 
@@ -281,13 +285,16 @@ TOUCH = 0.03
 SMALL = 20
 
 
+type Moment = tuple[Fraction, tuple[str, int] | None]  # time and source location
+
+
 @dataclass
 class Problem:
     kind: str  # cut, runs off (a note), overlap, crossing, covered, small
     subject: Thing
     other: Thing | None
     detail: str
-    ends: list[Play] = field(default_factory=list[Play])  # the plays it is seen after
+    moments: list[Moment] = field(default_factory=list[Moment])
 
     @property
     def note(self) -> bool:
@@ -452,7 +459,7 @@ def at(seen: View) -> list[Problem]:
 
 
 class Layout:
-    """A take's problems as its plays end: each once, with the plays it lasts through; the
+    """A take's problems at sampled moments: each once, with the moments it appears in; the
     problems (not the notes) numbered from 1 in the order they first appear — as the report
     and the storyboard number them."""
 
@@ -460,12 +467,12 @@ class Layout:
         self.found: dict[tuple[str, str, str | None, str | None], Problem] = {}
         self.numbers: dict[tuple[str, str, str | None, str | None], int] = {}
 
-    def see(self, play: Play, seen: View) -> list[tuple[int, Problem]]:
-        """The problems at this play's end (as they are now), and their numbers (0: a note)."""
+    def see(self, moment: Moment, seen: View) -> list[tuple[int, Problem]]:
+        """The problems at this moment, and their numbers (0: a note)."""
         out = []
         for problem in at(seen):
             key = problem.key()
-            self.found.setdefault(key, problem).ends.append(play)
+            self.found.setdefault(key, problem).moments.append(moment)
             if not problem.note and key not in self.numbers:
                 self.numbers[key] = len(self.numbers) + 1
             out.append((self.numbers.get(key, 0), problem))
@@ -479,20 +486,22 @@ def _label(t: Thing) -> str:
     return f"{t.name} ({what})" if t.name != t.kind else what
 
 
-def _when(ends: list[Play]) -> str:
-    """When a problem is seen: from the end of the play that brought it (and that play's line)."""
-    first, last = f"{float(ends[0].end):.1f}", f"{float(ends[-1].end):.1f}"
+def _when(moments: list[Moment]) -> str:
+    """When a problem is seen, and the line that played its first sample."""
+    first, last = f"{float(moments[0][0]):g}", f"{float(moments[-1][0]):g}"
     span = f"t={first}s" if first == last else f"t={first}–{last}s"
-    where = ends[0].where
-    return span if where is None else f"{span} (after {Path(where[0]).name}:{where[1]})"
+    where = moments[0][1]
+    return span if where is None else f"{span} ({Path(where[0]).name}:{where[1]})"
 
 
 def report(layout: Layout, checked: int, similar: int = 3) -> str:
     """A line per problem, by number; more than `similar` alike in a row (a label on each of
     four planets) show the first and fold the rest; then the notes."""
     found = layout.found
+    if not checked:
+        return "layout: not checked (no samples)"
     if not found:
-        return f"layout: no problems at the end of any of the {checked} plays"
+        return f"layout: no problems in {checked} sample{'' if checked == 1 else 's'}"
     real = sorted((n, found[k]) for k, n in layout.numbers.items())
     notes = [p for p in found.values() if p.note]
     head = f"layout: {len(real)} problem{'' if len(real) == 1 else 's'}"
@@ -527,4 +536,4 @@ def _alike(a: Problem, b: Problem) -> bool:
 
 def _line(p: Problem) -> str:
     other = "" if p.other is None else f" and {_label(p.other)}"
-    return f"{_when(p.ends)}  {_label(p.subject)}{other}: {p.detail}"
+    return f"{_when(p.moments)}  {_label(p.subject)}{other}: {p.detail}"
