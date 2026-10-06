@@ -199,6 +199,12 @@ def test_source_archive_waits_for_the_platform_builds_that_choose_its_sources() 
 def test_executable_sources_reject_missing_and_changed_platform_archives(
     tmp_path: Path,
 ) -> None:
+    pool = tmp_path / "python"
+    pool.mkdir()
+    shared = pool / "input"
+    shared.write_bytes(b"actual common interpreter source")
+    digest = create_executable.sha256(shared)
+    shared = shared.rename(pool / digest)
     for platform in ("linux-x86_64", "linux-arm64", "macos-arm64", "windows-x86_64"):
         source = tmp_path / f"executable-{platform}"
         source.mkdir()
@@ -209,7 +215,10 @@ def test_executable_sources_reject_missing_and_changed_platform_archives(
             json.dumps(
                 {
                     "source_sha256": create_executable.sha256(archive),
-                    "python": {"inputs_sha256": create_executable.sha256(archive)},
+                    "python": {
+                        "inputs_sha256": create_executable.sha256(archive),
+                        "sources": {"cpython": {"sha256": digest}},
+                    },
                 }
             ),
             encoding="utf-8",
@@ -218,6 +227,10 @@ def test_executable_sources_reject_missing_and_changed_platform_archives(
             with pytest.raises(FileNotFoundError):
                 create_executable.verify_sources(tmp_path)
     create_executable.verify_sources(tmp_path)
+    shared.write_bytes(b"changed source")
+    with pytest.raises(ValueError, match="retained Python source changed"):
+        create_executable.verify_sources(tmp_path)
+    shared.write_bytes(b"actual common interpreter source")
     python_inputs = source / "python-inputs.tar.xz"
     original = python_inputs.read_bytes()
     python_inputs.write_bytes(b"changed Python provenance")
@@ -441,7 +454,22 @@ def test_standalone_python_retains_exact_input_metadata_and_every_declared_notic
             "sha256": "zstd",
         }
     }
+    tcl_commit, tcl_sha = create_executable.PYTHON_WINDOWS_SOURCES["tcl"]
+    tcl = pack(
+        "tcl",
+        {
+            f"cpython-source-deps-{tcl_commit}/compat/zlib/LICENSE": b"actual Tcl zlib notice",
+            f"cpython-source-deps-{tcl_commit}/libtommath/LICENSE": b"actual Tommath notice",
+        },
+    )
+    source_inputs = {"zstd": {"url": recipe["zstd"]["url"], "sha256": "zstd"}}
+    if system == "windows":
+        source_inputs["tcl"] = {"url": "https://source.invalid/tcl", "sha256": tcl_sha}
+    monkeypatch.setattr(
+        create_executable, "python_sources", lambda _recipe: source_inputs
+    )
     archives = {
+        tcl_sha: tcl,
         digest: pack(
             "runtime",
             {
@@ -469,7 +497,10 @@ def test_standalone_python_retains_exact_input_metadata_and_every_declared_notic
                 f"{create_executable.PYTHON}+{create_executable.PBS_RELEASE}-{triple}-{options}"
                 in url
             )
-        return archives[sha]
+        directory.mkdir(parents=True, exist_ok=True)
+        result = directory / sha
+        result.write_bytes(archives[sha].read_bytes())
+        return result
 
     monkeypatch.setattr(create_executable, "fetch", fetch)
     retained = tmp_path / "retained"
@@ -494,9 +525,14 @@ def test_standalone_python_retains_exact_input_metadata_and_every_declared_notic
     assert b"actual Python notice" in notice
     assert b"actual zstd notice" in notice
     assert receipt["sha256"] == digest
+    assert (tmp_path / "python/zstd").read_bytes() == dependency.read_bytes()
+    assert not (tmp_path / "python" / digest).exists()
+    if system == "windows":
+        assert b"actual Tcl zlib notice" in notice
+        assert b"actual Tommath notice" in notice
     with tarfile.open(retained / "python-inputs.tar.xz") as archive:
         assert "python-inputs/python-build-standalone.tar.gz" in archive.getnames()
-        assert "python-inputs/zstd.tar.gz" in archive.getnames()
+        assert "python-inputs/zstd.tar.gz" not in archive.getnames()
         assert not any(
             "install/" in name or "compiled.o" in name for name in archive.getnames()
         )
@@ -530,3 +566,31 @@ def test_python_binary_acquisition_is_verified_and_never_retained_as_source(
         create_executable.fetch(
             "https://example.invalid/input", digest, tmp_path, source=False
         )
+
+
+@pytest.mark.parametrize("system", ["linux", "macos", "windows"])
+def test_python_sources_follow_the_build_graph_not_alternative_license_entries(
+    monkeypatch: pytest.MonkeyPatch, system: str
+) -> None:
+    monkeypatch.setattr(create_executable, "SYSTEM", system)
+    keys = set(
+        create_executable.PYTHON_COMMON_SOURCES
+        + create_executable.PYTHON_UNIX_SOURCES
+        + create_executable.PYTHON_LINUX_SOURCES
+    ) | {"zlib-ng", "openssl-1.1"}
+    recipe = {
+        name: {"url": f"https://source.invalid/{name}", "sha256": name} for name in keys
+    }
+    sources = create_executable.python_sources(recipe)
+    assert ("bdb" in sources) == (system == "linux")
+    assert "openssl-1.1" not in sources
+    assert "openssl-3.5" in sources
+    assert ("zlib-ng" in sources) == (system == "windows")
+    assert ("zlib" in sources) == (system == "linux")
+    if system == "windows":
+        assert sources["libffi"]["sha256"] != recipe["libffi"]["sha256"]
+        assert "/16fad4855b3d8c03b5910e405ff3a04395b39a98" in sources["libffi"]["url"]
+        assert "/53c758cbf2cc178b359abc03fdd912c5e66ed74f" in sources["tcl"]["url"]
+        assert "/a6a5bee1ef4b526b0d11200c84bc02e85d8ecc83" in sources["tk"]["url"]
+    else:
+        assert sources["libffi"]["sha256"] == recipe["libffi"]["sha256"]

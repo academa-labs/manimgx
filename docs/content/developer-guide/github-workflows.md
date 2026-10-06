@@ -207,9 +207,12 @@ The interpreter is an exact Python Build Standalone release and target archive, 
 by SHA-256. The executable archive includes `build-inputs.json`, the original `PYTHON.json`,
 and `LICENSE-PYTHON`; the metadata and notices also remain inside the embedded Python.
 The source artifact retains the launcher's locked sources and `python-inputs.tar.xz`,
-which contains the interpreter's build recipe, metadata, declared notices, and the source
-inputs used to recover missing notices. This provenance archive is not the complete
-corresponding source of every interpreter dependency.
+which contains the interpreter's build recipe, metadata, and notices. The corresponding
+open-source runtime inputs are retained once, by digest, in `release-sources/python/`;
+each platform's receipt identifies its inputs and the final source build verifies them.
+Selection follows the pinned PBS and CPython build recipes, including Windows' separate
+libffi, Tcl and Tk inputs. Sources needed only to recover an upstream notice are marked
+separately in the receipt.
 
 Windows' interpreter also carries Microsoft's proprietary `vcruntime140.dll` and
 `vcruntime140_1.dll`, recorded as `vcruntime:140` in `PYTHON.json`. These are binary

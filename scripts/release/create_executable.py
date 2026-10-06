@@ -23,6 +23,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 PYAPP = "0.29.0"
@@ -52,6 +53,46 @@ PYTHONS = {
         "x86_64-pc-windows-msvc",
         "pgo",
         "c2d2aee5613fbdc2e178b0c90f5f7b16fb5f0d452f1f09c63ff09043c9a1cde3",
+    ),
+}
+
+# Selected by PBS targets.yml/Makefile and cpython-windows/build.py, not by
+# license_paths (which intentionally lists alternatives across Python versions).
+PYTHON_COMMON_SOURCES = (
+    "cpython-3.14",
+    "pip",
+    "bzip2",
+    "mpdecimal",
+    "openssl-3.5",
+    "sqlite",
+    "xz",
+    "zstd",
+)
+PYTHON_UNIX_SOURCES = ("expat", "libffi", "tcl", "tk", "uuid")
+PYTHON_LINUX_SOURCES = (
+    "bdb",
+    "libedit",
+    "libX11",
+    "libXau",
+    "libxcb",
+    "ncurses",
+    "zlib",
+    "xorgproto",
+)
+# PBS builds Windows libffi from this commit; CPython3.14.8 get_externals.bat
+# selects these Tcl/Tk source tags alongside its tcltk-9.0.4.0 binary bundle.
+PYTHON_WINDOWS_SOURCES = {
+    "libffi": (
+        "16fad4855b3d8c03b5910e405ff3a04395b39a98",
+        "f21ae7b0cce58cf9428e01d4d22aac9c3b70722a4e9b2c92b3a97d490a1b401c",
+    ),
+    "tcl": (
+        "53c758cbf2cc178b359abc03fdd912c5e66ed74f",
+        "2ec3a0db72d1eb15096940ce67e226bc16a0719e12e554c7feb920eb40bd6f36",
+    ),
+    "tk": (
+        "a6a5bee1ef4b526b0d11200c84bc02e85d8ecc83",
+        "b913ff99cc8e0a930d1f3d6064b751fbd4180fa850fa287e6e25e26c379ab73e",
     ),
 }
 
@@ -114,11 +155,45 @@ def license_paths(value: object) -> set[str]:
     return set()
 
 
+def python_sources(
+    recipe: Mapping[str, Mapping[str, object]],
+) -> dict[str, dict[str, str]]:
+    """The actual runtime source graph, with build scripts retained in PBS/CPython."""
+    names = list(PYTHON_COMMON_SOURCES)
+    names += ["zlib-ng"] if SYSTEM == "windows" else list(PYTHON_UNIX_SOURCES)
+    if SYSTEM == "linux":
+        names += PYTHON_LINUX_SOURCES
+    inputs = {}
+    for name in names:
+        url, digest = recipe[name]["url"], recipe[name]["sha256"]
+        if not isinstance(url, str) or not isinstance(digest, str):
+            raise ValueError(f"invalid source recipe: {name}")
+        inputs[name] = {"url": url, "sha256": digest, "purpose": "runtime"}
+    if SYSTEM == "windows":
+        for name, (commit, digest) in PYTHON_WINDOWS_SOURCES.items():
+            inputs[name] = {
+                "url": f"https://codeload.github.com/python/cpython-source-deps/tar.gz/{commit}",
+                "sha256": digest,
+                "purpose": "runtime",
+            }
+    return inputs
+
+
+def source_notice(archive: Path, member: str, destination: Path) -> None:
+    """Recover the actual upstream notice without extracting any source executable."""
+    with tarfile.open(archive) as packed:
+        text = packed.extractfile(member)
+        if text is None:
+            raise ValueError(f"missing source notice: {member}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(text.read())
+
+
 def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]:
     """Extract the pinned runtime and preserve its original metadata and declared notices.
 
-    The retained build recipe is provenance, not a claim that every dependency's
-    corresponding source is contained in this receipt.
+    Open-source runtime inputs share one verified pool across platform artifacts.
+    Microsoft's Windows runtime DLLs remain separately identified binary inputs.
     """
     target, options, digest = PYTHONS[f"{SYSTEM}-{MACHINE}"]
     name = f"cpython-{PYTHON}+{PBS_RELEASE}-{target}-{options}-full.tar.zst"
@@ -159,8 +234,33 @@ def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]
         recipe_bytes = recipe_file.read()
     (provenance / "downloads.json").write_bytes(recipe_bytes)
     recipe = json.loads(recipe_bytes)
+    inputs = python_sources(recipe)
+    # A common digest path merges identical platform contributions without copying
+    # the interpreter binary or four copies of the common dependency sources.
+    pool = retained.parent / "python"
+    sources = {
+        name: fetch(entry["url"], entry["sha256"], pool)
+        for name, entry in inputs.items()
+    }
     repairs = []
-    for notice in sorted(license_paths(info)):
+    notices = license_paths(info)
+    if SYSTEM == "windows":
+        # The prebuilt Tcl/Tk bundle's dependencies are absent from PYTHON.json.
+        # Their DLLs are byte-identical to the ones in the pinned Tcl source tree.
+        commit = PYTHON_WINDOWS_SOURCES["tcl"][0]
+        for component, path in (
+            ("zlib", "compat/zlib/LICENSE"),
+            ("libtommath", "libtommath/LICENSE"),
+        ):
+            notice = f"licenses/LICENSE.{component}.txt"
+            source_notice(
+                sources["tcl"],
+                f"cpython-source-deps-{commit}/{path}",
+                standalone / notice,
+            )
+            notices.add(notice)
+            repairs.append({"notice": notice, **inputs["tcl"]})
+    for notice in sorted(notices):
         path = PurePosixPath(notice)
         if path.is_absolute() or ".." in path.parts or path.parts[0] != "licenses":
             raise ValueError(f"unsafe Python notice path: {notice}")
@@ -175,18 +275,22 @@ def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]
             if component is None:
                 raise ValueError(f"Python distribution omits declared notice: {notice}")
             entry = recipe[component]
-            dependency = fetch(entry["url"], entry["sha256"], work / "downloads")
-            shutil.copyfile(dependency, provenance / f"{component}.tar.gz")
-            with tarfile.open(dependency) as archive:
-                filename = "LICENSE.md" if component == "zlib-ng" else "LICENSE"
-                member = (
-                    f"cpython-source-deps-{component}-{entry['version']}/{filename}"
-                )
-                text = archive.extractfile(member)
-                if text is None:
-                    raise ValueError(f"missing notice in {component} source")
-                original.parent.mkdir(parents=True, exist_ok=True)
-                original.write_bytes(text.read())
+            # Unix metadata declares zlib-ng even though the Unix build uses zlib.
+            # Keep its notice source as provenance, separately from the runtime graph.
+            dependency = sources.get(component)
+            if dependency is None:
+                dependency = fetch(entry["url"], entry["sha256"], pool)
+                inputs[component] = {
+                    "url": entry["url"],
+                    "sha256": entry["sha256"],
+                    "purpose": "declared notice",
+                }
+            filename = "LICENSE.md" if component == "zlib-ng" else "LICENSE"
+            source_notice(
+                dependency,
+                f"cpython-source-deps-{component}-{entry['version']}/{filename}",
+                original,
+            )
             repairs.append(
                 {"notice": notice, "url": entry["url"], "sha256": entry["sha256"]}
             )
@@ -197,7 +301,7 @@ def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]
     shutil.copyfile(metadata, work / "PYTHON.json")
     notice_file = work / "LICENSE-PYTHON"
     with notice_file.open("wb") as output:
-        for notice in sorted(license_paths(info)):
+        for notice in sorted(notices):
             output.write(f"{notice}\n{'=' * len(notice)}\n".encode())
             output.write((provenance / notice).read_bytes())
             output.write(b"\n\n")
@@ -219,6 +323,8 @@ def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]
         "metadata_sha256": sha256(metadata),
         "build_recipe": {"url": source_url, "sha256": PBS_SOURCE_SHA256},
         "notice_repairs": repairs,
+        "sources": inputs,
+        "binary_runtime": info.get("crt_features", []),
         "inputs_sha256": sha256(retained / "python-inputs.tar.xz"),
     }
 
@@ -395,6 +501,9 @@ def verify_sources(directory: Path) -> None:
             raise ValueError(
                 f"{target}: the executable's retained Python inputs changed"
             )
+        for name, entry in receipt["python"]["sources"].items():
+            if sha256(directory / "python" / entry["sha256"]) != entry["sha256"]:
+                raise ValueError(f"{target}: retained Python source changed: {name}")
         if sha256(source / "pyapp.tar.xz") != receipt["source_sha256"]:
             raise ValueError(f"{target}: the executable's retained source changed")
 
