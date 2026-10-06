@@ -203,6 +203,58 @@ def test_an_untyped_namesake_is_not_manimgxs_output() -> None:
     assert typecheck.imprecise([example]) == {}
 
 
+def test_typechecking_keeps_an_exact_file_set_beyond_windows_command_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "scènes with spaces"
+    directory.mkdir()
+    files = [directory / f"{index:04d}_{'scene_' * 10}.py" for index in range(400)]
+    for path in files:
+        path.write_text(
+            'from typing import reveal_type\nwrong: int = "oops"\nreveal_type(42)\n',
+            encoding="utf-8",
+        )
+    unselected = directory / "unselected.py"
+    unselected.write_text('wrong: int = "not selected"\n', encoding="utf-8")
+    run = subprocess.run
+
+    def windows_sized_command(
+        args: list[str],
+        *,
+        capture_output: bool,
+        text: bool,
+        cwd: Path,
+        check: bool,
+        encoding: str = "utf-8",
+    ) -> subprocess.CompletedProcess[str]:
+        # CreateProcessW includes the terminating NUL in its 32,767 UTF-16-unit limit.
+        command = subprocess.list2cmdline(args)
+        assert len(command.encode("utf-16-le")) // 2 + 1 <= 32_767
+        return run(
+            args,
+            capture_output=capture_output,
+            text=text,
+            cwd=cwd,
+            check=check,
+            encoding=encoding,
+        )
+
+    monkeypatch.setattr(subprocess, "run", windows_sized_command)
+    diagnostics = typecheck._ty(files, typecheck.STRICT)
+    invalid = [
+        (path, line)
+        for path, line, _, rest in diagnostics
+        if "invalid-assignment" in rest
+    ]
+    assert set(invalid) == {(path.resolve(), 2) for path in files}
+    assert len(invalid) == len(files)
+    assert typecheck._reveal_positions(files) == {
+        (path.resolve(), 3, 13): "Literal[42]" for path in files
+    }
+    assert typecheck._ty([]) == []
+    assert typecheck._reveal_positions([]) == {}
+
+
 @pytest.mark.usefixtures("cases")
 def test_manimgxs_outputs_from_untyped_inputs_are_named_by_their_source() -> None:
     example = made(

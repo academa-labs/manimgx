@@ -16,8 +16,9 @@ Three findings, all shown in full:
   when manimgx produced it — a manimgx function, or a method or attribute of a manimgx class.
   (numpy's and the standard library's own imprecision is theirs.)
 
-`ty` is given the files, never a directory: `[tool.ty.src]` includes only what it names, and
-a directory outside it is walked as empty and "passes". Each scene must also show up in the reveal run.
+`ty` receives an explicit file set in a response file, independent of OS command-line limits.
+Directories outside `[tool.ty.src]` are walked as empty and "pass", so file selection stays
+explicit. Each scene must also show up in the reveal run.
 """
 
 import ast
@@ -81,7 +82,7 @@ class TypeReport:
 def report(cases: list[Case]) -> TypeReport:
     result = TypeReport()
     by_path = {case.scene.resolve(): case for case in cases}
-    for path, line, rest in _ty([case.scene for case in cases], STRICT):
+    for path, line, _, rest in _ty([case.scene for case in cases], STRICT):
         case = by_path.get(path)
         if case is not None:
             result.diagnostics.setdefault(case.name, []).append(f"line {line}: {rest}")
@@ -93,30 +94,40 @@ def report(cases: list[Case]) -> TypeReport:
     return result
 
 
-def _ty(files: list[Path], flags: tuple[str, ...]) -> list[tuple[Path, int, str]]:
-    """(file, line, message) for every diagnostic `ty` reports on exactly these files."""
+def _ty(
+    files: list[Path], flags: tuple[str, ...] = ()
+) -> list[tuple[Path, int, int, str]]:
+    """(file, line, column, message) for exactly these files, in one ty run."""
     if not files:
         return []
-    proc = subprocess.run(
-        [sys.executable, "-m", "ty", "check", "--output-format", "concise"]
-        + ["--no-progress", *flags, *map(str, files)],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
-    )
+    # ty's response files take one literal argument per line: spaces and backslashes need
+    # no shell quoting. An absolute path also cannot be mistaken for an @file or an option.
+    with tempfile.TemporaryDirectory() as tmp:
+        arguments = Path(tmp) / "files.txt"
+        arguments.write_text(
+            "".join(f"{path.resolve()}\n" for path in files), encoding="utf-8"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-m", "ty", "check", "--output-format", "concise"]
+            + ["--no-progress", *flags, f"@{arguments}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+            check=False,
+        )
     if "No python files found" in proc.stdout + proc.stderr:
         msg = "ty checked no files"
         raise RuntimeError(msg)
     if proc.returncode not in (0, 1):
         msg = f"ty failed ({proc.returncode}):\n{proc.stdout}{proc.stderr}"
         raise RuntimeError(msg)
-    found: list[tuple[Path, int, str]] = []
+    found: list[tuple[Path, int, int, str]] = []
     for line in proc.stdout.splitlines():
         match = _DIAGNOSTIC.match(line)
         if match:
             path = (ROOT / match["path"]).resolve()
-            found.append((path, int(match["line"]), match["rest"]))
+            found.append((path, int(match["line"]), int(match["col"]), match["rest"]))
     return found
 
 
@@ -367,27 +378,11 @@ def imprecise(cases: list[Case]) -> dict[str, list[str]]:
 
 def _reveal_positions(files: list[Path]) -> dict[tuple[Path, int, int], str]:
     """Revealed types by (file, line, column of the revealed expression), from one ty run."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "ty", "check", "--output-format", "concise"]
-        + ["--no-progress", *map(str, files)],
-        capture_output=True,
-        text=True,
-        cwd=ROOT,
-        check=False,
-    )
-    if proc.returncode not in (0, 1):
-        msg = f"ty failed ({proc.returncode}):\n{proc.stdout}{proc.stderr}"
-        raise RuntimeError(msg)
-    revealed: dict[tuple[Path, int, int], str] = {}
-    for line in proc.stdout.splitlines():
-        match = _DIAGNOSTIC.match(line)
-        if match is None:
-            continue
-        reveal = _REVEAL.match(match["rest"])
-        if reveal is not None:
-            path = Path(match["path"]).resolve()
-            revealed[(path, int(match["line"]), int(match["col"]))] = reveal["type"]
-    return revealed
+    return {
+        (path, line, column): match["type"]
+        for path, line, column, rest in _ty(files)
+        if (match := _REVEAL.match(rest))
+    }
 
 
 def _unwrap(node: ast.expr) -> ast.expr:
