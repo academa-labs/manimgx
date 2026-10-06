@@ -37,7 +37,7 @@ permissions: {}
 
 concurrency:
   group: benchmark-${{ github.event.pull_request.number || github.ref }}
-  # a newer commit supersedes a pull request's run; main's runs all finish
+  # a newer commit supersedes a pull request's run; main's active run finishes
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

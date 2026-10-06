@@ -1,7 +1,7 @@
 """Two manimgx trees, timed side by side on one machine.
 
-A `Tree` is a manimgx package on disk: its `src/`, its engine built in it. `here()` is this
-checkout's; `checkout(ref, trees)` makes one of a commit under `trees` (its sources from git; its
+A `Tree` is a manimgx package on disk, with its engine. `here()` is the imported package,
+editable or installed; `checkout(ref, trees)` makes one of a commit under `trees` (its sources from git; its
 engine this checkout's when the commit's engine sources are this checkout's, else built), or
 takes another checkout's. A `Workload` is a scene file, rendered as a user renders it:
 `manimgx render`, in a fresh process with a tree first on its path. `run` measures one render,
@@ -24,15 +24,22 @@ import tarfile
 import tempfile
 import time
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import Event, Timer
 from typing import IO
 
 from tests.benchmarks.work import Work
 
+import manimgx
+
 ROOT = Path(__file__).resolve().parents[2]
 KEEP = 4
 """How many commits' trees are kept (the least recently used go first)."""
+TIMEOUT = 300
+"""Each render owns its deadline, including cleanup of a stalled child."""
 LAYOUTS = (
     ("src", ("src", "fonts", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE")),
     ("python/manimgx/src", ("python",)),
@@ -109,9 +116,9 @@ def _engine(src: Path) -> Path | None:
 
 
 def here() -> Tree:
-    """This checkout, as it is on disk."""
-    src = ROOT / LAYOUTS[0][0]
-    return Tree(src, f"this checkout ({_git('rev-parse', '--short', 'HEAD')})")
+    """The package imported by this process, including an installed wheel."""
+    src = Path(manimgx.__file__).resolve().parent.parent
+    return Tree(src, f"this package ({_git('rev-parse', '--short', 'HEAD')})")
 
 
 def checkout(ref: str, trees: Path) -> Tree:
@@ -205,6 +212,7 @@ def _environment(tree: Tree, tmp: str, *path: Path) -> dict[str, str]:
         TMPDIR=tmp,
         TEMP=tmp,
         TMP=tmp,
+        MANIMGX_CACHE_DIR=tmp,
         LP_NUM_THREADS="1",
     )
 
@@ -225,13 +233,14 @@ def _verified(tree: Tree) -> Tree:
     return tree
 
 
+@contextmanager
 def _launch(
     tree: Tree, workload: Workload, tmp: str, stderr: int | IO[str], *module: str
-) -> subprocess.Popen[str]:
+) -> Iterator[subprocess.Popen[str]]:
     """Start `python -m manimgx render` on `workload` with `tree` (or, with `module`, that
     module's command line on the same arguments), writing its video into `tmp`."""
     video = str(Path(tmp) / "video.mp4")
-    return subprocess.Popen(
+    child = subprocess.Popen(
         [sys.executable, "-m", *(module or ("manimgx",)), "render", str(workload.scene)]
         + ["--output", video, *workload.options],
         cwd=workload.scene.parent,  # a scene reads its files next to it
@@ -241,6 +250,28 @@ def _launch(
         encoding="utf-8",
         errors="replace",
     )
+    with child:
+        expired = Event()
+
+        def stop() -> None:
+            expired.set()
+            child.kill()
+
+        deadline = Timer(TIMEOUT, stop)
+        try:
+            deadline.start()
+            yield child
+        finally:
+            deadline.cancel()
+            if deadline.ident is not None:
+                deadline.join()
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+            if expired.is_set():
+                raise RuntimeError(
+                    f"{tree.label} timed out rendering {workload.scene.name} after {TIMEOUT}s"
+                )
 
 
 def _failed(tree: Tree, workload: Workload, stderr: str, status: int) -> RuntimeError:
@@ -253,8 +284,8 @@ def render(tree: Tree, workload: Workload, *options: str) -> None:
     option counts); raise if it fails."""
     with tempfile.TemporaryDirectory(prefix="manimgx-benchmark-") as tmp:
         told = replace(workload, options=workload.options + options)
-        child = _launch(tree, told, tmp, subprocess.PIPE)
-        _, stderr = child.communicate()
+        with _launch(tree, told, tmp, subprocess.PIPE) as child:
+            _, stderr = child.communicate()
     if child.returncode:
         raise _failed(tree, workload, stderr, child.returncode)
 
@@ -285,11 +316,11 @@ def run(tree: Tree, workload: Workload) -> Cost:
         ) as stderr,
     ):
         start = time.perf_counter()
-        child = _launch(tree, workload, tmp, stderr)
-        instructions = _instructions(child.pid)
-        wall = time.perf_counter() - start
-        _, status, usage = os.wait4(child.pid, 0)
-        child.returncode = os.waitstatus_to_exitcode(status)
+        with _launch(tree, workload, tmp, stderr) as child:
+            instructions = _instructions(child.pid)
+            wall = time.perf_counter() - start
+            _, status, usage = os.wait4(child.pid, 0)
+            child.returncode = os.waitstatus_to_exitcode(status)
         stderr.seek(0)
         if child.returncode:
             raise _failed(tree, workload, stderr.read(), child.returncode)
@@ -302,10 +333,10 @@ def work(tree: Tree, workload: Workload) -> Work:
     counting slows it down)."""
     with tempfile.TemporaryDirectory(prefix="manimgx-benchmark-") as tmp:
         out = Path(tmp) / "work.json"
-        child = _launch(
+        with _launch(
             tree, workload, tmp, subprocess.PIPE, "tests.benchmarks.work", str(out)
-        )
-        _, stderr = child.communicate()
+        ) as child:
+            _, stderr = child.communicate()
         if child.returncode:
             raise _failed(tree, workload, stderr, child.returncode)
         return Work(**json.loads(out.read_text(encoding="utf-8")))
