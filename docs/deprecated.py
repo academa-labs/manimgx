@@ -43,7 +43,9 @@ def deprecated(obj: griffe.Object) -> bool:
 
 def getter_decorators(prop: griffe.Attribute) -> list[str]:
     """The names of a property's getter's decorators, as its module writes them."""
-    if prop.filepath is None or isinstance(prop.filepath, list):
+    if prop.lineno is None or prop.filepath is None or isinstance(prop.filepath, list):
+        # A native descriptor has no Python definition to inspect. Its module may
+        # name a shared library, which is not source code.
         return []
     for node in ast.walk(tree(Path(prop.filepath))):
         if isinstance(node, ast.FunctionDef) and (node.name, node.lineno) == (

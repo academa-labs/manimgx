@@ -10,13 +10,17 @@ Not what is `@deprecated` (`docs/deprecated.py` takes it out as griffe loads the
 deprecated class stays in its module, for the classes made from it, but leaves the reference
 with its members, what those classes inherit from it among them. Nor what is listed in
 `UNDOCUMENTED`: what can't carry the decorator (an attribute, a constant, a type alias) and no
-scene needs.
+scene needs. And keywords a page shows (a TypedDict, such as `Style`) are shown whole: every
+key, the ones its bases give it too.
 """
 
 import re
+import tomllib
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
+import yaml
 
 griffe = pytest.importorskip("griffe")  # the docs group's
 
@@ -26,6 +30,30 @@ DIRECTIVE = re.compile(r"^:::\s+(\S+)\s*\n((?:[ \t]+.*\n|\n)*)", re.MULTILINE)
 CARDS = re.compile(
     r'<div class="grid cards mx-cards" markdown>\n(.*?)\n</div>', re.DOTALL
 )
+
+
+def test_reference_options_are_accepted_by_the_installed_handler() -> None:
+    handler = pytest.importorskip("mkdocstrings_handlers.python")
+    config = tomllib.loads((ROOT / "docs/zensical.toml").read_text(encoding="utf-8"))
+    defaults = config["project"]["plugins"]["mkdocstrings"]["handlers"]["python"][
+        "options"
+    ]
+    accepted = {field.name for field in fields(handler.PythonOptions)}
+    handler.PythonOptions.from_data(**defaults)
+    for page in sorted(PAGES.rglob("*.md")):
+        for directive in DIRECTIVE.finditer(page.read_text(encoding="utf-8")):
+            local = yaml.safe_load(directive[2]) or {}
+            options = defaults | local.get("options", {})
+            # With optional Pydantic installed the handler silently drops unknown keys;
+            # the docs-only environment rejects them. Both must receive the same schema.
+            assert not (unknown := options.keys() - accepted), (
+                f"{page.relative_to(PAGES)}: {directive[1]}: unknown options {unknown}"
+            )
+            try:
+                handler.PythonOptions.from_data(**options)
+            except (TypeError, ValueError) as error:
+                pytest.fail(f"{page.relative_to(PAGES)}: {directive[1]}: {error}")
+
 
 # What the package documents for its own developers, and the reference leaves out
 UNDOCUMENTED = {
@@ -188,21 +216,26 @@ def shown(package: "griffe.Module") -> dict[str, list[str]]:
                 continue
             options = match[2]
             listed = re.search(r"(?<!inherited_)members:\s*(false|\[.*?\])", options)
-            own = {
-                name: target
-                for name, member in obj.members.items()
-                if not name.startswith("_")
-                and (target := real(member)) is not None
-                and documented(target)
-            }
+            inherited = re.search(r"inherited_members:\s*(true|\[.*?\])", options)
+            # `inherited_members: true` makes every inherited member one to pick
+            own = (
+                members(obj, set())
+                if inherited and inherited[1] == "true"
+                else {
+                    name: target
+                    for name, member in obj.members.items()
+                    if not name.startswith("_")
+                    and (target := real(member)) is not None
+                    and documented(target)
+                }
+            )
             if listed is None:
                 chosen = own
             elif listed[1] == "false":
                 chosen = {}
             else:
                 chosen = {n: own[n] for n in re.findall(r"\w+", listed[1]) if n in own}
-            inherited = re.search(r"inherited_members:\s*(\[.*?\])", options)
-            if inherited:
+            if inherited and inherited[1] != "true":
                 every = members(obj, set())
                 chosen |= {n: every[n] for n in re.findall(r"\w+", inherited[1])}
             for member in chosen.values():
@@ -273,6 +306,27 @@ def test_nothing_is_shown_twice(package: "griffe.Module") -> None:
     assert not twice, f"shown on more than one page, or twice on one: {twice}"
 
 
+def keywords(cls: "griffe.Class") -> bool:
+    """Whether a class is a TypedDict: keywords, which a signature unpacks."""
+    return any(
+        "TypedDict" in str(base) for owner in [cls, *cls.mro()] for base in owner.bases
+    )
+
+
+def test_keywords_shown_show_every_key(package: "griffe.Module") -> None:
+    """A page that shows keywords shows each of their keys: there, or with other keywords
+    (`TippedBase`'s style keys are `Style`'s)."""
+    seen = shown(package)
+    missing = sorted(
+        f"{path}.{name}"
+        for path in seen
+        if isinstance(cls := resolve(package, path), griffe.Class) and keywords(cls)
+        for name, key in members(cls, set()).items()
+        if key.path not in seen
+    )
+    assert not missing, f"keys not shown: {missing}"
+
+
 def test_undocumented_names_exist(package: "griffe.Module") -> None:
     need, _ = required(package)
     labels = set(need.values())
@@ -309,3 +363,41 @@ def test_nothing_deprecated_is_shown(package: "griffe.Module") -> None:
         if (obj := resolve(package, path)) is not None and deprecated(obj)
     )
     assert not hidden, f"deprecated, and shown: {hidden}"
+
+
+def test_symbol_badges_in_headings_and_toc() -> None:
+    """The site's settings and custom templates keep Zensical's symbol badges."""
+    markdown = pytest.importorskip("markdown")
+    python = pytest.importorskip("mkdocstrings_handlers.python")
+    docs = ROOT / "docs"
+    config = tomllib.loads((docs / "zensical.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["plugins"]["mkdocstrings"]
+    handler = python.PythonHandler(
+        config=python.PythonConfig.from_data(**config["handlers"]["python"]),
+        base_dir=docs,
+        theme="material",
+        custom_templates=str(docs / config["custom_templates"]),
+        mdx=["toc"],
+        mdx_config={},
+    )
+    handler._update_env(markdown.Markdown(extensions=["toc"]))
+    options = handler.get_options({"members": False})
+    try:
+        for path, symbol in [
+            ("manimgx.Scene", "class"),
+            ("manimgx.Scene.play", "method"),
+            ("manimgx.smooth", "function"),
+            ("manimgx.Scene.time", "attribute"),
+            ("manimgx.UP", "attribute"),
+            ("manimgx.constants", "module"),
+        ]:
+            html = handler.render(handler.collect(path, options), options)
+            assert f'doc-symbol-heading doc-symbol-{symbol}"' in html, path
+            (heading,) = handler.get_headings()
+            assert (
+                f'doc-symbol-toc doc-symbol-{symbol}"'
+                in heading.attrib["data-toc-label"]
+            ), path
+    finally:
+        handler.teardown()

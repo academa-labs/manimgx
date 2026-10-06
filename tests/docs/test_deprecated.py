@@ -115,3 +115,16 @@ def test_what_to_use_instead_stays(tmp_path: Path) -> None:
     assert "Zoomed" in names["group"] & names["shapes"]
     # an assignment isn't deprecated, to ty or here: the decorator marks a definition
     assert "squash" in names["group"]
+
+
+def test_native_properties_have_no_python_getter_to_parse(tmp_path: Path) -> None:
+    pytest.importorskip("griffe")
+    import griffe
+    from docs import deprecated
+
+    library = tmp_path / "_engine.pyd"
+    library.write_bytes(b"\x00\xffnative code")
+    module = griffe.Module("_engine", filepath=library)
+    prop = griffe.Attribute("frames", parent=module)
+    prop.labels.add("property")
+    assert not deprecated.deprecated(prop)

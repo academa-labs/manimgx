@@ -11,6 +11,7 @@
 {% extends "_base/attribute.html.jinja" %}
 
 {% block heading scoped %}
+  {% if config.show_symbol_type_heading %}<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>{% endif %}
   {%- if attribute.parent is not none and attribute.parent.is_class -%}
     <span class="doc doc-object-name doc-attribute-name">{{ attribute.name }}</span>
   {%- else -%}
