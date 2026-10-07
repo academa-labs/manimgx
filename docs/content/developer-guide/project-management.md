@@ -455,7 +455,7 @@ draws on the CPU, and a GPU given to the container (`--device /dev/dri` for AMD 
 `/work`:
 
 ```sh
-docker run --rm -v "$PWD:/work" ghcr.io/academa-labs/manimgx render scene.py
+docker run --rm -v "$PWD:/work" ghcr.io/academa-labs/manimgx:0.1 render scene.py
 ```
 
 `just build-docker-image <version>` builds that `published` target for local use. A release
