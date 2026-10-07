@@ -528,6 +528,58 @@ def test_lights_leave_a_mobject_without_a_material_as_it_was() -> None:
     assert np.array_equal(frames(build(False))[0], frames(build(True))[0])
 
 
+@pytest.mark.config(frame_rate=10)
+@pytest.mark.parametrize("entrance", ["opaque", "transparent", "fade"])
+@pytest.mark.parametrize("ordinary", ["mesh", "overlay", "points"])
+def test_material_entrances_leave_other_rasters_as_they_are(
+    entrance: str, ordinary: str
+) -> None:
+    # Disjoint objects must show exactly what each shows alone, even when no opaque
+    # material mesh precedes the ordinary mesh, overlay, or sprite in its pass.
+    def view(shown: tuple[bool, bool]) -> np.ndarray:
+        def build(scene: m.ThreeDScene) -> None:
+            def quad(x: float) -> m.MeshMobject:
+                return m.MeshMobject(
+                    np.array(
+                        [[x - 1, -1, 0], [x + 1, -1, 0], [x + 1, 1, 0], [x - 1, 1, 0]]
+                    ),
+                    np.array([[0, 1, 2], [0, 2, 3]]),
+                    vertex_colors=np.tile([0.2, 0.6, 0.9, 1.0], (4, 1)),
+                    shade_in_3d=False,
+                )
+
+            scene.add(m.AmbientLight(intensity=0.5))
+            scene.camera.exposure = 0.5
+            if shown[0]:
+                if ordinary == "points":
+                    scene.add(
+                        m.PMobject(stroke_width=100).add_points(
+                            [2 * m.LEFT], color=m.RED, alpha=0.5
+                        )
+                    )
+                elif ordinary == "overlay":
+                    scene.add_fixed_in_frame_mobjects(quad(-2))
+                else:
+                    scene.add(quad(-2))
+            if shown[1]:
+                material = quad(2).set_material(MATTE)
+                if entrance == "fade":
+                    scene.play(m.FadeIn(material), run_time=0.2, rate_func=m.linear)
+                    return
+                if entrance == "transparent":
+                    material.set_opacity(0.5)
+                scene.add(material)
+            scene.wait(0.2)
+
+        return np.array(frames(build))
+
+    paint, light = view((True, False)), view((False, True))
+    assert paint.max() > 0
+    assert light.max() > 0
+    assert not np.any(np.any(paint, axis=-1) & np.any(light, axis=-1))
+    assert np.array_equal(view((True, True)), np.maximum(paint, light))
+
+
 def test_a_mobject_fixed_in_the_frame_is_not_lit() -> None:
     def view(material: m.Material | None) -> np.ndarray:
         def build(scene: m.ThreeDScene) -> None:

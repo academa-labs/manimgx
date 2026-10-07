@@ -16,6 +16,12 @@ The notable changes to ManimGX, release by release. The format follows
 ### Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed GPU validation failures when meshes with materials share a scene with ordinary meshes, overlays, or point sprites, including during fades.
+
 ## 0.1.0
 
 First release of ManimGX.

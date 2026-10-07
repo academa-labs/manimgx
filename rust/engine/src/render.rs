@@ -1524,14 +1524,19 @@ impl Canvas {
             Depth::Read => (None, None),
             Depth::Shared => (Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil),
         };
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("raster"),
             color_attachments: &colors,
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &attached.depth, depth_ops, stencil_ops }),
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
-        })
+        });
+        if light.is_some() {
+            // Ordinary paint contributes no lit coverage, even before this pass's first material mesh.
+            pass.set_blend_constant(wgpu::Color::TRANSPARENT);
+        }
+        pass
     }
 }
 
