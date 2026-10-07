@@ -22,9 +22,9 @@ function picture() {
 
 // Run the shipped script. Zensical owns resolving manual/system preferences into the
 // body's scheme; this harness delivers those changes and instant-navigation events.
-function page() {
+function page(preloadSources = []) {
   let sources = picture(), boot
-  const body = source("", ""), observers = []
+  const body = source("", ""), observers = [], images = []
   body.setAttribute("data-md-color-scheme", "slate")
   const context = {
     window: {}, URL,
@@ -36,16 +36,27 @@ function page() {
       disconnect() { this.target = null }
       observe(target, options) { this.target = target; this.options = options }
     },
+    Image: class {
+      constructor() { images.push(this) }
+      decode() {
+        return new Promise((resolve, reject) => {
+          this.resolve = resolve
+          this.reject = reject
+        })
+      }
+    },
     document: {
       body,
+      baseURI: "https://manimgx.academa.ai/",
       addEventListener() {},
-      querySelectorAll: selector => selector === "picture > source[media]" ? sources : [],
+      querySelectorAll: selector => selector === "picture > source[media]" ? sources
+        : selector === ".mx-benchmark source[srcset], .mx-benchmark-quality source[srcset]" ? preloadSources : [],
     },
     document$: { subscribe(callback) { boot = callback; callback() } },
   }
   runInNewContext(script, context)
   return {
-    body, observers,
+    body, observers, images,
     get sources() { return sources },
     scheme(value) {
       body.setAttribute("data-md-color-scheme", value)
@@ -69,6 +80,36 @@ test("pictures follow the selected site theme even when the OS preference differ
   expect(doc.observers[0].options).toEqual({
     attributes: true, attributeFilter: ["data-md-color-scheme"],
   })
+})
+
+test("both benchmark themes decode before switching and stay cached across navigation", async () => {
+  const doc = page(picture())
+  expect(doc.images.map(image => image.src)).toEqual([
+    "https://manimgx.academa.ai/dark.svg", "https://manimgx.academa.ai/light.svg",
+  ])
+  for (const image of doc.images) {
+    expect(image.decoding).toBe("async")
+    expect(image.fetchPriority).toBe("low")
+    expect(image.resolve).toBeInstanceOf(Function)
+    image.resolve()
+  }
+  await Promise.resolve()
+  doc.scheme("default")
+  doc.scheme("slate")
+  doc.navigate(picture())
+  doc.reloadScript()
+  expect(doc.images).toHaveLength(2)
+  expect(page().images).toHaveLength(0)
+})
+
+test("a failed benchmark image preload can retry on the next page visit", async () => {
+  const doc = page(picture())
+  doc.images[0].reject(new Error("offline"))
+  doc.images[1].resolve()
+  await Promise.resolve()
+  doc.navigate(picture())
+  expect(doc.images).toHaveLength(3)
+  expect(doc.images[2].src).toBe(doc.images[0].src)
 })
 
 test("new and cached pages retain their source identities across instant navigation", () => {

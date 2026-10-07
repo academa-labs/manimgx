@@ -31,6 +31,20 @@
     }
   }
 
+  const pictureCache = new Map()
+  function preloadPictures() {
+    for (const source of document.querySelectorAll(".mx-benchmark source[srcset], .mx-benchmark-quality source[srcset]")) {
+      const url = new URL(source.getAttribute("srcset"), document.baseURI).href
+      if (pictureCache.has(url)) continue
+      const image = new Image()
+      image.decoding = "async"
+      image.fetchPriority = "low"
+      image.src = url
+      pictureCache.set(url, image)
+      image.decode().catch(() => pictureCache.delete(url))
+    }
+  }
+
   // Most pages need no math renderer. Load it once on the first page with math, with its
   // stylesheet beside the scripts in the persistent body: instant navigation replaces
   // the head and page container, but keeps these assets. A failed download can be retried
@@ -294,6 +308,7 @@
     palette.disconnect()
     palette.observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] })
     pictures()
+    preloadPictures()
     films.disconnect()
     for (const film of document.querySelectorAll("video.mx-film")) films.observe(film)
     mathematics()
