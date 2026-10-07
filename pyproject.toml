@@ -3,7 +3,7 @@
 # developing it takes: the tools, in dependency groups, and their settings.
 [project]
 name = "manimgx"
-version = "0.1.0"
+version = "0.1.1"
 description = "The animation engine for agents: blazingly fast math and 3D videos with Manim's Python API, on a Rust GPU core."
 requires-python = ">=3.13"
 # what the distributions hold: ManimGX (MIT, LICENSE); what others hold the copyright in
@@ -35,8 +35,8 @@ readme = "README.md"
 # and skia-pathops has no build: Union, Difference, Intersection and Exclusion can't be made there
 dependencies = [
     "isosurfaces>=0.1.2",
-    "manimgx-fonts==2026.9.26",
-    "manimgx-fonts-cjk==2026.9.26; sys_platform != 'emscripten'",
+    "manimgx-fonts==2026.9.26.post1",
+    "manimgx-fonts-cjk==2026.9.26.post1; sys_platform != 'emscripten'",
     "networkx>=3.6.1; sys_platform != 'emscripten'",
     "numpy>=2.4.3",
     "pillow>=12.2.0",

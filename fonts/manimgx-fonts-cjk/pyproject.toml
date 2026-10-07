@@ -3,7 +3,7 @@
 # browser (pyproject.toml). The version is the date the font was taken from Noto.
 [project]
 name = "manimgx-fonts-cjk"
-version = "2026.9.26"
+version = "2026.9.26.post1"
 description = "Noto Sans CJK, the font ManimGX sets Chinese, Japanese and Korean text in."
 readme = "README.md"
 license = "OFL-1.1"

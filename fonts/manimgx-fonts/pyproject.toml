@@ -3,7 +3,7 @@
 # The version is the date the fonts were taken from Noto.
 [project]
 name = "manimgx-fonts"
-version = "2026.9.26"
+version = "2026.9.26.post1"
 description = "The Noto fonts ManimGX sets text in: Noto Sans, Noto Emoji, Noto Sans Symbols, and Noto Sans for the scripts Latin faces lack."
 readme = "README.md"
 license = "OFL-1.1"

@@ -903,7 +903,7 @@ typst = [
 
 [[package]]
 name = "manimgx"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "isosurfaces" },
@@ -978,12 +978,12 @@ docs = [
 
 [[package]]
 name = "manimgx-fonts"
-version = "2026.9.26"
+version = "2026.9.26.post1"
 source = { editable = "fonts/manimgx-fonts" }
 
 [[package]]
 name = "manimgx-fonts-cjk"
-version = "2026.9.26"
+version = "2026.9.26.post1"
 source = { editable = "fonts/manimgx-fonts-cjk" }
 
 [[package]]

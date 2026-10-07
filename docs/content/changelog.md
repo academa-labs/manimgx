@@ -16,7 +16,11 @@ The notable changes to ManimGX, release by release. The format follows
 ### Removed
 -->
 
-## Unreleased
+## 0.1.1
+
+### Changed
+
+- Updated package author metadata to Academa Team. The font packages have metadata-only post-releases; their font files are unchanged.
 
 ### Fixed
 

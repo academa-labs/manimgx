@@ -465,11 +465,7 @@ archives before any registry publication; publishing copies those same image dig
 
 ## Releases
 
-The version is in `pyproject.toml` (`0.1.0`; the engine's crate carries the
-same number). ManimGX follows [Semantic Versioning](https://semver.org), and its
-[changelog](../changelog.md) [Keep a Changelog](https://keepachangelog.com): a change a
-user would notice adds a line under "Unreleased" (see
-[Documentation](documentation.md#the-changelog)).
+The version is in `pyproject.toml` (`0.1.1`; the engine's crate carries the same number). ManimGX follows [Semantic Versioning](https://semver.org), and its [changelog](../changelog.md) [Keep a Changelog](https://keepachangelog.com): a change a user would notice adds a line under "Unreleased" (see [Documentation](documentation.md#the-changelog)).
 
 A release takes three steps:
 
