@@ -103,7 +103,7 @@ else:
                 f"light[{i}].col.{axis} {intensity:.8f}",
                 f"light[{i}].spec.{axis} {0.12 * intensity:.8f}",
             ]
-    studio.write_text("\n".join(lines) + "\n")
+    studio.write_text("\n".join(lines) + "\n", encoding="utf-8")
     loaded = bpy.context.preferences.studio_lights.load(str(studio), "STUDIO")
     shading = scene.display.shading
     shading.light = "STUDIO"

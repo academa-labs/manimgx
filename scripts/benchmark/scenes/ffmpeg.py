@@ -19,6 +19,6 @@ command = [
     args[-1],
 ]
 Path(os.environ["MANIMGX_BENCH_FFMPEG_LOG"]).write_text(
-    json.dumps(command, indent=2) + "\n"
+    json.dumps(command, indent=2) + "\n", encoding="utf-8"
 )
 os.execvp(command[0], command)

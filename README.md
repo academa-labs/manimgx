@@ -55,48 +55,56 @@
 
 **Compare the same scene.** Linked rings at 2.5 seconds, rendered by each engine.
 
-<div class="mx-benchmark-quality" role="group" aria-label="Linked rings quality comparison across five engines">
-  <figure>
-    <figcaption>ManimGX</figcaption>
-    <picture class="mx-benchmark-quality__frame">
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png">
-      <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png" alt="Eight linked rings rendered by ManimGX at 2.5 seconds" width="1920" height="1080" loading="lazy">
-    </picture>
-  </figure>
-  <figure>
-    <figcaption>ManimCE</figcaption>
-    <picture class="mx-benchmark-quality__frame">
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png">
-      <img src="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png" alt="Eight linked rings rendered by ManimCE at 2.5 seconds" width="1920" height="1080" loading="lazy">
-    </picture>
-  </figure>
-  <figure>
-    <figcaption>ManimGL</figcaption>
-    <picture class="mx-benchmark-quality__frame">
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png">
-      <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png" alt="Eight linked rings rendered by ManimGL at 2.5 seconds" width="1920" height="1080" loading="lazy">
-    </picture>
-  </figure>
-  <figure>
-    <figcaption>Blender Workbench</figcaption>
-    <picture class="mx-benchmark-quality__frame">
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png">
-      <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png" alt="Eight linked rings rendered by Blender Workbench at 2.5 seconds" width="1920" height="1080" loading="lazy">
-    </picture>
-  </figure>
-  <figure>
-    <figcaption>Blender EEVEE</figcaption>
-    <picture class="mx-benchmark-quality__frame">
-      <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png">
-      <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png" alt="Eight linked rings rendered by Blender EEVEE at 2.5 seconds" width="1920" height="1080" loading="lazy">
-    </picture>
-  </figure>
-</div>
+<table class="mx-benchmark-quality" aria-label="Linked rings quality comparison across five engines">
+  <thead>
+    <tr>
+      <th scope="col">ManimGX</th>
+      <th scope="col">ManimCE</th>
+      <th scope="col">ManimGL</th>
+      <th scope="col">Blender Workbench</th>
+      <th scope="col">Blender EEVEE</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <picture class="mx-benchmark-quality__frame">
+          <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx.png">
+          <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png" alt="Eight linked rings rendered by ManimGX at 2.5 seconds" width="1920" loading="lazy">
+        </picture>
+      </td>
+      <td>
+        <picture class="mx-benchmark-quality__frame">
+          <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce.png">
+          <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png" alt="Eight linked rings rendered by ManimCE at 2.5 seconds" width="1920" loading="lazy">
+        </picture>
+      </td>
+      <td>
+        <picture class="mx-benchmark-quality__frame">
+          <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl.png">
+          <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png" alt="Eight linked rings rendered by ManimGL at 2.5 seconds" width="1920" loading="lazy">
+        </picture>
+      </td>
+      <td>
+        <picture class="mx-benchmark-quality__frame">
+          <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench.png">
+          <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png" alt="Eight linked rings rendered by Blender Workbench at 2.5 seconds" width="1920" loading="lazy">
+        </picture>
+      </td>
+      <td>
+        <picture class="mx-benchmark-quality__frame">
+          <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee.png">
+          <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png" alt="Eight linked rings rendered by Blender EEVEE at 2.5 seconds" width="1920" loading="lazy">
+        </picture>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 ## Get started
 

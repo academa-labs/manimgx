@@ -174,7 +174,7 @@ def test_audio_files_start_and_end_where_they_declare(
 def test_a_sound_manimgx_does_not_decode_is_named(tmp_path: Path) -> None:
     data = encoded(tmp_path / "dolby.mkv", "ac3", "stereo", clicks(2))
     with pytest.raises(
-        ValueError, match="its sound is ac3, which manimgx doesn't decode"
+        ValueError, match="its sound is ac3, which ManimGX doesn't decode"
     ):
         decode_audio(data, RATE)
 

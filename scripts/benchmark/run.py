@@ -220,6 +220,8 @@ def run_one(tool: str, scene: str, repeat: int, args: argparse.Namespace) -> Run
     if args.dry_run:
         result.status = "planned"
         return result
+    if not hasattr(os, "wait4"):
+        raise RuntimeError("the benchmark runner measures CPU time on macOS and Linux")
     env = os.environ | {
         "BENCH_ENGINE": tool,
         "BENCH_SCENE": scene,
@@ -264,7 +266,9 @@ def run_one(tool: str, scene: str, repeat: int, args: argparse.Namespace) -> Run
         with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
         result.status = "timeout" if timed_out else "failed"
-        result.error = Path(result.log).read_text(errors="replace")[-4000:]
+        result.error = Path(result.log).read_text(encoding="utf-8", errors="replace")[
+            -4000:
+        ]
         return result
     try:
         videos = [

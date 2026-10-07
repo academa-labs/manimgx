@@ -168,7 +168,7 @@ def test_without_a_gpu_every_film_is_a_take(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_a_take_is_not_also_a_video(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="drawn by manimgx's player"):
+    with pytest.raises(ValueError, match="drawn by ManimGX's player"):
         Held().render(tmp_path / "held.mp4", take=lambda _: None)
 
 

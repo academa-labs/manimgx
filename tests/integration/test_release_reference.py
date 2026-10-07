@@ -48,9 +48,9 @@ def test_release_selects_authenticated_compatible_wheel_and_round_trips(
     assert current.tag == "v0.1.0"
     assert current.wheel().filename == WHEEL
     manifest = tmp_path / "release.json"
-    manifest.write_text(json.dumps(asdict(current)))
+    manifest.write_text(json.dumps(asdict(current)), encoding="utf-8")
     assert release.Release.read(manifest) == current
-    manifest.write_text("null\n")
+    manifest.write_text("null\n", encoding="utf-8")
     assert release.Release.read(manifest) is None
 
 
@@ -133,7 +133,10 @@ def test_bootstrap_renders_and_checks_the_actual_export(
     actual = reference.compare(case, output)
     assert calls == [(case, "manimgx", {"mp4": True, "log": output / "actual.log"})]
     assert isinstance(actual.frames, Failure) is (outcome != "success")
-    assert json.loads((output / "reference.json").read_text())["release"] is None
+    assert (
+        json.loads((output / "reference.json").read_text(encoding="utf-8"))["release"]
+        is None
+    )
 
 
 def test_released_wheel_is_verified_and_compared_once_per_worker(
@@ -167,7 +170,8 @@ def test_released_wheel_is_verified_and_compared_once_per_worker(
         result = reference.compare(Case(name), output)
         assert result.frames == Failure("detected regression")
         assert (
-            json.loads((output / "release.json").read_text())["sha256"] == wheel.sha256
+            json.loads((output / "release.json").read_text(encoding="utf-8"))["sha256"]
+            == wheel.sha256
         )
     assert len(acquired) == 1
     assert len(prepared) == 1

@@ -11,6 +11,28 @@ from scripts.benchmark import chart, run
 from scripts.benchmark.scenes.suite_data import ring_pose
 
 
+def test_unsupported_cpu_accounting_never_starts_a_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delattr(run.os, "wait4", raising=False)
+    monkeypatch.setattr(run, "command", lambda *args: [sys.executable, "-c", "pass"])
+
+    def launch(*args: object, **kwargs: object) -> None:
+        pytest.fail("the unsupported benchmark started a process")
+
+    monkeypatch.setattr(run.subprocess, "Popen", launch)
+    with pytest.raises(RuntimeError, match="macOS and Linux"):
+        run.run_one(
+            "manimgx",
+            "linked_rings",
+            1,
+            argparse.Namespace(out=tmp_path, dry_run=False),
+        )
+
+
+@pytest.mark.skipif(
+    not hasattr(run.os, "wait4"), reason="CPU timing runs on macOS and Linux"
+)
 @pytest.mark.parametrize("timeout", [False, True])
 def test_unsuccessful_processes_are_retained(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout: bool
@@ -41,18 +63,18 @@ def test_a_run_never_overwrites_an_existing_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("tool", run.TOOLS)
-def test_encoder_options_must_match_fastest_preset_and_crf18(
+def test_encoder_options_must_match_fastest_preset_and_crf23(
     tmp_path: Path, tool: str
 ) -> None:
     path = tmp_path / "out.mp4"
     options = (
-        "crf=18.0 subme=1 me=dia bframes=0"
+        "crf=23.0 subme=1 me=dia bframes=0"
         if tool.startswith("blender_")
-        else "crf=18.0 cabac=0 subme=0 bframes=0"
+        else "crf=23.0 cabac=0 subme=0 bframes=0"
     )
     path.write_bytes(f"x264 - core 165 - options: {options}\x00".encode())
-    assert "crf=18.0" in run.encoder_evidence(path, tool)
-    path.write_bytes(path.read_bytes().replace(b"crf=18.0", b"crf=23.0"))
+    assert "crf=23.0" in run.encoder_evidence(path, tool)
+    path.write_bytes(path.read_bytes().replace(b"crf=23.0", b"crf=18.0"))
     with pytest.raises(ValueError, match="Unexpected encoder"):
         run.encoder_evidence(path, tool)
 
@@ -88,7 +110,7 @@ def test_totals_require_every_scene_and_repeat() -> None:
 
 
 def test_recorded_totals_match_every_run() -> None:
-    data = json.loads((run.HERE / "results.json").read_text())
+    data = json.loads((run.HERE / "results.json").read_text(encoding="utf-8"))
     rows = [
         run.Run(
             r["scene"],

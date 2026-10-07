@@ -895,30 +895,20 @@ html {
 
 /* Identical viewports onto original 1080p benchmark frames; no image resampling. */
 .mx-benchmark-quality {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0;
+  table-layout: fixed;
+  border-collapse: collapse;
   width: min(100%, 80vw);
   margin: 1rem auto 2rem;
 }
 
-.md-typeset .mx-benchmark-quality figure {
-  display: block;
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  min-width: 0;
+.mx-benchmark-quality td {
+  padding: 0;
 }
 
-.md-typeset .mx-benchmark-quality figcaption {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.mx-benchmark-quality th {
   height: 3.2em;
-  max-width: none;
-  margin: 0 0 0.5rem;
+  padding: 0 0 0.5rem;
   font-size: clamp(0.55rem, 1.5vw, 0.7rem);
-  font-style: normal;
   font-weight: 600;
   line-height: 1.25;
   text-align: center;
