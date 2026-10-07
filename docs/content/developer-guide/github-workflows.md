@@ -166,15 +166,19 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    GitHub environments with release tags (`v*`) allowed. Pending publishers need distinct
    workflow/environment combinations, even when their project names differ. Publishing
    uses the workflow's OIDC token: no PyPI token is stored.
-6. **Publish to npm:** the already-built tarball for the browser, which installs this
-   release of ManimGX from PyPI, so it comes after PyPI; by trusted publishing too, with
+6. **Publish to npm:** `publish-npm.yaml` acquires the browser's tarball from the public
+   GitHub release and verifies its attestation against the release workflow, tag and commit.
+   It confirms the matching Python browser wheel is public on PyPI before publishing with
    provenance. A retry accepts an existing version only when its SHA512 integrity matches
-   the exact tarball. For the first release, before the package exists on npm, create a
+   the exact tarball. The same workflow can run by hand from `main`, with a published `tag`,
+   to retry publication with current tools without rebuilding or moving that tag.
+   For the first release, before the package exists on npm, create a
    short-lived granular token with read/write access to all packages and bypass 2FA,
-   and store it as `NPM_TOKEN` in the GitHub `npm` environment (allow only `v*` tags).
+   and store it as `NPM_TOKEN` in the GitHub `npm` environment (allow `v*` tags and `main`).
    The token is passed only to the publishing step. Once the package exists, configure
-   its npm trusted publisher with owner `academa-labs`, repository `manimgx`, workflow
-   `release.yaml`, and environment `npm`; enable direct publishing (`npm publish`),
+   its npm trusted publishers with owner `academa-labs`, repository `manimgx`, workflows
+   `release.yaml` and `publish-npm.yaml`, and environment `npm`; npm checks the caller's
+   workflow identity. Enable direct publishing (`npm publish`),
    since the workflow does not stage releases. Then revoke the token and delete the
    GitHub secret: subsequent releases use OIDC.
 7. **Publish the Docker image:** copy the tested OCI archives without changing their digests,

@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 def publish(archive: Path) -> None:
+    # npm interprets relative names such as dist/package.tgz as GitHub package specs.
+    archive = archive.resolve()
     with tarfile.open(archive) as package:
         metadata = package.extractfile("package/package.json")
         if metadata is None:

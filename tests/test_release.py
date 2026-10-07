@@ -24,6 +24,10 @@ ROOT = Path(__file__).parents[1]
 JOBS = yaml.safe_load(
     (ROOT / ".github/workflows/release.yaml").read_text(encoding="utf-8")
 )["jobs"]
+NPM = yaml.load(
+    (ROOT / ".github/workflows/publish-npm.yaml").read_text(encoding="utf-8"),
+    Loader=yaml.BaseLoader,
+)
 
 
 @pytest.mark.parametrize("autocrlf", ["false", "true", "input"])
@@ -281,9 +285,11 @@ def test_every_artifact_is_built_before_public_source_and_registry_uploads() -> 
 
 
 def test_registry_uploads_use_built_artifacts_without_rebuilding() -> None:
-    npm = JOBS["npm"]["steps"]
-    assert any(step.get("with", {}).get("name") == "npm" for step in npm)
-    assert not any("build-npm" in step.get("run", "") for step in npm)
+    npm = NPM["jobs"]["publish"]["steps"]
+    command = "\n".join(step.get("run", "") for step in npm)
+    assert 'gh release download --repo "$GITHUB_REPOSITORY"' in command
+    assert '--pattern "manimgx-${TAG#v}.tgz" -- "$TAG"' in command
+    assert not any(build in command for build in ["build-npm", "npm pack", "bun run"])
     docker = JOBS["docker"]["steps"]
     assert any(step.get("with", {}).get("pattern") == "docker-*" for step in docker)
     command = "\n".join(step.get("run", "") for step in docker)
@@ -297,11 +303,65 @@ def test_registry_uploads_use_built_artifacts_without_rebuilding() -> None:
     assert "--no-deps /wheels/*.whl" in release
 
 
+def test_npm_release_and_manual_recovery_share_the_publisher() -> None:
+    assert JOBS["npm"]["uses"] == "$/.github/workflows/publish-npm.yaml"
+    assert JOBS["npm"]["with"] == {"tag": "${{ github.ref_name }}"}
+    for event in ["workflow_call", "workflow_dispatch"]:
+        tag = NPM["on"][event]["inputs"]["tag"]
+        assert tag["required"] == "true"
+        assert tag["type"] == "string"
+    publisher = NPM["jobs"]["publish"]
+    assert publisher["if"] == (
+        "github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'"
+    )
+    assert publisher["environment"]["name"] == "npm"
+
+
+def test_npm_publication_authenticates_the_release_before_uploading() -> None:
+    steps = NPM["jobs"]["publish"]["steps"]
+    acquire = next(
+        step for step in steps if "gh attestation verify" in step.get("run", "")
+    )
+    assert acquire["env"]["TAG"] == "${{ inputs.tag }}"
+    source = acquire["run"]
+    assert '--json isDraft --jq .isDraft -- "$TAG")" = false' in source
+    assert (
+        'commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"' in source
+    )
+    assert (
+        '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yaml"'
+        in source
+    )
+    assert '--source-ref "refs/tags/$TAG" --source-digest "$commit"' in source
+    assert (
+        'curl --fail --silent --show-error "https://pypi.org/pypi/manimgx/${TAG#v}/json"'
+        in source
+    )
+    assert "jq -e '.urls | any(.filename | endswith(\"_wasm32.whl\"))'" in source
+    command = "\n".join(step.get("run", "") for step in steps)
+    positions = [
+        command.index(gate)
+        for gate in [
+            "gh release view",
+            "gh release download",
+            "commit=",
+            "gh attestation verify",
+            "https://pypi.org/pypi/manimgx/",
+            "python3 scripts/release/publish_npm.py dist/*.tgz",
+        ]
+    ]
+    assert positions == sorted(positions)
+
+
 @pytest.mark.parametrize("state", ["new", "identical", "different", "unauthorized"])
+@pytest.mark.parametrize("relative", [False, True], ids=["absolute", "relative"])
 def test_npm_retry_requires_the_exact_tarball(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str, relative: bool
 ) -> None:
-    archive = tmp_path / "package.tgz"
+    archive = tmp_path / "dist" / "package.tgz"
+    archive.parent.mkdir()
+    monkeypatch.chdir(tmp_path)
+    argument = archive.relative_to(tmp_path) if relative else archive
     with tarfile.open(archive, "w:gz") as package:
         body = json.dumps({"name": "manimgx", "version": "0.1.0"}).encode()
         member = tarfile.TarInfo("package/package.json")
@@ -315,6 +375,7 @@ def test_npm_retry_requires_the_exact_tarball(
 
     def run(command: list[str], **_options: object) -> subprocess.CompletedProcess[str]:
         if command[1] == "publish":
+            assert Path(command[2]).is_absolute(), "npm must receive a local file path"
             uploaded.append(Path(command[2]).read_bytes())
             return subprocess.CompletedProcess(command, 0, "", "")
         assert command == ["npm", "view", "manimgx@0.1.0", "dist.integrity", "--json"]
@@ -333,12 +394,12 @@ def test_npm_retry_requires_the_exact_tarball(
     monkeypatch.setattr(subprocess, "run", run)
     if state == "different":
         with pytest.raises(ValueError, match="different artifact bytes"):
-            publish_npm.publish(archive)
+            publish_npm.publish(argument)
     elif state == "unauthorized":
         with pytest.raises(RuntimeError, match="cannot inspect"):
-            publish_npm.publish(archive)
+            publish_npm.publish(argument)
     else:
-        publish_npm.publish(archive)
+        publish_npm.publish(argument)
     assert uploaded == ([archive.read_bytes()] if state == "new" else [])
 
 
