@@ -1,7 +1,7 @@
 # Sound and voice
 
 A video can have sound: a sound with an animation, music under the whole video, or a
-voice that explains. manimgx puts each sound at its moment in the video, and mixes them
+voice that explains. ManimGX puts each sound at its moment in the video, and mixes them
 into one sound track.
 
 ## Play a sound with an animation
@@ -80,7 +80,7 @@ editor shows the settings of each one. Any other text-to-speech service can be a
 too: a voice is a function from text to a [`Speech`][manimgx.Speech]. For a dialogue,
 give `say` a voice for one line: `self.say("Hello!", voice=other)`.
 
-manimgx keeps what the voice says in a folder named `voice/`, next to your scene's file.
+ManimGX keeps what the voice says in a folder named `voice/`, next to your scene's file.
 So the scene renders again without the service, even offline, and only a changed line
 goes to the service again. To use your own recording for a line, put it in place of
 that line's audio, with the same name.

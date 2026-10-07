@@ -1,11 +1,11 @@
 # The basics
 
-With manimgx, you write a short Python program, and manimgx makes a video of it. This
+With ManimGX, you write a short Python program, and ManimGX makes a video of it. This
 page shows how.
 
 ## A program makes a video
 
-Here is a manimgx program:
+Here is a ManimGX program:
 
 ```python title="hello.py" show="code"
 import manimgx as m
@@ -26,7 +26,7 @@ says):
 manimgx render hello.py
 ```
 
-manimgx makes this video, `Hello.mp4`, next to the file:
+ManimGX makes this video, `Hello.mp4`, next to the file:
 
 ```python show="film"
 import manimgx as m
@@ -39,19 +39,19 @@ class Hello(m.Scene):
         self.wait()
 ```
 
-That is how you work with manimgx: you write a program, and manimgx makes a video of it.
+That is how you work with ManimGX: you write a program, and ManimGX makes a video of it.
 
 ## The program, line by line
 
 `import manimgx as m`
-:   gives you all of manimgx under a short name, `m`: `m.Scene`, `m.Circle`, `m.Create`.
+:   gives you all of ManimGX under a short name, `m`: `m.Scene`, `m.Circle`, `m.Create`.
 
 `class Hello(m.Scene):`
 :   makes a **scene**. A scene is one video. Its name is the name of the video: the
     scene `Hello` makes `Hello.mp4`.
 
 `def construct(self) -> None:`
-:   tells what happens in the video. manimgx runs `construct` from top to bottom, and
+:   tells what happens in the video. ManimGX runs `construct` from top to bottom, and
     each line adds to the video in that order.
 
 `circle = m.Circle()`

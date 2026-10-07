@@ -1,6 +1,6 @@
 """A griffe extension: what is deprecated is left out of the API reference.
 
-A name manimgx keeps for code written for Manim CE, and no longer teaches (another name of a
+A name ManimGX keeps for code written for Manim CE, and no longer teaches (another name of a
 class, an empty subclass, a method's second name), is decorated with PEP 702's
 `@deprecated(message, category=None)`: ty flags each use of it, and nothing warns as it runs.
 The reference documents the name to use instead. So each object so decorated is taken out of

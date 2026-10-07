@@ -56,7 +56,7 @@ def _owner(method: Callable[..., object]) -> tuple[Mobject, Callable[..., object
     return method.__self__, method.__func__
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def assert_is_mobject_method(method: Callable[..., object]) -> None:
     """Check that `method` is a method of a mobject, bound to it (as `square.move_to`):
     anything else raises a TypeError.

@@ -26,7 +26,7 @@ class SoundHero(m.Scene):
 ```
 
 A sound is read from a file (WAV, MP3, AAC, FLAC and the other usual kinds), or made by a
-function of time. manimgx places each sound at its moment in the video, and mixes them into
+function of time. ManimGX places each sound at its moment in the video, and mixes them into
 one sound track.
 
 Give a sound to `play` with animations, and it starts with them. To start one at any moment,

@@ -1,5 +1,5 @@
 // Paint, as both pipelines evaluate it (each shader is this file and `tone.wgsl`, then its own; `row_at` is
-// theirs): colors mix as every color in manimgx mixes — OKLab, weighted by opacity (Python's `mix_rgba`,
+// theirs): colors mix as every color in ManimGX mixes — OKLab, weighted by opacity (Python's `mix_rgba`,
 // the player's) — and a gradient is evenly spaced stops, a tween's rows mixed toward paint 2's.
 
 fn linear(c: vec3<f32>) -> vec3<f32> {

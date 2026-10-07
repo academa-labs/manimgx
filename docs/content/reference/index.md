@@ -1,6 +1,6 @@
 ---
 title: "Reference"
-description: "Every part of a manimgx video, from the scene to the sound, with all that each part can do."
+description: "Every part of a ManimGX video, from the scene to the sound, with all that each part can do."
 ---
 
 # Reference

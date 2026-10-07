@@ -1,4 +1,4 @@
-# manimgx's tasks: `just` lists them. The GitHub workflows run these same recipes, so a task
+# ManimGX's tasks: `just` lists them. The GitHub workflows run these same recipes, so a task
 # does the same on your machine as in CI.
 
 # List the recipes
@@ -26,7 +26,7 @@ upgrade:
     cargo update --manifest-path rust/Cargo.toml
     uv run --frozen scripts/release/licenses.py
 
-# Write the wheels' third-party licenses (LICENSE-THIRD-PARTY), checking manimgx's `license`
+# Write the wheels' third-party licenses (LICENSE-THIRD-PARTY), checking ManimGX's `license`
 [group('development')]
 licenses:
     uv run --frozen scripts/release/licenses.py
@@ -105,7 +105,7 @@ combine-coverage directory:
 test-thorough *args:
     uv run --frozen pytest -n auto tests/unit --hypothesis-profile=thorough {{ args }}
 
-# Time the benchmarks on this machine: this checkout against REF's manimgx, main unless named
+# Time the benchmarks on this machine: this checkout against REF's ManimGX, main unless named
 [group('testing')]
 bench ref="main" *args:
     uv run --frozen pytest tests/benchmarks/test_speed.py -n 0 --timeout=3600 --bench={{ ref }} {{ args }}
@@ -167,8 +167,8 @@ serve-docs:
 build-wheel platform="auto":
     uvx cibuildwheel@4.2.1 --output-dir dist --platform {{ platform }}
 
-# (the player's element and the director's worker in one file, installing the manimgx of its version from PyPI;
-# with manimgx's license, which it carries)
+# (the player's element and the director's worker in one file, installing the ManimGX of its version from PyPI;
+# with ManimGX's license, which it carries)
 # Build the npm package into browser/dist/
 [group('release')]
 build-npm:
@@ -177,7 +177,7 @@ build-npm:
     cp LICENSE browser/LICENSE
     cd browser && bun run build
 
-# Build manimgx's source distribution into dist/
+# Build ManimGX's source distribution into dist/
 [group('release')]
 build-sdist:
     uv build --sdist --out-dir dist
@@ -241,7 +241,7 @@ release-notes version:
     awk '/^## / { if (found) exit } $0 == "## {{ version }}" { found = 1; next } found' \
         docs/content/changelog.md
 
-# Tag manimgx's version and push the tag: the Release workflow publishes it
+# Tag ManimGX's version and push the tag: the Release workflow publishes it
 [confirm("Tag manimgx's version and push the tag?")]
 [group('release')]
 release:

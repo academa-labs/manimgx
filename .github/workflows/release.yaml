@@ -1,7 +1,7 @@
-# A release: pushing the tag vX.Y.Z (`just release`) builds, tests and publishes manimgx X.Y.Z.
+# A release: pushing the tag vX.Y.Z (`just release`) builds, tests and publishes ManimGX X.Y.Z.
 # Every artifact is built and tested before publication. GitHub receives the wheels, source
 # distributions, complete source, executables and npm tarball first, so the advertised source
-# is public before binaries reach any registry. PyPI receives the fonts before manimgx; npm
+# is public before binaries reach any registry. PyPI receives the fonts before ManimGX; npm
 # follows PyPI because the browser installs its matching Python release. GHCR receives the
 # tested OCI images, with their SBOMs and provenance. Publishing transfers existing artifacts;
 # it never rebuilds them. Registry uploads can be retried, and all must succeed to complete.
@@ -60,14 +60,14 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      # a tag is manimgx's version, and the changelog says what it changes
+      # a tag is ManimGX's version, and the changelog says what it changes
       - name: Check the version
         id: version
         run: |
           version="$(uv version --short --package manimgx)"
           if [[ "${GITHUB_REF_TYPE}" == tag ]]; then
             if [[ "${GITHUB_REF_NAME}" != "v${version}" ]]; then
-              echo "::error::The tag is ${GITHUB_REF_NAME}, but manimgx's version is ${version}"
+              echo "::error::The tag is ${GITHUB_REF_NAME}, but ManimGX's version is ${version}"
               exit 1
             fi
             if [[ -z "$(just release-notes "${version}" | tr -d '[:space:]')" ]]; then
@@ -294,7 +294,7 @@ jobs:
             echo "The wheels and executables hold FFmpeg, under the LGPL, and all but the" \
               "browser's wheel hold x264, under the GPL, which makes them, as a whole," \
               "GPL-3.0-or-later. Their complete source and build recipes are" \
-              "[manimgx-${VERSION}-source.tar.xz](${source}): the source of manimgx, of every" \
+              "[manimgx-${VERSION}-source.tar.xz](${source}): the source of ManimGX, of every" \
               "crate, and of each library the engine is built from. This software uses code of" \
               "[FFmpeg](https://ffmpeg.org) licensed under the LGPLv2.1 and its source can be" \
               "downloaded [here](${source})."
@@ -302,7 +302,7 @@ jobs:
           flags=()
           if [[ "${PRERELEASE}" == true ]]; then flags+=(--prerelease); fi
           gh release create "${GITHUB_REF_NAME}" assets/* --draft --verify-tag \
-            --title "manimgx ${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" "${flags[@]}"
+            --title "ManimGX ${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md" "${flags[@]}"
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
@@ -354,8 +354,8 @@ jobs:
         run: uv publish --check-url https://pypi.org/simple/
 
   pypi:
-    name: Publish manimgx to PyPI
-    # Publish the required fonts first, so manimgx is installable as soon as it appears.
+    name: Publish ManimGX to PyPI
+    # Publish the required fonts first, so ManimGX is installable as soon as it appears.
     needs: [version, github-release, pypi-fonts]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -430,7 +430,7 @@ jobs:
 
   npm:
     name: Publish to npm
-    # after PyPI: the package installs this release of manimgx from there
+    # after PyPI: the package installs this release of ManimGX from there
     needs: [version, pypi]
     runs-on: ubuntu-24.04
     timeout-minutes: 10

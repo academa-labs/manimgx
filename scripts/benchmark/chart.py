@@ -4,8 +4,8 @@
 
 Reads `results.json` and writes `docs/content/images/benchmark-light.svg`
 and `benchmark-dark.svg`, which the README shows from the docs site, each where its color
-scheme is. Times are divided by manimgx's suite total, so its bar finishes at one second.
-Each bar grows on this normalized clock until manimgx is done and a
+scheme is. Times are divided by ManimGX's suite total, so its bar finishes at one second.
+Each bar grows on this normalized clock until ManimGX is done and a
 moment more, then fast-forwarded (the chart says by how much) until the slowest is done;
 the chart then holds, and starts again. Without motion (`prefers-reduced-motion`), it is
 the finished chart.
@@ -81,7 +81,7 @@ def duration(seconds: float) -> str:
 
 
 def normalized_rows(totals: dict[str, float]) -> list[tuple[str, float]]:
-    """Keep every engine's relative time while setting manimgx to one second."""
+    """Keep every engine's relative time while setting ManimGX to one second."""
     return sorted(
         (
             (LABELS[tool], seconds / totals["manimgx"])

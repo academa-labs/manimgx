@@ -1,9 +1,9 @@
-# Contributing to manimgx
+# Contributing to ManimGX
 
-Thank you for helping. manimgx is developed and maintained by [Academa](https://academa.ai):
+Thank you for helping. ManimGX is developed and maintained by [Academa](https://academa.ai):
 its maintainers review every change, and decide what is merged and where the project goes.
 
-This page is how to take part. How manimgx works, and how to set it up, change it and test it,
+This page is how to take part. How ManimGX works, and how to set it up, change it and test it,
 is in the [Developer Guide](https://manimgx.academa.ai/developer-guide/).
 
 ## Issues
@@ -20,10 +20,10 @@ To report a security vulnerability, don't open an issue: follow the
 For anything larger than a small fix, open an issue first and describe what you want to
 change. Agreeing on the approach before you write the code saves you work.
 
-manimgx takes its API from [Manim Community Edition](https://www.manim.community): the same
+ManimGX takes its API from [Manim Community Edition](https://www.manim.community): the same
 names and parameters. It does not take CE's behavior. What a scene means (its timing, its
 geometry, how it looks) is decided on its own merits, so "Manim CE does it this way" is a
-reason to look closely, not a reason to change manimgx.
+reason to look closely, not a reason to change ManimGX.
 
 ## Making a change
 
@@ -33,7 +33,7 @@ The Developer Guide has everything a change needs:
   the GPU, and the environment, from a clone to a passing test run.
 - [Project management](https://manimgx.academa.ai/developer-guide/project-management/): the
   configuration, the checks, and the rules for typing and formatting.
-- [Understanding manimgx](https://manimgx.academa.ai/developer-guide/understanding-manimgx/)
+- [Understanding ManimGX](https://manimgx.academa.ai/developer-guide/understanding-manimgx/)
   and [the engine](https://manimgx.academa.ai/developer-guide/engine/): how a scene becomes a
   video.
 - [Testing](https://manimgx.academa.ai/developer-guide/testing/): the tests, the integration
@@ -65,10 +65,10 @@ AI tools are welcome, and you are still the author:
 
 ## License
 
-By contributing, you agree that your contributions are licensed under manimgx's
+By contributing, you agree that your contributions are licensed under ManimGX's
 [MIT License](https://github.com/academa-labs/manimgx/blob/main/LICENSE).
 
 ## Code of conduct
 
-Everyone taking part in manimgx follows its
+Everyone taking part in ManimGX follows its
 [code of conduct](https://github.com/academa-labs/manimgx/blob/main/.github/CODE_OF_CONDUCT.md).

@@ -1,6 +1,6 @@
 # Positions
 
-You choose where each mobject is. manimgx doesn't arrange them for you: it puts each one
+You choose where each mobject is. ManimGX doesn't arrange them for you: it puts each one
 at the position that you give it. This page shows how positions work.
 
 ## The frame
@@ -119,7 +119,7 @@ helps you see positions while you work.
 
 ## Directions
 
-manimgx has names for directions. Each name is a point:
+ManimGX has names for directions. Each name is a point:
 
 | Name | Point |
 | --- | --- |

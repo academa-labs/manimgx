@@ -1,4 +1,4 @@
-What manimgx's wheels hold that others hold the copyright in: modules of its Python
+What ManimGX's wheels hold that others hold the copyright in: modules of its Python
 package, and the crates compiled into the engine (the extension, on each platform,
 Pyodide's, and the player for a page, which the extension carries), with the sources
 the workspace's crates fetch; with the licenses and notices they come with, each
@@ -6,7 +6,7 @@ text once, after what it covers. FFmpeg is under the LGPL-2.1-or-later, and x264
 every wheel but Pyodide's, under the GPL-2.0-or-later, which makes such a wheel, as
 a whole, GPL-3.0-or-later. Its complete source and build recipes are on the GitHub
 release of its version, https://github.com/academa-labs/manimgx/releases/tag/vX.Y.Z
-for manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's committed repository with
+for ManimGX X.Y.Z: manimgx-X.Y.Z-source.tar.xz, ManimGX's committed repository with
 every crate rust/Cargo.lock names and each archive a workspace's crate fetches, with
 the Linux builds' Mesa/glslang archives and exact distribution source RPMs. System
 build tools remain prerequisites. The Linux wheels' lavapipe is in LICENSE-LAVAPIPE.

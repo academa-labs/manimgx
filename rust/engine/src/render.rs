@@ -1,4 +1,4 @@
-//! manimgx's player: draws blends of shapes — every kind, 2D and 3D — and encodes them to MP4.
+//! ManimGX's player: draws blends of shapes — every kind, 2D and 3D — and encodes them to MP4.
 //!
 //! Python uploads each shape once (a path's curves as their control points, a point cloud, a
 //! mesh), each brush of several rows once (gradient stops, per-point or per-vertex colors) and each
@@ -670,7 +670,7 @@ fn srgb(lab: [f32; 3]) -> [f32; 3] {
     })
 }
 
-/// Color a → b at t, as every color in manimgx mixes (the shader's `mix_rgba`, Python's
+/// Color a → b at t, as every color in ManimGX mixes (the shader's `mix_rgba`, Python's
 /// `mix_rgba`): OKLab weighted by opacity; exactly a at 0, b at 1.
 fn mix_rgba(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
     if t <= 0.0 || a == b {

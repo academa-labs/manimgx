@@ -1,4 +1,4 @@
-"""Manim's authoring API, backed by manimgx's scene, object and animation models."""
+"""Manim's authoring API, backed by ManimGX's scene, object and animation models."""
 
 import numpy as np
 

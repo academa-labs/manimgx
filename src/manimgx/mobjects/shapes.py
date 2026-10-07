@@ -3181,7 +3181,7 @@ class DashedLine(Line):
             2, int(np.ceil(self.get_length() / self.dash_length * self.dashed_ratio))
         )
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_first_handle(self) -> Point3D:
         """The line's first handle: its first dash's, the control point after the
         line's start toward which that dash leaves it (a third of the way into the
@@ -3193,7 +3193,7 @@ class DashedLine(Line):
         start, handle = self.points[:2]
         return start + self._dash_cut() * (handle - start)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_last_handle(self) -> Point3D:
         """The line's last handle: its last dash's, the control point before the
         line's end from which that dash comes into it (a third of the way back into
@@ -3429,7 +3429,7 @@ class Arrow(Line):
         self.submobjects.sort(key=lambda m: place.get(id(m), len(order)))
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_normal_vector(self) -> Vector3D:
         """The normal of the plane the arrow's tip lies in, from its first three
         anchors.
@@ -3440,7 +3440,7 @@ class Arrow(Line):
         p0, p1, p2 = self.tip.get_start_anchors()[:3]
         return normalize(np.cross(p2 - p1, p1 - p0))
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def reset_normal_vector(self) -> Self:
         """Set the arrow's `normal_vector` to its
         [tip's normal][manimgx.Arrow.get_normal_vector].
@@ -3450,7 +3450,7 @@ class Arrow(Line):
         self.normal_vector = self.get_normal_vector()
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_default_tip_length(self) -> float:
         """The length of the tips the arrow makes unless given one: its `tip_length`,
         or `max_tip_length_to_length_ratio` times its length if that is shorter.
@@ -3914,7 +3914,7 @@ class RightAngle(Angle):
         super().__init__(line1, line2, radius=length, elbow=True, **kwargs)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def adjacent_n_tuples[T](objects: Sequence[T], n: int) -> Iterator[tuple[T, ...]]:
     """Each run of `n` items in a row, wrapping around at the end: for `[a, b, c]` and
     2, `(a, b)`, `(b, c)` and `(c, a)`.
@@ -3929,7 +3929,7 @@ def adjacent_n_tuples[T](objects: Sequence[T], n: int) -> Iterator[tuple[T, ...]
     return zip(*(list(objects[k:]) + list(objects[:k]) for k in range(n)), strict=True)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def adjacent_pairs[T](objects: Sequence[T]) -> Iterator[tuple[T, ...]]:
     """Each item with the next, wrapping around at the end (see
     [adjacent_n_tuples][manimgx.adjacent_n_tuples]).

@@ -1,4 +1,4 @@
-"""Scenes as animated SVGs: what manimgx draws, frame by frame, as paths an SVG plays.
+"""Scenes as animated SVGs: what ManimGX draws, frame by frame, as paths an SVG plays.
 
 GitHub and PyPI show a README's images but play no video, and a video made into an animated
 image is large and soft. A scene made of paths (curves, shapes, text; no surfaces, meshes or

@@ -98,7 +98,7 @@ int manimgx_decode(const uint8_t *data, size_t size, float **samples, size_t *fr
     const AVCodecParameters *parameters = format->streams[stream]->codecpar;
     const AVCodec *codec = avcodec_find_decoder(parameters->codec_id);
     if (!codec) {
-        snprintf(error, error_size, "its sound is %s, which manimgx doesn't decode", avcodec_get_name(parameters->codec_id));
+        snprintf(error, error_size, "its sound is %s, which ManimGX doesn't decode", avcodec_get_name(parameters->codec_id));
         ret = AVERROR_DECODER_NOT_FOUND;
         goto end;
     }

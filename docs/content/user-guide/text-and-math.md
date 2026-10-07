@@ -1,6 +1,6 @@
 # Text and math
 
-manimgx sets text and formulas itself, with [Typst](https://typst.app) and fonts that come
+ManimGX sets text and formulas itself, with [Typst](https://typst.app) and fonts that come
 with it. You don't install LaTeX or fonts, and your text looks the same on every computer.
 
 ## Text
@@ -43,7 +43,7 @@ class Formula(m.Scene):
 ```
 
 Fractions, roots, sums and integrals, matrices, `cases`, Greek letters, `\mathbb` and
-`\text` work. LaTeX packages and `\def` don't. If manimgx doesn't know a command, its
+`\text` work. LaTeX packages and `\def` don't. If ManimGX doesn't know a command, its
 error names the command.
 
 `m.Tex` is for text with math in it: `m.Tex(r"The area is $\pi r^2$.")`.

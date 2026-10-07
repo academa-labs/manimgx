@@ -1,4 +1,4 @@
-"""Write LICENSE-THIRD-PARTY: what manimgx's wheels hold that others hold the
+"""Write LICENSE-THIRD-PARTY: what ManimGX's wheels hold that others hold the
 copyright in, with the licenses and notices it comes with, each text once, after what it covers:
 
 - the package's files that name others (REUSE: by their SPDX lines, or REUSE.toml), with their
@@ -8,7 +8,7 @@ copyright in, with the licenses and notices it comes with, each text once, after
   FFmpeg's and libopus's, mitex's); a crate from crates.io that ships none, its license's text
   from LICENSES/, with its authors on the line the text keeps for them.
 
-And check that manimgx's `license` (pyproject.toml) covers all of it: that each
+And check that ManimGX's `license` (pyproject.toml) covers all of it: that each
 part's license is satisfied by the licenses it names. The Linux wheels' lavapipe has a notice of
 its own, LICENSE-LAVAPIPE.
 
@@ -100,7 +100,7 @@ def holder(line: str) -> str:
 def others() -> dict[tuple[str, tuple[str, ...]], list[str]]:
     """The package's files that others hold copyright in, as REUSE finds them (`reuse lint`,
     which `just check` runs), named as the wheel holds them: by license and copyright lines,
-    manimgx's left out (those of the holder REUSE.toml gives its own files)."""
+    ManimGX's left out (those of the holder REUSE.toml gives its own files)."""
     reuse = tomllib.loads((ROOT / "REUSE.toml").read_text(encoding="utf-8"))
     own = holder(reuse["annotations"][0]["SPDX-FileCopyrightText"])
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -227,7 +227,7 @@ def write(
         for file in shipped:
             written = clean(file.read_text(encoding="utf-8", errors="replace"))
             found.setdefault(written, []).append(f"{declared}: {file.name}")
-        # the workspace's own code is manimgx's (LICENSE)
+        # the workspace's own code is ManimGX's (LICENSE)
         if not shipped and (include_local or package["source"] is not None):
             authors = [re.sub(r"\s*<.*?>", "", a) for a in package["authors"]]
             by = ", ".join(authors) or f"the {package['name']} authors"
@@ -242,7 +242,7 @@ def write(
                 continue
             found.setdefault(written, []).append(f"{declared}: no license file")
     header = header or (
-        "What manimgx's wheels hold that others hold the copyright in: modules of its"
+        "What ManimGX's wheels hold that others hold the copyright in: modules of its"
         " Python package, and the crates compiled into the engine (the extension, on"
         " each platform, Pyodide's, and the player for a page, which the extension"
         " carries), with the sources the workspace's crates fetch; with the licenses"
@@ -251,7 +251,7 @@ def write(
         " the GPL-2.0-or-later, which makes such a wheel, as a whole, GPL-3.0-or-later."
         " Its complete source and build recipes are on the GitHub release of its"
         " version, https://github.com/academa-labs/manimgx/releases/tag/vX.Y.Z for"
-        " manimgx X.Y.Z: manimgx-X.Y.Z-source.tar.xz, manimgx's committed repository"
+        " ManimGX X.Y.Z: manimgx-X.Y.Z-source.tar.xz, ManimGX's committed repository"
         " with every crate rust/Cargo.lock names and each archive a workspace's crate"
         " fetches, with the Linux builds' Mesa/glslang archives and exact distribution"
         " source RPMs. System build tools remain prerequisites. The Linux wheels' lavapipe"

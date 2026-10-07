@@ -189,12 +189,12 @@ class Typst(VMobject):
     excluded: glyphs ([TypstGlyph][manimgx.mobjects.text.TypstGlyph]) and
     shapes (a rule, a fraction's bar, a box). A labelled box, `#box[…] <name>`, is a
     group: [select][manimgx.Typst.select] gives it. Packages are imported from
-    `package_path` (and mitex, `@preview/mitex:0.2.7`, from manimgx's engine), never
+    `package_path` (and mitex, `@preview/mitex:0.2.7`, from ManimGX's engine), never
     downloaded; code Typst can't typeset raises a
     [TypstError][manimgx.drawing.typesetting.TypstError].
 
     Text is set in Libertinus Serif and math in New Computer Modern Math, Typst's
-    defaults, unless the code sets another font. The fonts are those manimgx ships, so a
+    defaults, unless the code sets another font. The fonts are those ManimGX ships, so a
     document looks the same on every machine: Typst's own (these two, New Computer
     Modern and DejaVu Sans Mono), Noto Sans, and Noto faces for the scripts those lack,
     from Arabic, Hebrew and Devanagari to Chinese, Japanese and Korean, with symbols and
@@ -216,14 +216,14 @@ class Typst(VMobject):
         typst_preamble: Typst code set before the document: rules, definitions,
             imports.
         font_paths: Directories of font files, searched, with their subdirectories,
-            before the fonts manimgx ships.
+            before the fonts ManimGX ships.
         should_center: Whether the mobject is centered on the origin.
         height: The height to scale the mobject to, in scene units; None to size it by
             `font_size`.
         width: The width to scale it to, in scene units, after `height`; None to size
             it by `font_size`.
         package_path: The directory Typst packages are imported from (as
-            `namespace/name/version` directories), besides mitex, which manimgx's
+            `namespace/name/version` directories), besides mitex, which ManimGX's
             engine holds; None for none but mitex.
         font_scale: How much larger than `font_size` the text is set: the layout is
             scaled by `font_size * font_scale`, while
@@ -590,7 +590,7 @@ DEFAULT_FONT = (  # embedded in Typst: identical text on every machine
     "New Computer Modern"
 )
 _SANS = ("Noto Sans", "Noto Sans Hebrew")  # Typst's own fallback sets Hebrew in a serif
-# CSS's and Pango's generic families, as faces manimgx ships (lowercase keys)
+# CSS's and Pango's generic families, as faces ManimGX ships (lowercase keys)
 _GENERIC: dict[str, tuple[str, ...]] = {
     "serif": (DEFAULT_FONT,),
     "sans-serif": _SANS,
@@ -640,8 +640,8 @@ def _arguments(style: Style) -> str:
 
 def _fonts(font: str) -> str:
     """Typst's font list for a CE font name: a generic family's faces, or the family named
-    and then manimgx's default face (for a family no font has, or a character it lacks).
-    Typst falls back among manimgx's fonts after them."""
+    and then ManimGX's default face (for a family no font has, or a character it lacks).
+    Typst falls back among ManimGX's fonts after them."""
     families = _GENERIC.get(font.lower(), (font, DEFAULT_FONT))
     return f"({''.join(f'{typst_string(f)}, ' for f in dict.fromkeys(families))})"
 
@@ -777,13 +777,13 @@ class Text(Typst):
     [TypstGlyph][manimgx.mobjects.text.TypstGlyph]. A ligature is one glyph
     (the "ffi" of "office", in the default font) unless `disable_ligatures`.
 
-    A text is set in one font, from the fonts manimgx ships, so it looks the same on
+    A text is set in one font, from the fonts ManimGX ships, so it looks the same on
     every machine: New Computer Modern unless `font` names another. "serif",
     "sans-serif" (or "sans") and "monospace" (or "mono") are New Computer Modern, Noto
     Sans and DejaVu Sans Mono. Fonts in `font_paths` come first; a family neither they
-    nor manimgx have is read from the system's fonts, and one found nowhere falls back
+    nor ManimGX have is read from the system's fonts, and one found nowhere falls back
     to New Computer Modern. A character the font lacks is set in another font that has
-    it: manimgx ships Noto faces for Arabic, Hebrew, the Indic scripts, Thai, Chinese,
+    it: ManimGX ships Noto faces for Arabic, Hebrew, the Indic scripts, Thai, Chinese,
     Japanese, Korean and more, with symbols and emoji. In any font, a capital is 0.449
     scene units tall at the default size, 48, and in proportion at others: each font is
     scaled to that, and `font_size` still reads the size asked for.

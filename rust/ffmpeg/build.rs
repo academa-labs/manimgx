@@ -1,6 +1,6 @@
 //! FFmpeg 9.0.2's audio decoders, and libopus 1.6.1 for Opus, from their sources (fetched), with
 //! nothing installed: no configure, no make. What FFmpeg's configure resolves for the components
-//! manimgx decodes with is the lock below (`ON`, the names it turns on; `SOURCES`, the files it
+//! ManimGX decodes with is the lock below (`ON`, the names it turns on; `SOURCES`, the files it
 //! compiles), made once by
 //!
 //! ```text

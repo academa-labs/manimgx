@@ -60,7 +60,7 @@ export class Review {
   sort = $state<Sort>('name')
 
   mode = $state<Mode>('parallel')
-  /** The superimposed frames' blend: 0 shows CE, 1 manimgx. */
+  /** The superimposed frames' blend: 0 shows CE, 1 ManimGX. */
   mix = $state(0.5)
   /** The timeline step shown, from 0. */
   at = $state(0)

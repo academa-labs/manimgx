@@ -7,13 +7,13 @@
   saved state and target once everything is forgotten, and with their glyphs' keys reassigned.
   A document on disk is read, not set again, and what the engine answered can change afterwards
   without changing a document.
-- A glyph cuts at its font's carets, else into equal parts of its advance. (No font manimgx ships
+- A glyph cuts at its font's carets, else into equal parts of its advance. (No font ManimGX ships
   has carets: a made-up font has them.)
 - Documents share the glyphs they remember: one outline each; cutting and painting one leaves
   the others as they were, and a cut glyph lets its uncut outline go.
 - A glyph without an outline is no part, and labels lose it; a paragraph's blank lines are
   empty lines.
-- Text is set in the fonts manimgx ships, the same on every machine: every script finds a face
+- Text is set in the fonts ManimGX ships, the same on every machine: every script finds a face
   there (no .notdef glyph), and a system font is read only for a family a text names.
 """
 

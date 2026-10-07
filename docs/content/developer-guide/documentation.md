@@ -2,12 +2,12 @@
 
 ## The goal
 
-manimgx's docs are a website with four tabs: the User Guide (Welcome, which is the README,
+ManimGX's docs are a website with four tabs: the User Guide (Welcome, which is the README,
 the Quickstart, chapters read in order, then the API reference), the Gallery, this
 Developer Guide, and the Changelog. Two things make them more than pages of text:
 
 - **Every example shows what it makes.** A code block that defines a scene appears with
-  the film manimgx renders from it, rendered when the site is built, so no picture is ever
+  the film ManimGX renders from it, rendered when the site is built, so no picture is ever
   older than the code beside it.
 - **The reference tells a story, and misses nothing.** Its pages are written by hand, in
   the order of a video's parts, and render the API from the docstrings; tests keep them
@@ -27,10 +27,10 @@ folder's:
 
 - **The site:** its name, URL and repository, and where each page's "edit" link goes.
 - **The theme:** its features (the navbar's tabs, instant navigation, a copy button on
-  code), its light and dark palettes, manimgx's own stylesheet and script, and
-  `docs/overrides/`, where manimgx changes the theme's templates.
+  code), its light and dark palettes, ManimGX's own stylesheet and script, and
+  `docs/overrides/`, where ManimGX changes the theme's templates.
 - **Markdown extensions:** admonitions, content tabs, math (rendered by KaTeX), Mermaid
-  diagrams, keyboard keys, and a formatter of manimgx's own for Python blocks (below).
+  diagrams, keyboard keys, and a formatter of ManimGX's own for Python blocks (below).
 - **Plugins:** awesome-nav, which reads the navigation from the folders; mkdocstrings,
   which renders the API reference from the docstrings; and autorefs, which resolves links
   such as `[Circle][manimgx.Circle]`.
@@ -151,7 +151,7 @@ of example films. The same banner and GIFs appear on the docs' Welcome page, inc
 the README.
 
 - **The banner** (`showcase/logo-dark.svg` and `logo-light.svg`): the logo, which plays
-  its opening once. The word ManimGX, typeset by manimgx's Typst (𝕄 as `$bb(M)$`, "anim" in
+  its opening once. The word ManimGX, typeset by ManimGX's Typst (𝕄 as `$bb(M)$`, "anim" in
   New Computer Modern Bold, "GX" in Playwrite NO), is written in; then Manim's circle,
   square and triangle are drawn and each becomes a solid, a sphere, a cube and a pyramid,
   their projected face paths interpolated continuously by the browser. The SVG contains no
@@ -351,7 +351,7 @@ shows an entry as a scene writes it:
   they are told.
 - **Its source, one click away:** a Source button that opens the code where it is defined.
 
-A module's docstring is not shown: in manimgx it is a note for the developers who change the
+A module's docstring is not shown: in ManimGX it is a note for the developers who change the
 module. mkdocstrings reads the `custom_templates` setting from the working directory, and
 Zensical passes it on as written, not made absolute from the settings' folder as MkDocs
 does; [`docs/mkdocstrings.py`](https://github.com/academa-labs/manimgx/blob/main/docs/mkdocstrings.py)
@@ -418,7 +418,7 @@ writes three things:
   A page's one action, Copy as Markdown (`content.action.copy`), copies it.
 - **`llms.txt`,** at the site's root, <https://manimgx.academa.ai/llms.txt>, which the
   README tells an agent to follow. First, a primer for an agent asked to make a video with
-  manimgx: how to install it, a scene, `inspect` then `render`, and a cheat sheet of the API.
+  ManimGX: how to install it, a scene, `inspect` then `render`, and a cheat sheet of the API.
   Then a list of every page's Markdown, by section.
 - **`llms-full.txt`:** every page's Markdown, in one file.
 
@@ -432,7 +432,7 @@ a new folder needs a pattern.
 ## The agent skill
 
 [`skills/manimgx/SKILL.md`](https://github.com/academa-labs/manimgx/blob/main/skills/manimgx/SKILL.md)
-is manimgx's [agent skill](https://agentskills.io). `npx skills add academa-labs/manimgx`
+is ManimGX's [agent skill](https://agentskills.io). `npx skills add academa-labs/manimgx`
 and `gh skill install academa-labs/manimgx` find it by its path, `skills/<name>/SKILL.md`,
 and copy its folder into an agent's skills, so the folder stays where it is. The installers
 read its front matter, so

@@ -1,4 +1,4 @@
-//! The player in the browser (WebAssembly, WebGPU): manimgx's player (see `player`) on a page's
+//! The player in the browser (WebAssembly, WebGPU): ManimGX's player (see `player`) on a page's
 //! canvas, the same as in a window. The page's element (`browser`) hands on what its viewer
 //! does, in the web's own words, draws it when it is due (`wake`, `draw`) and does what it asks
 //! (`asks`); its director's takes come from Pyodide, in a worker (`feed`).
@@ -42,7 +42,7 @@ pub async fn init(fonts: Vec<js_sys::Uint8Array>) -> Result<(), JsError> {
     Ok(())
 }
 
-/// manimgx's player, on a canvas.
+/// ManimGX's player, on a canvas.
 #[wasm_bindgen]
 pub struct Player {
     player: player::Player,

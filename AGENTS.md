@@ -1,6 +1,6 @@
 # AGENTS.md
 
-manimgx is an animation engine with Manim Community Edition's API. The Python package
+ManimGX is an animation engine with Manim Community Edition's API. The Python package
 (`src/manimgx`) is typed throughout; the engine under it (`rust/engine`,
 built by maturin into `manimgx._engine`) typesets text with Typst, draws on the GPU with wgpu,
 and encodes video with x264. Setup and conventions are in the Developer Guide
@@ -21,7 +21,7 @@ this is the short version.
 - `just test-typescript`: the browser package's tests, including its compiled worker and
   public declarations.
 - `just corpus …`: render, compare and review the integration corpus (`just corpus --help`).
-- `just bench [REF]`: the timed benchmarks, this checkout against REF's manimgx (main unless
+- `just bench [REF]`: the timed benchmarks, this checkout against REF's ManimGX (main unless
   named), side by side.
 - `just build-docs`, `just serve-docs`: the docs site.
 
@@ -42,7 +42,7 @@ manifests change, so there is no separate build step.
 - A test comes with every fix and feature. A corpus reference changes only when a change means
   it to, and after someone has looked at the new frames.
 - Docstrings are Google style: the API reference is generated from them.
-- `docs/content/changelog.md` says only "First release of manimgx." until 0.1.0, the first
+- `docs/content/changelog.md` says only "First release of ManimGX." until 0.1.0, the first
   release, is out. After it, a user-visible change gets a line under "Unreleased".
 - Code from elsewhere says whose it is in its first lines (`SPDX-FileCopyrightText`, one per
   holder, and `SPDX-License-Identifier`); data or an image, in `REUSE.toml`. `LICENSES/` holds
@@ -51,7 +51,7 @@ manifests change, so there is no separate build step.
 
 ## Layout
 
-The repository is the package, manimgx: its `pyproject.toml` (with the uv workspace, the
+The repository is the package, ManimGX: its `pyproject.toml` (with the uv workspace, the
 dependency groups and every tool's settings), its sources and its tests are at the root. What
 is published apart from it has a folder of its own, with its own tests.
 
@@ -75,10 +75,10 @@ is published apart from it has a folder of its own, with its own tests.
 - `fonts/`: `manimgx-fonts/` and `manimgx-fonts-cjk/`, the Noto fonts text is set in, published
   apart and required at exact versions (the CJK one not in the browser); the uv workspace's
   other members.
-- `browser/`: manimgx for the browser, published on npm: strict TypeScript in
+- `browser/`: ManimGX for the browser, published on npm: strict TypeScript in
   `src/`, its tests in `tests/`, and its pinned tools in `bun.lock`. Bun bundles the player
   and compiled worker into one JavaScript file; TypeScript 7 generates the public declarations.
-- `docker/`: the Docker image, manimgx from PyPI.
+- `docker/`: the Docker image, ManimGX from PyPI.
 - `tests/unit/`: properties of each module, mirroring `src/manimgx/`, drawn
   with Hypothesis (the shared kit: `tests/strategies.py`, `tests/oracles.py`, `tests/scenes.py`).
 - `tests/integration/`: stories per subject (`test_*.py`) and the corpus, `cases/` (per case: `scene.py`, hashes of the local `manimgx.mkv` and `ce.mkv` references, `case.json`, and once reviewed `review.json`), with its tools in `corpus/` and the review panel in `review/`.
@@ -105,7 +105,7 @@ is published apart from it has a folder of its own, with its own tests.
   the command line's reference (`reference.py`) and the Gallery from `examples/`
   (`gallery.py`). `showcase/`: the README's pictures (committed), the logo (`logo.py`: the
   banner, the header's, the favicon) and the wall of films (`wall.py`). `engine/`: the DFG
-  table the engine is compiled with (`dfg_table.py`). `benchmark/` times manimgx against
+  table the engine is compiled with (`dfg_table.py`). `benchmark/` times ManimGX against
   Manim CE, ManimGL and Blender on the README's scenes (`run.py` writes `results.json`;
   `chart.py` draws the README's chart from it into `docs/content/images/`).
 - `skills/manimgx/`: the agent skill, which `npx skills add academa-labs/manimgx` installs;

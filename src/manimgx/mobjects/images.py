@@ -218,7 +218,7 @@ class ImageMobject(MeshMobject):
         self.resampling_algorithm = resampling_algorithm
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_style(self) -> Fill:
         """The picture's style, as fill keywords: its color and its opacity.
 

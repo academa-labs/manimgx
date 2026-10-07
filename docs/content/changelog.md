@@ -5,8 +5,8 @@ hide:
 
 # Changelog
 
-The notable changes to manimgx, release by release. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and manimgx follows
+The notable changes to ManimGX, release by release. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and ManimGX follows
 [Semantic Versioning](https://semver.org/).
 
 <!--
@@ -18,4 +18,4 @@ The notable changes to manimgx, release by release. The format follows
 
 ## 0.1.0
 
-First release of manimgx.
+First release of ManimGX.

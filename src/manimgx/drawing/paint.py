@@ -168,7 +168,7 @@ _LMS_INV: Floats = np.linalg.inv(_LMS)
 _LAB_INV: Floats = np.linalg.inv(_LAB)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def to_oklab(rgb: Floats) -> Floats:
     """Convert sRGB colors to OKLab, the color space colors are mixed in.
 
@@ -186,7 +186,7 @@ def to_oklab(rgb: Floats) -> Floats:
     return np.cbrt(linear @ _LMS.T) @ _LAB.T
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def from_oklab(lab: Floats) -> Floats:
     """Convert OKLab colors to sRGB, clipped to the colors a screen shows.
 
@@ -217,11 +217,11 @@ def _lab(rgba: Floats) -> Floats:
     return known[1]
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def mix_rgba(a: Floats, b: Floats, t: float | Floats) -> Floats:
     """Mix colors given as rows of red, green, blue and opacity: `a` at 0, `b` at 1.
 
-    Every blend of colors in manimgx mixes this way. The colors mix in OKLab, weighted
+    Every blend of colors in ManimGX mixes this way. The colors mix in OKLab, weighted
     by their opacities, so a transparent color does not tint the mix; the opacity mixes
     evenly. Rows of one color only change their opacity.
 
@@ -811,7 +811,7 @@ def colors_by_value(
     return [ManimColor(tuple(row)) for row in rows]
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def rgbas_by_value(
     colorscale: Colorscale, values: npt.ArrayLike, low: float, high: float
 ) -> Floats:
@@ -884,7 +884,7 @@ def _numbers(value: object) -> TypeIs[Sequence[float] | np.ndarray]:
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def parse_colors(
     value: ParsableManimColor | Iterable[ParsableManimColor] | None,
 ) -> list[ManimColor]:
@@ -1148,7 +1148,7 @@ class Material:
     roughness: float = 0.5
     reflectance: float = 0.5
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def mixed(self, other: "Material", alpha: float) -> "Material":
         """This material's numbers moved `alpha` of the way to `other`'s."""
         return Material(

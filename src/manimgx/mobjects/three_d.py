@@ -293,7 +293,7 @@ class Surface(MeshMobject):
         self.uvs = None
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def face_indices(self) -> tuple[np.ndarray, np.ndarray]:
         """The place of every face in the surface's grid: its index along u and its
         index along v, in the mesh's order.
@@ -950,7 +950,7 @@ class Line3D(Cylinder):
         if color is not None:
             self.set_color(color)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def set_start_and_end_attrs(
         self,
         start: Point3DLike | Mobject,
@@ -985,7 +985,7 @@ class Line3D(Cylinder):
         self.shift((self.start + self.end) / 2)
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def pointify(
         self, mob_or_point: Mobject | Point3DLike, direction: Vector3DLike | None = None
     ) -> Point3D:
@@ -1326,7 +1326,7 @@ class Polyhedron(VGroup):
         self.add(self.faces, self.graph)
         self.add_updater(self.update_faces)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_edges(self, faces_list: list[list[int]]) -> list[tuple[int, int]]:
         """Find the edges of faces: each two vertices next to each other around a face,
         each edge once.
@@ -1346,7 +1346,7 @@ class Polyhedron(VGroup):
                 edges.setdefault(frozenset(edge), edge)
         return list(edges.values())
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def create_faces(
         self, face_coords: Sequence[Sequence[Point3DLike]]
     ) -> VGroup[Polygon]:
@@ -1363,7 +1363,7 @@ class Polyhedron(VGroup):
             *(Polygon(*face, **self.faces_config) for face in face_coords)
         )
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def update_faces(self, m: Mobject) -> Self:
         """Put the faces back through the vertices, where they are now: the updater the
         polyhedron runs every frame.
@@ -1375,7 +1375,7 @@ class Polyhedron(VGroup):
             face.set_points_as_corners([*coords, coords[0]])
         return self
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def extract_face_coords(self) -> list[list[Point3D]]:
         """The faces' corners where the vertices are now: the centers of the graph's
         vertices.

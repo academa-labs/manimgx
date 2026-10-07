@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Sina Atalay <sina.atalay@academa.ai>", "Abdullah Geduk <geduk@academa.ai>"]
 license = "MIT"
 publish = false
-description = "manimgx's engine: typesets with Typst, draws blends of shapes on the GPU and encodes them to MP4."
+description = "ManimGX's engine: typesets with Typst, draws blends of shapes on the GPU and encodes them to MP4."
 
 [lib]
 name = "_engine"

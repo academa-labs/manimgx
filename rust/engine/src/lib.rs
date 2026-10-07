@@ -1,4 +1,4 @@
-//! manimgx's engine: draws blends of shapes on the GPU (`render`) and typesets with Typst
+//! ManimGX's engine: draws blends of shapes on the GPU (`render`) and typesets with Typst
 //! (`typeset`).
 //!
 //! It is Python's extension module (`python`), which also reads sound (`audio`): natively with

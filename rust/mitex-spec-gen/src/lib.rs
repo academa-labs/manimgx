@@ -1,4 +1,4 @@
-//! mitex, as manimgx builds with it: its Typst package (0.2.7, fetched by build.rs), served to
+//! mitex, as ManimGX builds with it: its Typst package (0.2.7, fetched by build.rs), served to
 //! Typst by the engine as `@preview/mitex:{VERSION}`, mitex's own but for `lib.typ`, this crate's,
 //! which imports only the scope the converted LaTeX calls; and mitex's default command spec, made
 //! from that package's `specs/`: which LaTeX commands mitex converts, and how many arguments each

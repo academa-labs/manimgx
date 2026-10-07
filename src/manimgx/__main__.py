@@ -1,4 +1,4 @@
-"""`python -m manimgx`: the manimgx command line."""
+"""`python -m manimgx`: the ManimGX command line."""
 
 from manimgx.cli import main
 

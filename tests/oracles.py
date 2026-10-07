@@ -1,4 +1,4 @@
-"""Slow, plain reference implementations the tests compare manimgx with: each computes the same
+"""Slow, plain reference implementations the tests compare ManimGX with: each computes the same
 quantity by another, obviously correct algorithm (de Casteljau's construction, numpy's root
 finder, quadrature, triangle fans), so a test that agrees with one checks something.
 
@@ -212,7 +212,7 @@ def reachable(root: object) -> dict[int, object]:
 def mutable_parts(root: object) -> dict[int, object]:
     """What `root` holds that can change in place — mobjects, lists, dicts, sets, writable
     arrays, objects — reached without passing through a value (a paint, a geometry, a
-    function, one of manimgx's module-level objects), by id."""
+    function, one of ManimGX's module-level objects), by id."""
     seen: dict[int, object] = {}
     stack = [root]
     while stack:
@@ -233,7 +233,7 @@ def reaches(root: object, targets: Iterable[object]) -> list[object]:
 
 
 def _module_globals() -> set[int]:
-    """manimgx's module-level objects (ORIGIN, a default LinearBase…): a mobject may take one as
+    """ManimGX's module-level objects (ORIGIN, a default LinearBase…): a mobject may take one as
     a default and hold it, and a copy may hold it or a copy of it."""
     out: set[int] = set()
     for name, module in list(sys.modules.items()):
@@ -248,7 +248,7 @@ _GLOBALS: set[int] = set()
 
 
 def module_global(obj: object) -> bool:
-    """Is `obj` one of manimgx's module-level objects (a constant, a default)?"""
+    """Is `obj` one of ManimGX's module-level objects (a constant, a default)?"""
     if not _GLOBALS:
         _GLOBALS.update(_module_globals())
     return id(obj) in _GLOBALS and not isinstance(obj, _ATOMS)
@@ -384,7 +384,7 @@ def assert_replica(original: object, replica: object) -> None:
     mobject or object in the original are two references to one in the replica (containers
     are rebuilt per reference, as `mobject.copied` rebuilds them); and nothing mutable — a
     mobject, list, dict, set, writable array or object — is in both. Values are shared freely:
-    numbers, strings, read-only arrays, paints, geometries, colors, functions, and manimgx's
+    numbers, strings, read-only arrays, paints, geometries, colors, functions, and ManimGX's
     module-level objects."""
     pairs: dict[int, object] = {}
     mine: dict[int, object] = {}

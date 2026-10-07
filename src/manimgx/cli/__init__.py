@@ -1,4 +1,4 @@
-"""The manimgx command line: a scene rendered to video, inspected, presented,
+"""The ManimGX command line: a scene rendered to video, inspected, presented,
 and previewed live.
 
     manimgx render scene.py [Scene] [-o video.mp4]      the video, a storyboard, layout problems

@@ -1,6 +1,6 @@
 """A pending PyPI publisher identifies one project by its workflow and environment.
 The release must route only that project's distributions to it, and publish the fonts
-before anything that installs manimgx from PyPI.
+before anything that installs ManimGX from PyPI.
 """
 
 import base64

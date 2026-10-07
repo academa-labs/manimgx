@@ -1,6 +1,6 @@
 # Examples
 
-Forty-eight short films made with manimgx, each one Python file that needs only numpy. Every
+Forty-eight short films made with ManimGX, each one Python file that needs only numpy. Every
 number on screen is computed as the film plays.
 
 Render one at 1920×1080, 60 fps:

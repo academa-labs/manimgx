@@ -20,7 +20,7 @@ class ScenesHero(m.Scene):
 ```
 
 A scene is one video. Make a class from [Scene][manimgx.Scene], and write what happens in its
-`construct` method: manimgx runs it from top to bottom, and each line adds to the video in
+`construct` method: ManimGX runs it from top to bottom, and each line adds to the video in
 that order. The class's name is the video's: the scene `Hello` makes `Hello.mp4`.
 
 Time passes only in [play][manimgx.Scene.play] and [wait][manimgx.Scene.wait]. A play starts

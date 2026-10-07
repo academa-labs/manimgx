@@ -318,7 +318,7 @@ class EnvironmentLight(Light):
         # its picture's right and up, a unit from its point: turned with it
         self.add(VectorizedPoint(RIGHT), VectorizedPoint(OUT))
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def axes(self) -> tuple[np.ndarray, np.ndarray]:
         """Its picture's `RIGHT` and up in the scene, as it is turned: unit vectors, at a right
         angle."""

@@ -33,11 +33,11 @@
   nor what it later makes of it, and making it changes no input; an input it does not show it
   does not keep, nor what an edit replaces; an iterator gives what the list of its items gives;
   an option kept for Manim's sake and ignored is ignored, and not kept. Its outputs are values:
-  changing what a query returns changes nothing. Nothing it holds is one of manimgx's writable
+  changing what a query returns changes nothing. Nothing it holds is one of ManimGX's writable
   constants.
 - Defaults are partial application: after `C.set_default(**d)`, `C()` makes what `C(**d)` makes,
   each class's defaults over those of the classes it inherits from, as they are when `C()`
-  runs; `C.set_default()` brings the class's own back. What manimgx remembers is invisible: a
+  runs; `C.set_default()` brings the class's own back. What ManimGX remembers is invisible: a
   construction made after any defaults and any other constructions, its memories warm, is what
   it is made from nothing, and mobjects made before keep their look.
 - Its points are a value: assigned others, it takes them. A family grown for a transform

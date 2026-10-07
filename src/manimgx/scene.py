@@ -292,7 +292,7 @@ class Camera:
         """The height of the view, in scene units: its frame's."""
         return self.frame.height
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_mobjects_indicating_movement(self) -> list[Mobject]:
         """The mobjects the view is made of: moving any of them moves the camera.
 
@@ -363,7 +363,7 @@ class Camera:
         return target.set(height=up - down + margin)
 
     # ── the 3D orbit ───────────────────────────────────────────────────────────
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_value_trackers(self) -> list[ValueTracker]:
         """The five trackers of the camera's orbit.
 
@@ -497,7 +497,7 @@ class Scene:
     """A scene: one video, and what happens in it.
 
     Make a class from it, and write what happens in its
-    [`construct`][manimgx.Scene.construct] method: manimgx runs it once, from top to
+    [`construct`][manimgx.Scene.construct] method: ManimGX runs it once, from top to
     bottom, and [`render`][manimgx.Scene.render] records the video. A mobject shows from
     the moment the scene holds it ([`add`][manimgx.Scene.add] puts one in). Time passes
     only in [`play`][manimgx.Scene.play] and [`wait`][manimgx.Scene.wait]: whatever
@@ -654,7 +654,7 @@ class Scene:
             plays: A function called as each play or wait ends (a
                 [`PlayHook`][manimgx.rendering.film.PlayHook]), with the [`Play`][manimgx.rendering.film.Play]
                 and the animations it played, the world as the play left it.
-            take: Record the film as a take instead, for manimgx's player to draw: a
+            take: Record the film as a take instead, for ManimGX's player to draw: a
                 function handed its bytes as they are recorded (a
                 [`Take`][manimgx.rendering.film.Take]). A take has no video, and no frames for
                 `frames`.
@@ -686,7 +686,7 @@ class Scene:
         self.film.close()
         return self.film
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def display_list(self) -> list[Mobject]:
         """The mobjects a frame draws, in the order it draws them.
 
@@ -1144,7 +1144,7 @@ class Scene:
             raise ValueError(f"Could not find {old} in scene")
         self._holding = None  # (what it holds changed in place)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_mobject_family_members(self) -> list[Mobject]:
         """Every mobject in the scene, with all its submobjects, each once.
 
@@ -2255,7 +2255,7 @@ _PACKAGE = os.path.dirname(__file__) + os.sep
 
 
 def _written() -> tuple[str, int] | None:
-    """Where the scene's own code is running: the innermost caller outside manimgx (a scene's
+    """Where the scene's own code is running: the innermost caller outside ManimGX (a scene's
     `play`, or the `wait` that plays)."""
     here = inspect.currentframe()
     frame = None if here is None else here.f_back  # `play`'s

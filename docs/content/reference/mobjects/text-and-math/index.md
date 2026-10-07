@@ -1,6 +1,6 @@
 ---
 title: "Text and math"
-description: "Words, formulas, numbers and code, set by Typst inside manimgx, in fonts that come with it."
+description: "Words, formulas, numbers and code, set by Typst inside ManimGX, in fonts that come with it."
 ---
 
 # Text and math
@@ -24,7 +24,7 @@ class TextAndMathHero(m.Scene):
         self.wait()
 ```
 
-manimgx sets text and formulas itself, with [Typst](https://typst.app) and the fonts that
+ManimGX sets text and formulas itself, with [Typst](https://typst.app) and the fonts that
 come with it: you install no LaTeX and no fonts, and a text looks the same on every
 computer. A text is a mobject made of its glyphs, so it moves, scales, colors and animates
 as any shape does.

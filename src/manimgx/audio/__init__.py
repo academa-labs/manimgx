@@ -6,7 +6,7 @@ and plays animations during the words they belong to: `self.say("Here is [a circ
 m.Create(circle))` draws the circle as "a circle" is said, and the film waits for the sentence.
 What a voice says is kept (`cached`), so a scene renders again without speaking again.
 
-The voices manimgx brings are text-to-speech services', a module each: [`fal`][manimgx.audio.fal]
+The voices ManimGX brings are text-to-speech services', a module each: [`fal`][manimgx.audio.fal]
 (fal.ai's models, [`Fal`][manimgx.audio.fal.Fal]). Any other is a few lines away (see
 [`Voice`][manimgx.audio.Voice]).
 """

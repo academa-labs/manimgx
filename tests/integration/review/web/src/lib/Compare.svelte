@@ -1,6 +1,6 @@
 <!--
   @component
-  CE's frame and manimgx's at the same scene time — side by side, one over the other, or their
+  CE's frame and ManimGX's at the same scene time — side by side, one over the other, or their
   difference — and the timeline to walk. ←/→ step, space plays, in a loop.
 -->
 <script lang="ts">
@@ -88,11 +88,11 @@
 
   {#snippet frame(engine: Engine, src: string | null)}
     <figure>
-      <figcaption>{engine === 'ce' ? 'manim ce' : 'manimgx'}</figcaption>
+      <figcaption>{engine === 'ce' ? 'manim ce' : 'ManimGX'}</figcaption>
       {#if src}
-        <img {src} alt="{engine} at {slot?.time.toFixed(2)} s" />
+        <img {src} alt="{engine === 'manimgx' ? 'ManimGX' : engine} at {slot?.time.toFixed(2)} s" />
       {:else}
-        <div class="missing">no {engine} frame at this time</div>
+        <div class="missing">no {engine === 'manimgx' ? 'ManimGX' : engine} frame at this time</div>
       {/if}
     </figure>
   {/snippet}
@@ -110,11 +110,11 @@
         <figcaption>
           <span>manim ce</span>
           <input type="range" min="0" max="1" step="0.01" bind:value={review.mix} aria-label="blend" />
-          <span>manimgx</span>
+          <span>ManimGX</span>
         </figcaption>
         <div class="stack">
           {#if ce}<img src={ce} alt="ce" />{/if}
-          {#if manimgx}<img class="over" src={manimgx} alt="manimgx" style:opacity={ce ? review.mix : 1} />{/if}
+          {#if manimgx}<img class="over" src={manimgx} alt="ManimGX" style:opacity={ce ? review.mix : 1} />{/if}
         </div>
       </figure>
     {:else if ce && manimgx}

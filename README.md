@@ -104,7 +104,7 @@
 
 ```text
 Follow https://manimgx.academa.ai/llms.txt.
-Install manimgx, make a 3D animation of the solar system, and open it.
+Install ManimGX, make a 3D animation of the solar system, and open it.
 ```
 
 **With pip.** Install on macOS, Linux or Windows with Python 3.13+:
@@ -150,11 +150,11 @@ You get `Hello3D.mp4`, a 1080p60 video:
   </picture>
 </p>
 
-## Why manimgx?
+## Why ManimGX?
 
 **An API for 3D video in the age of agents.** Your agent writes Python using
 [Manim CE's API](https://www.manim.community).
-manimgx's Rust + wgpu engine renders the MP4, blazingly fast.
+ManimGX's Rust + wgpu engine renders the MP4, blazingly fast.
 
 - **Fully statically typed.** Keyword arguments and `.animate` chains included.
 - **2D and 3D together.** Surfaces, meshes and moving cameras alongside text, equations
@@ -189,7 +189,7 @@ and links to the documentation as Markdown.
 ## On the shoulders of giants
 
 [Grant Sanderson](https://www.3blue1brown.com) created
-[Manim](https://github.com/3b1b/manim). manimgx targets the API of
+[Manim](https://github.com/3b1b/manim). ManimGX targets the API of
 [Manim Community Edition](https://www.manim.community), the widely used
 community-maintained fork.
 
@@ -212,7 +212,7 @@ To contribute, read [Contributing](https://github.com/academa-labs/manimgx/blob/
 and the [Developer Guide](https://manimgx.academa.ai/developer-guide/).
 
 [Changelog](https://manimgx.academa.ai/changelog/) ·
-[Citing manimgx](https://github.com/academa-labs/manimgx/blob/main/CITATION.cff)
+[Citing ManimGX](https://github.com/academa-labs/manimgx/blob/main/CITATION.cff)
 
 Everyone participating follows the
 [Code of Conduct](https://github.com/academa-labs/manimgx/blob/main/.github/CODE_OF_CONDUCT.md).
@@ -221,7 +221,7 @@ Report vulnerabilities privately through the
 
 ## License
 
-manimgx's own code is [MIT-licensed](https://github.com/academa-labs/manimgx/blob/main/LICENSE).
+ManimGX's own code is [MIT-licensed](https://github.com/academa-labs/manimgx/blob/main/LICENSE).
 Native wheels include x264 and are GPL-3.0-or-later as a whole.
 
 Bundled components retain their licenses: see the

@@ -5,7 +5,7 @@
 # LICENSE) are their projects', and REUSE leaves them be.
 version = 1
 
-# manimgx's own: everything the file or a later annotation doesn't claim
+# ManimGX's own: everything the file or a later annotation doesn't claim
 [[annotations]]
 path = "**"
 SPDX-FileCopyrightText = "2026 Academa, Inc."

@@ -7,7 +7,7 @@ use std::f64::consts::PI;
 
 /// A file's audio: interleaved float samples, its rate and its channel count (1 or 2).
 pub fn decode(data: Vec<u8>) -> Result<(Vec<f32>, u32, usize), String> {
-    ffmpeg::decode(&data).map_err(|e| format!("not an audio file manimgx reads: {e}"))
+    ffmpeg::decode(&data).map_err(|e| format!("not an audio file ManimGX reads: {e}"))
 }
 
 /// Zero crossings of the sinc on each side of a sample: the filter's reach, in input samples

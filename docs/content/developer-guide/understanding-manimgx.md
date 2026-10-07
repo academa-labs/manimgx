@@ -1,4 +1,4 @@
-# Understanding manimgx
+# Understanding ManimGX
 
 This page follows a scene from its code to its video: what each step does, why it is built
 the way it is, and where its code lives.
@@ -98,7 +98,7 @@ class UnderstandingManimgx(m.Scene):
 Community Edition's: the same classes, methods and parameters. CE's behavior does not come
 with it: what a scene means (its timing, its geometry, how it looks) is decided on its own
 merits, so "Manim CE does it this way" is a reason to look closely, not a reason to change
-manimgx. What the calls do is manimgx's own design, described below.
+ManimGX. What the calls do is ManimGX's own design, described below.
 
 A [`Scene`][manimgx.Scene] holds three things: the mobjects it draws, a camera, and a clock.
 Time passes only in [`play`][manimgx.Scene.play] and [`wait`][manimgx.Scene.wait]; everything
@@ -199,7 +199,7 @@ private filesystem in the browser. Layouts are keyed by source and environment. 
 glyph records are reused in a bounded cache, while layouts and live glyphs hold what they need themselves. Clearing that cache does
 not invalidate existing text. `MANIMGX_CACHE_DIR` relocates both disk caches to an explicit
 directory, useful in containers and isolated tests. The fonts come from the caller's paths,
-the installed manimgx font packages, and Typst's embedded fonts; a system font is considered
+the installed ManimGX font packages, and Typst's embedded fonts; a system font is considered
 only for a family the document explicitly names. See [The engine](engine.md#typesetting) for
 the native compiler and font environment.
 
@@ -361,9 +361,9 @@ option.
 
 ## Dependencies
 
-manimgx needs these packages at run time:
+ManimGX needs these packages at run time:
 
-| Package | What it does for manimgx | Where |
+| Package | What it does for ManimGX | Where |
 | --- | --- | --- |
 | [numpy](https://numpy.org) | Arrays: points, matrices, colors, records | Everywhere |
 | [pillow](https://python-pillow.github.io) | Images: an `ImageMobject`'s pixels, the command line's sheets | `mobjects/images.py`, `cli/storyboard.py` |

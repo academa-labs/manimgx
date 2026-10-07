@@ -329,7 +329,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         return None if self._scene is None else self._scene.compositor
 
     @functools.cached_property
-    @deprecated("manimgx's machinery: the play calls it", category=None)
+    @deprecated("ManimGX's machinery: the play calls it", category=None)
     def motion(self) -> tuple[tuple[Step, ...], Floats] | None:
         """The motion that carries the mobject from its first keyframe to its last, or
         None.
@@ -345,7 +345,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         steps = path.steps or ((moved,) if np.any(moved) else ())
         return steps, np.linalg.inv(carried((step, 1.0) for step in steps))
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def moving_target(self) -> bool:
         """Whether the target moves while the animation plays.
 
@@ -886,7 +886,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
         A function can make any change, with methods of your own class too, and a type
         checker checks it against the mobject's class: `box.animate(lambda b: b.grow(2))`.
         (`box.animate.grow(2)` works as well, but through `animate` a type checker knows
-        only manimgx's methods.)
+        only ManimGX's methods.)
 
         Args:
             function: A function that changes the mobject: tried at once on a copy, so a

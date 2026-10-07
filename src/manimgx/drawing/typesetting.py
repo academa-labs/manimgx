@@ -17,7 +17,7 @@ from manimgx import _engine
 from manimgx.caches import Memo, forgets
 from manimgx.drawing.geometry import Shape
 
-# The fonts manimgx ships, its font packages' (Noto): with Typst's own, every face a document is
+# The fonts ManimGX ships, its font packages' (Noto): with Typst's own, every face a document is
 # set in or falls back to, so text is the same on every machine; a system font only by name. The
 # CJK one is not installed in the browser
 FONTS = tuple(
@@ -120,7 +120,7 @@ def typeset(
 ) -> Layout:
     """Typeset a Typst document, and read its layout off Typst's frames.
 
-    The document is set in the fonts manimgx ships (Typst's own and the Noto faces),
+    The document is set in the fonts ManimGX ships (Typst's own and the Noto faces),
     after those in `font_paths`; a system font is read only for a family the document
     names that none of them has. A layout is kept in the current user's cache directory
     (the browser's private filesystem in a page): the same document, with the same fonts
@@ -131,7 +131,7 @@ def typeset(
         preamble: Typst code set before the body.
         text_size: The text's size, in points.
         font_paths: Directories of font files, searched, with their subdirectories,
-            before the fonts manimgx ships.
+            before the fonts ManimGX ships.
         package_path: The directory Typst packages are imported from, besides mitex
             (the engine's); None for none but mitex.
     """

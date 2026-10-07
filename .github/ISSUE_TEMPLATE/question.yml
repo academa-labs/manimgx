@@ -1,5 +1,5 @@
 name: Question
-description: Ask how to do something with manimgx.
+description: Ask how to do something with ManimGX.
 labels: [question]
 body:
   - type: markdown

@@ -161,7 +161,7 @@ class _ScaleBase:
     def _inverse_function(self, value: float | np.ndarray) -> float | np.ndarray:
         raise NotImplementedError
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_custom_labels(
         self, val_range: Iterable[float], unit_decimal_places: int = 0
     ) -> list[Mobject]:
@@ -286,7 +286,7 @@ class LogBase(_ScaleBase):
             return np.log(value) / np.log(self.base)
         return math.log(value, self.base)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_custom_labels(
         self,
         val_range: Iterable[float],
@@ -1565,7 +1565,7 @@ class Axes(VGroup):
     def _fitting_length(self, index: int) -> float:
         """The length of an axis given none (0: x, 1: y): the frame's width or height
         less 2, rounded, as the frame is now (a scene's file may make it tall after
-        manimgx is imported)."""
+        ManimGX is imported)."""
         return round((config.frame_width, config.frame_height)[index]) - 2
 
     def coords_to_point(self, *coords: Coordinates) -> npt.NDArray[np.float64]:
@@ -3913,7 +3913,7 @@ class SampleSpace(Rectangle):
         super().__init__(height=height, width=width, **kwargs)
         self.default_label_scale_val = default_label_scale_val
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def complete_p_list(self, p_list: float | Iterable[float]) -> list[float]:
         """The probabilities of a division, completed to sum to 1: the rest, 1 minus
         their sum, is added as one more, unless it is within 0.0001 of 0.

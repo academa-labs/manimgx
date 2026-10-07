@@ -1,4 +1,4 @@
-# The timed benchmarks (`just bench`): a pull request's manimgx against its base's, and each
+# The timed benchmarks (`just bench`): a pull request's ManimGX against its base's, and each
 # push to main against the commit before it, rendered in turns on one macOS runner. Retired
 # CPU instructions, when exposed, or CPU seconds judge host work; GPU work and waits appear
 # in the reported wall time. Each workload's summary names the measure used.

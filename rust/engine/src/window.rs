@@ -1,4 +1,4 @@
-//! The window: manimgx's player (see `player`) on this machine's screen. Its takes come from its
+//! The window: ManimGX's player (see `player`) on this machine's screen. Its takes come from its
 //! director on standard input; it asks for another scene by writing a line of JSON to standard
 //! output (`{"scene": "Name"}`). It closes when it is closed, or its director goes.
 //!

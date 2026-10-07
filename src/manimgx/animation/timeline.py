@@ -241,7 +241,7 @@ class Animation[M: Mobject = Mobject]:
 
     @property
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def model(self) -> M | None:
@@ -254,7 +254,7 @@ class Animation[M: Mobject = Mobject]:
 
     @property
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def hidden(self) -> Sequence[Mobject]:
@@ -288,7 +288,7 @@ class Animation[M: Mobject = Mobject]:
         return clock.rational(self.run_time)
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def build(self) -> Animation:
@@ -306,7 +306,7 @@ class Animation[M: Mobject = Mobject]:
 
     # ── lifecycle ─────────────────────────────────────────────────────────
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def begin(self) -> None:
@@ -325,7 +325,7 @@ class Animation[M: Mobject = Mobject]:
         self.take()
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def take(self) -> None:
@@ -352,7 +352,7 @@ class Animation[M: Mobject = Mobject]:
             self.mobject.suspend_updating()
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def derive(self, source: Mobject) -> None:
@@ -380,7 +380,7 @@ class Animation[M: Mobject = Mobject]:
         self.frames = [source.copy() if frame is None else frame for frame in own]
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def finish(self) -> None:
@@ -400,7 +400,7 @@ class Animation[M: Mobject = Mobject]:
                 member.resume_updating(recursive=False)
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def clean_up_from_scene(self, scene: Scene) -> None:
@@ -421,7 +421,7 @@ class Animation[M: Mobject = Mobject]:
             scene._introduce(_held(self.mobject))
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def get_all_families_zipped(self) -> Iterable[tuple[Mobject, ...]]:
@@ -445,7 +445,7 @@ class Animation[M: Mobject = Mobject]:
         return zip(*families, strict=True)
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def advance(self, t: Fraction) -> None:
@@ -464,7 +464,7 @@ class Animation[M: Mobject = Mobject]:
             self.rederive()
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def rederive(self) -> None:
@@ -481,7 +481,7 @@ class Animation[M: Mobject = Mobject]:
 
     # ── the per-frame function ────────────────────────────────────────────
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def interpolate(self, alpha: float) -> None:
@@ -514,7 +514,7 @@ class Animation[M: Mobject = Mobject]:
             )
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def interpolate_keyframes(
@@ -536,7 +536,7 @@ class Animation[M: Mobject = Mobject]:
         self.interpolate_submobject(submobject, keys[0], alpha)
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def interpolate_submobject(
@@ -555,7 +555,7 @@ class Animation[M: Mobject = Mobject]:
         """
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def get_sub_alpha(self, alpha: float, index: int, num_submobjects: int) -> float:
@@ -599,7 +599,7 @@ class Animation[M: Mobject = Mobject]:
         return self.run_time
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def is_remover(self) -> bool:
@@ -607,7 +607,7 @@ class Animation[M: Mobject = Mobject]:
         return self.remover
 
     @deprecated(
-        "Manim CE's machinery: manimgx calls it itself (a custom animation overrides interpolate_mobject)",
+        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def is_introducer(self) -> bool:
@@ -1139,13 +1139,13 @@ class AnimationGroup(Animation):
         return True, self._in(_0, _1)
 
     @property
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def max_end_time(self) -> float:
         """Where the last part ends, in seconds: the group's own run time."""
         return float(self._laid_out()[0])
 
     @property
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def hidden(self) -> Sequence[Mobject]:
         """What its parts leave out of the picture now (a part hides nothing until it
         begins, nor once it has ended)."""
@@ -1206,7 +1206,7 @@ class AnimationGroup(Animation):
         if self.scene is not None:
             self.animations[i].clean_up_from_scene(self.scene)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def begin_all(self) -> None:
         """Begin every part at once, for a play the scene computes ahead of time.
 
@@ -1524,7 +1524,7 @@ class ChangeSpeed(AnimationGroup):
         (a method, so that a copy reads its own stretches)."""
         return self.progress(self._before(t))
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def progress(self, t: float) -> float:
         """The animation's progress at a time of the play.
 

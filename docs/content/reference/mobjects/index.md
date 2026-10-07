@@ -137,7 +137,7 @@ turned, styled, grouped and copied. The pages after them tell each kind of mobje
 
     ---
 
-    Words, formulas and numbers, set by Typst inside manimgx.
+    Words, formulas and numbers, set by Typst inside ManimGX.
 
 -   ![](film:GraphsHero)
 

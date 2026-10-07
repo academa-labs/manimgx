@@ -1,4 +1,4 @@
-"""Render scenes with manimgx in this process, reading every frame back from the player.
+"""Render scenes with ManimGX in this process, reading every frame back from the player.
 
     python -m tests.integration.corpus.run_manimgx SCENE --out RESULT [--video OUT.mkv] [--mp4]
 

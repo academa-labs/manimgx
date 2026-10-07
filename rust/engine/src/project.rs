@@ -350,7 +350,7 @@ impl Projector {
         let mut f = Fields(message);
         let op = f.u8()?;
         if op == 0 {
-            return Err("unversioned takes are unsupported; record the scene again with this version of manimgx".into());
+            return Err("unversioned takes are unsupported; record the scene again with this version of ManimGX".into());
         }
         if op == take::START {
             let format = f.u32()?;

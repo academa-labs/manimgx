@@ -5,7 +5,7 @@ crates of the Rust workspace, [`rust/`](https://github.com/academa-labs/manimgx/
 maturin compiles it into the package as `manimgx._engine`, a Python extension module. It
 does three things: it draws frames on the GPU, encodes them into an MP4, and typesets text.
 Python decides what each frame shows; the engine makes the pixels. It also records a film as
-a *take*, the same work written down, for manimgx's player to play: one player, the same in a
+a *take*, the same work written down, for ManimGX's player to play: one player, the same in a
 window of its own on this machine's screen (`manimgx preview`) and on a page's canvas, where
 the engine itself, compiled to WebAssembly, is the player.
 
@@ -45,9 +45,9 @@ The crate's dependencies do the heavy lifting:
 | [`src/take.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/take.rs) | A take's messages, written and read |
 | [`src/pack.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/pack.rs) | A take's arrays, each coded against the one it replaces |
 | [`src/project.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/project.rs) | The projector: takes as they come, any frame of them drawn on demand, in bounded memory |
-| [`src/player.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/player.rs) | manimgx's player, on any screen: the projector on a clock, its face and sound, its viewer's input |
+| [`src/player.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/player.rs) | ManimGX's player, on any screen: the projector on a clock, its face and sound, its viewer's input |
 | [`src/chrome.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/chrome.rs) | The player's face (its controls, its text), drawn by the engine itself |
-| [`src/text.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/text.rs) | The face's text: lines shaped as Typst shapes them, in manimgx's fonts |
+| [`src/text.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/text.rs) | The face's text: lines shaped as Typst shapes them, in ManimGX's fonts |
 | [`src/speaker.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/speaker.rs) | The player's sound, following its clock: a window's (cpal), a page's (Web Audio) |
 | [`src/window.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/window.rs) | The player in a window on this machine's screen (winit) |
 | [`src/web.rs`](https://github.com/academa-labs/manimgx/blob/main/rust/engine/src/web.rs) | The player on a page's canvas (WebAssembly) |
@@ -219,7 +219,7 @@ paint and the bytes of the source it draws; every shape as cubic curves; every l
 group as the items inside it. A glyph's outline comes separately, by key
 (`glyph_outlines`), so it crosses once.
 
-Fonts come from the folders Python passes, manimgx's own among them: the font packages'
+Fonts come from the folders Python passes, ManimGX's own among them: the font packages'
 ([`fonts/manimgx-fonts/`](https://github.com/academa-labs/manimgx/tree/main/fonts/manimgx-fonts)
 and
 [`fonts/manimgx-fonts-cjk/`](https://github.com/academa-labs/manimgx/tree/main/fonts/manimgx-fonts-cjk),
@@ -244,7 +244,7 @@ through `just test-rust`; it never regenerates it.
 
 ## The player
 
-manimgx's player plays takes: [`manimgx preview`](../user-guide/rendering.md#preview) and
+ManimGX's player plays takes: [`manimgx preview`](../user-guide/rendering.md#preview) and
 [`Window`][manimgx.Window] in a window of its own on this machine's screen, the npm package on
 a page's canvas. It is one player, `player.rs`, the same code on both screens: a screen gives
 it a surface, hands on its viewer's input, draws it when it is due and does what it asks. The
@@ -270,7 +270,7 @@ window's screen is winit's (`window.rs`); a page's is the engine compiled to Web
 - **Its face is the engine's own drawing.** The controls, the time, the plays (its chapters,
   named by the lines that played them), the captions, the error and the keys are shapes and
   text, records of a 2D view over the film, drawn exactly (`chrome.rs`): no toolkit, and one
-  face on both screens. Its text is set in lines, in manimgx's fonts (`text.rs`), shaped by
+  face on both screens. Its text is set in lines, in ManimGX's fonts (`text.rs`), shaped by
   rustybuzz, the shaper Typst sets text with: a test sets the face's lines both ways and finds
   the same glyphs in the same places. Typst itself, a typesetter of documents, would be 28 MB
   of WebAssembly in a page; the lines take 0.7 MB. The player composites the film, at its
@@ -306,7 +306,7 @@ engine is two WebAssembly builds of the same crate:
 
 - **The Python module, without the GPU** (features `python` and `typeset`): typesetting, the
   content keys, sound read, and `Recorder`, but no `Player`. Pyodide's toolchain compiles it for
-  `wasm32-unknown-emscripten`, and it ships as manimgx's wheel for the browser
+  `wasm32-unknown-emscripten`, and it ships as ManimGX's wheel for the browser
   (`pyemscripten_2026_0_wasm32`, [PEP 783](https://peps.python.org/pep-0783/)). There, every
   film is recorded as a take.
 - **The player** (feature `web`, for `wasm32-unknown-unknown`): `player.rs` on a page's canvas,
@@ -315,7 +315,7 @@ engine is two WebAssembly builds of the same crate:
   `wheel`) and its canvas's size, and draws it when it is due (`wake`, `draw`). It keeps the
   take as sent, coded, and makes a frame's shapes from it when the frame is drawn; the GPU's
   player keeps what the frames drawn lately drew, up to a budget. Its face's fonts come from
-  Pyodide, the ones the window's face is set in: `_engine.face_fonts` gives manimgx's font
+  Pyodide, the ones the window's face is set in: `_engine.face_fonts` gives ManimGX's font
   files and Typst's monospace font.
   [`browser/`](https://github.com/academa-labs/manimgx/tree/main/browser) holds the
   page's side: the element and the director's worker (Pyodide).
@@ -343,7 +343,7 @@ manifests have their own versions.
 
 ## Others' sources
 
-The repository holds only manimgx's code. What the engine is built from that others wrote —
+The repository holds only ManimGX's code. What the engine is built from that others wrote —
 x264 and NASM, FFmpeg's audio decoders and libopus, mitex's Typst package — its crates' build
 scripts fetch from where each project publishes it (`fetch::tree`, in `rust/fetch/`), each
 pinned by the SHA-256 of its files: their paths and bytes, not an archive's, which hosts
@@ -381,7 +381,7 @@ cd manimgx-X.Y.Z && uv build --wheel --no-build-isolation --offline
 Each is built by its crate's build script with the `cc` crate, the C compiler alone, the same
 way on every target: no project's own build system runs. x264's and NASM's scripts write the
 configuration their `configure` would for the target. FFmpeg's `configure` resolved the
-components manimgx decodes with once, and `rust/ffmpeg/build.rs` keeps what it resolved (the
+components ManimGX decodes with once, and `rust/ffmpeg/build.rs` keeps what it resolved (the
 names it turns on, the files it compiles; the command is in the script's comment): its
 configuration is written from that, in portable C (no assembly, no threads: one file decodes
 at a time), the same on every target, the browser's included. Opus goes to libopus, the

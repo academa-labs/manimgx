@@ -45,7 +45,7 @@ PANEL = Path(__file__).resolve().parent / "web" / "dist"
 
 class Checks(BaseModel):
     source: bool  # both references were rendered from this exact scene.py
-    types: bool  # strict ty, no escapes, no Any/Unknown from manimgx
+    types: bool  # strict ty, no escapes, no Any/Unknown from ManimGX
 
 
 class CaseSummary(BaseModel):
@@ -134,7 +134,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="manimgx corpus review", lifespan=lifespan)
+app = FastAPI(title="ManimGX corpus review", lifespan=lifespan)
 
 
 # ── the corpus ────────────────────────────────────────────────────────────────

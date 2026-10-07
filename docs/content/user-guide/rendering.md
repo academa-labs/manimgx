@@ -165,7 +165,7 @@ scene quickly, without drawing it, for example in a test.
 
 ## In the browser
 
-manimgx runs in a web page, with no server: the page makes the video from your scene,
+ManimGX runs in a web page, with no server: the page makes the video from your scene,
 and plays it. Install the npm package `manimgx`, import it in your page's script
 through your bundler, and put a scene in a `<manimgx-player>`:
 
@@ -188,7 +188,7 @@ through your bundler, and put a scene in a `<manimgx-player>`:
 ```
 
 The player has the keys of the preview window. The first video on a page downloads
-Python ([Pyodide](https://pyodide.org)) and manimgx, about 26 MB; the browser keeps them
+Python ([Pyodide](https://pyodide.org)) and ManimGX, about 26 MB; the browser keeps them
 for later. It needs WebGPU: Chrome and Edge 113 or later, or Safari 26. Two things don't
 work in the browser yet: shapes made from other shapes, such as `Union`, and Chinese,
 Japanese and Korean text.

@@ -1,11 +1,11 @@
-"""manimgx is not slower than the manimgx it is compared with, on any workload.
+"""ManimGX is not slower than the ManimGX it is compared with, on any workload.
 
 A workload is a scene rendered as a user renders it, `manimgx render`, in a process of its own
 from launch to exit: the README's three scenes as the README times them, and six example films,
 small. On Linux and macOS, the suite renders each once, tiny. Windows keeps the
 functional corpus and cost laws; these long benchmark films depend on its software GPU.
 
-`just bench REF` renders each workload with this checkout and with REF's manimgx, in turns, round
+`just bench REF` renders each workload with this checkout and with REF's ManimGX, in turns, round
 after round on one machine, and compares what the runs cost: the instructions they retired where
 the host exposes positive counts for every sample, else their CPU seconds. The same measure
 is used for every pair and retry. A round's two runs make a ratio. A workload has become slower

@@ -1,19 +1,19 @@
-"""Whether each scene is statically type safe as written for manimgx — and safe because
-manimgx's types are precise, not because they are loose.
+"""Whether each scene is statically type safe as written for ManimGX — and safe because
+ManimGX's types are precise, not because they are loose.
 
 Three findings, all shown in full:
 
 - `diagnostics`: `ty` with every rule an error, except `missing-override-decorator` (CE code
   never writes `@override`) and `deprecated` (CE code uses CE's names, some of which
-  manimgx deprecates in favor of one of its own).
+  ManimGX deprecates in favor of one of its own).
 - `escapes`: ways a scene could quiet the checker — suppression comments, `Any`, `cast`,
   `TYPE_CHECKING`, and dynamic access (`vars`, `getattr` with a literal name, …). One is
-  manimgx's limit, not the scene's: a method of the scene's own class, called through
-  `.animate` or `.always`, which manimgx's types can't name (they list the library's
+  ManimGX's limit, not the scene's: a method of the scene's own class, called through
+  `.animate` or `.always`, which ManimGX's types can't name (they list the library's
   methods), so its `# ty: ignore[unresolved-attribute]` is not an escape.
-- `imprecise`: expressions whose type manimgx leaves `Any` or `Unknown`. Every call and
+- `imprecise`: expressions whose type ManimGX leaves `Any` or `Unknown`. Every call and
   attribute in every scene is wrapped in `reveal_type` and checked in one run; a value counts
-  when manimgx produced it — a manimgx function, or a method or attribute of a manimgx class.
+  when ManimGX produced it — a ManimGX function, or a method or attribute of a ManimGX class.
   (numpy's and the standard library's own imprecision is theirs.)
 
 `ty` receives an explicit file set in a response file, independent of OS command-line limits.
@@ -35,7 +35,7 @@ from tests.integration.corpus.case import PACKAGE, Case
 from tests.typecheck import check
 
 # every rule an error, but two: CE code overrides without the decorator, and uses CE's
-# names that manimgx deprecates (its examples are written with them, on purpose)
+# names that ManimGX deprecates (its examples are written with them, on purpose)
 STRICT = (
     "--error",
     "all",
@@ -140,7 +140,7 @@ def _own_methods(tree: ast.Module) -> frozenset[str]:
 
 def _own_method_animated(node: ast.AST, own: frozenset[str]) -> bool:
     """Whether an expression is a method of the scene's own class, through `.animate` or
-    `.always`: one that manimgx's types can't name."""
+    `.always`: one that ManimGX's types can't name."""
     return (
         isinstance(node, ast.Attribute)
         and node.attr in own
@@ -207,7 +207,7 @@ def _manimgx_methods() -> dict[str, frozenset[str]]:
 
 
 def _manimgx_names(tree: ast.Module) -> frozenset[str]:
-    """The names a scene binds to manimgx: `m` in `import manimgx as m`, and the like."""
+    """The names a scene binds to ManimGX: `m` in `import manimgx as m`, and the like."""
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -380,7 +380,7 @@ def _producer(
     classes: dict[str, frozenset[str]],
     bound: frozenset[str],
 ) -> str | None:
-    """Who made this value, if manimgx did: `Class.method()`, `Class.attribute`, `m.name…`."""
+    """Who made this value, if ManimGX did: `Class.method()`, `Class.attribute`, `m.name…`."""
     if isinstance(node, ast.Call):
         callee = _type_of(node.func, types)
         method = re.match(r"bound method (\w+)(?:\[.*?\])?\.(\w+)", callee)

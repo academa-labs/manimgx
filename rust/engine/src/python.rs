@@ -423,7 +423,7 @@ mod typesetting {
         core::system_fonts_fingerprint()
     }
 
-    /// The fonts a player's face is set in: the font files in `dirs` (manimgx's), and Typst's
+    /// The fonts a player's face is set in: the font files in `dirs` (ManimGX's), and Typst's
     /// monospace one; each file's bytes (what the player in a page is given, see `web`).
     #[pyfunction]
     pub(super) fn face_fonts(py: Python<'_>, dirs: Vec<String>) -> Vec<Bound<'_, PyBytes>> {
@@ -518,7 +518,7 @@ fn settle(py: Python<'_>) {
     }
 }
 
-/// Open manimgx's player in a window on this machine's screen, playing the takes that come on
+/// Open ManimGX's player in a window on this machine's screen, playing the takes that come on
 /// standard input (see `window`), until the window is closed or its input ends. It starts at
 /// `time` seconds; its text is set in the fonts under `fonts`.
 #[cfg(feature = "window")]

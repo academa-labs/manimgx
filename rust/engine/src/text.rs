@@ -1,4 +1,4 @@
-//! The face's text (see `chrome`): a line in manimgx's fonts, shaped by rustybuzz, the shaper Typst
+//! The face's text (see `chrome`): a line in ManimGX's fonts, shaped by rustybuzz, the shaper Typst
 //! sets text with, so its glyphs are the ones Typst would place; each character in the first font
 //! that has it (the line's family first, then the others in their order), the line's runs in their
 //! reading order. And its glyphs' outlines, as the renderer draws a path.
@@ -217,7 +217,7 @@ impl ttf_parser::OutlineBuilder for Pen {
 mod tests {
     use super::*;
 
-    /// manimgx's fonts, in the repository.
+    /// ManimGX's fonts, in the repository.
     const FONTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fonts/manimgx-fonts/src/manimgx_fonts");
 
     /// A line's glyphs, left to right: id, x and y (points, from the first's), points per unit.

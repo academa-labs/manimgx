@@ -51,7 +51,7 @@ struct Setup {
     sources: Mutex<HashMap<FileId, FileResult<Source>>>,
 }
 
-/// A setup's fonts: the directories scanned (the caller's and manimgx's own), the packages, and
+/// A setup's fonts: the directories scanned (the caller's and ManimGX's own), the packages, and
 /// the system families the document names (lowercase; none: no system font at all).
 type SetupKey = (Vec<String>, Option<String>, Vec<String>);
 
@@ -60,8 +60,8 @@ fn setups() -> &'static Mutex<HashMap<SetupKey, Arc<Setup>>> {
     SETUPS.get_or_init(Default::default)
 }
 
-/// The fonts in `font_paths` (the caller's, then the ones manimgx ships) and Typst's own, and of
-/// the system's only the families in `named`: a document sets its text in manimgx's fonts on every
+/// The fonts in `font_paths` (the caller's, then the ones ManimGX ships) and Typst's own, and of
+/// the system's only the families in `named`: a document sets its text in ManimGX's fonts on every
 /// machine, falls back only among them, and reaches a system font only by naming it.
 fn setup(font_paths: &[String], packages: Option<&str>, named: &[String], revision: u64) -> Arc<Setup> {
     let key = (font_paths.to_vec(), packages.map(str::to_owned), named.to_vec());
@@ -331,7 +331,7 @@ fn rgba(paint: &Paint) -> [f64; 4] {
         Paint::Tiling(_) => typst::visualize::Color::BLACK,
     };
     let rgb = color.to_rgb();
-    // in 8 bits a channel, as manimgx's colors are
+    // in 8 bits a channel, as ManimGX's colors are
     [rgb.red, rgb.green, rgb.blue, rgb.alpha].map(|c| (f64::from(c) * 255.0).round() / 255.0)
 }
 
@@ -490,7 +490,7 @@ impl Walk<'_> {
     }
 }
 
-/// A curve as manimgx's cubic points (4 per curve, x y z), lines raised to cubics.
+/// A curve as ManimGX's cubic points (4 per curve, x y z), lines raised to cubics.
 fn cubics(curve: &Curve, ts: Transform) -> Vec<f64> {
     let mut out = Vec::new();
     let p = |q: Point| {
@@ -561,7 +561,7 @@ pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>, re
         let file = RootedPath::new(VirtualRoot::Project, VirtualPath::new("main.typ").unwrap())
             .intern();
         let main = Source::new(file, source);
-        // manimgx's fonts (the caller's, the bundled ones, Typst's own); a system font only
+        // ManimGX's fonts (the caller's, the bundled ones, Typst's own); a system font only
         // when the document names a family they don't include, and then that family alone
         let lean = setup(font_paths, packages, &[], revision);
         let doc = Document { setup: &lean, main: main.clone() };
@@ -610,7 +610,7 @@ pub fn system_fonts_fingerprint() -> u64 {
     *FINGERPRINT.get_or_init(|| fingerprint(&font_directories()))
 }
 
-/// The fonts a player's face is set in (see `text`): the font files in `dirs` (manimgx's), and
+/// The fonts a player's face is set in (see `text`): the font files in `dirs` (ManimGX's), and
 /// Typst's monospace one, DejaVu Sans Mono; each file's bytes, kept (mapped, where files are) for
 /// as long as the program runs.
 pub fn face_fonts(dirs: &[String]) -> Vec<&'static [u8]> {

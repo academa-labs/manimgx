@@ -1,4 +1,4 @@
-"""Render a scene with Manim CE in this process: the same bytes manimgx runs, with `manimgx`
+"""Render a scene with Manim CE in this process: the same bytes ManimGX runs, with `manimgx`
 resolving to `manim`.
 
     python -m tests.integration.corpus.run_ce SCENE --out RESULT [--video OUT.mkv]
@@ -6,8 +6,8 @@ resolving to `manim`.
 Frames are taken where CE makes them (its renderer's `add_frame`), losslessly, each with the
 scene time it shows: a play's frames are 1/fps apart from the play's start, and a frozen wait
 repeats one frame. CE's own PNG and MP4 writers are bypassed (a dry run): its PNGs keep one
-image per frozen wait and its MP4s are lossy. The run fails if the real manimgx is ever
-imported, so a CE render can never be a manimgx render in disguise.
+image per frozen wait and its MP4s are lossy. The run fails if the real ManimGX is ever
+imported, so a CE render can never be a ManimGX render in disguise.
 """
 
 import argparse
@@ -25,8 +25,8 @@ from tests.integration.corpus.case import FPS, PACKAGE, SIZE, Frames, exact
 from tests.integration.corpus.frames import Recorder, rgb
 from tests.integration.corpus.runtime import load, seed, the_scene, write_result
 
-# where CE keeps names that manimgx has at its top level and CE's top level lacks: a scene names
-# them as manimgx's (`from manimgx import polylabel`), and CE finds them here
+# where CE keeps names that ManimGX has at its top level and CE's top level lacks: a scene names
+# them as ManimGX's (`from manimgx import polylabel`), and CE finds them here
 HOMES = (
     "manim.utils.paths",
     "manim.utils.space_ops",

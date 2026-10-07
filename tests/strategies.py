@@ -1,8 +1,8 @@
-"""Hypothesis strategies for manimgx's values: numbers at a scene's scale, points and vectors,
+"""Hypothesis strategies for ManimGX's values: numbers at a scene's scale, points and vectors,
 Bézier curves and paths, colors and paints, rate functions, mobjects and animations.
 
 Every strategy draws valid input only: finite numbers within a scene's reach (no NaN, infinity or
-subnormal, which no scene draws), curves as their four control points, colors as manimgx reads
+subnormal, which no scene draws), curves as their four control points, colors as ManimGX reads
 them. What a test checks for invalid input it writes out by hand."""
 
 from collections.abc import Callable

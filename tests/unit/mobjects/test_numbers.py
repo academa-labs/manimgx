@@ -2,7 +2,7 @@
 
 - Its characters are its value rounded to its places (half to even, on the value's exact
   binary digits, as decimal arithmetic rounds them: another algorithm than the formatting
-  manimgx uses; a displayed zero has no sign), grouped by commas and signed as asked, whether
+  ManimGX uses; a displayed zero has no sign), grouped by commas and signed as asked, whether
   it was made with the value or set to it from another; a numpy scalar by its own value, an
   integer to a whole. A complex number spells each of its parts so, the second signed, and is
   written `a+bi`.

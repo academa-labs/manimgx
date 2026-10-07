@@ -1,4 +1,4 @@
-// <manimgx-player>: manimgx's player in the page. The engine's own player, the one `manimgx
+// <manimgx-player>: ManimGX's player in the page. The engine's own player, the one `manimgx
 // preview`'s window is, compiled to WebAssembly: it draws the film and its face (the controls, the
 // time, the plays, captions, the scene's error, the keys) onto a canvas with WebGPU, and keeps the
 // clock and the sound. The element only hands it what its viewer does, in the web's own words,
@@ -15,7 +15,7 @@ import type { FromDirector, ToDirector } from "./protocol.js";
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 
-/** Where Pyodide and manimgx come from (set before the first film starts). */
+/** Where Pyodide and ManimGX come from (set before the first film starts). */
 export const settings = {
   /** Pyodide's files (its `indexURL`). */
   pyodide: PYODIDE,
@@ -69,8 +69,8 @@ function begin(): Page {
     director.terminate();
     for (const player of players.values()) player.fail(error);
   };
-  director.onerror = (event) => fail(`manimgx could not start: ${event.message}`);
-  director.onmessageerror = () => fail("manimgx could not read its worker's reply");
+  director.onerror = (event) => fail(`ManimGX could not start: ${event.message}`);
+  director.onmessageerror = () => fail("ManimGX could not read its worker's reply");
   director.onmessage = async ({ data }: MessageEvent<FromDirector>) => {
     if (current.failure !== null) return;
     if ("failure" in data) return fail(data.failure);
@@ -79,7 +79,7 @@ function begin(): Page {
       for (const player of players.values()) player.wait();
     }
     if ("engine" in data) {
-      // the player, from the manimgx the director installed: its JS, its WebAssembly, the fonts
+      // the player, from the ManimGX the director installed: its JS, its WebAssembly, the fonts
       // its face is set in
       const { js, wasm, fonts } = data.engine;
       const url = URL.createObjectURL(new Blob([js], { type: "text/javascript" }));
@@ -89,7 +89,7 @@ function begin(): Page {
         await engine.init(fonts);
         up(engine);
       } catch (error) {
-        fail(`manimgx can't draw here: ${message(error)}`);
+        fail(`ManimGX can't draw here: ${message(error)}`);
       } finally {
         URL.revokeObjectURL(url);
       }
@@ -102,7 +102,7 @@ function begin(): Page {
 
 let films = 0;
 
-/** A scene written in Python, made in the page and played on a canvas by manimgx's engine,
+/** A scene written in Python, made in the page and played on a canvas by ManimGX's engine,
  *  with the engine's own controls. */
 export class ManimgxPlayer extends HTMLElement {
   static observedAttributes = ["scene"];

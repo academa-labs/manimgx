@@ -7,7 +7,7 @@ the compiler's complete notices, including its SPIR-V dependencies.
 
 With `MANIMGX_SOURCES` set, this crate collects the original binary release and
 matching compiler source, plus every Git submodule at that revision. Ordinary
-non-Windows builds do not fetch DXC. The source bundle can build manimgx offline
+non-Windows builds do not fetch DXC. The source bundle can build ManimGX offline
 using the included compiler payload.
 
 To rebuild the compiler itself, unpack these source archives from the complete

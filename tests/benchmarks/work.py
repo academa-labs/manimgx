@@ -1,7 +1,7 @@
-"""What a run asks of manimgx, counted: work, which is the same on every machine, where time is
+"""What a run asks of ManimGX, counted: work, which is the same on every machine, where time is
 not.
 
-`count(fn)` runs `fn` and counts, in manimgx's own code:
+`count(fn)` runs `fn` and counts, in ManimGX's own code:
 
 - `calls`, the Python functions run, and `loops`, the loops' iterations (a jump back), with
   `sys.monitoring`: the interpreter's work;
@@ -82,7 +82,7 @@ class _Tally:
 
 def count[T](fn: Callable[[], T], strict: bool = True) -> tuple[T, Work]:
     """Run `fn`; its result and the work it did. With `strict`, a function counted that
-    this manimgx lacks (renamed, say) is an error; else it counts nothing (an older manimgx,
+    this ManimGX lacks (renamed, say) is an error; else it counts nothing (an older ManimGX,
     compared with this one)."""
     with counting(strict) as tally:
         result = fn()
@@ -217,7 +217,7 @@ def _patched(owner: object, name: str, value: object) -> Iterator[None]:
 def main() -> None:
     out, *args = sys.argv[1:]
     sys.argv = ["manimgx", *args]
-    with counting(strict=False) as tally:  # the manimgx compared with may lack a count
+    with counting(strict=False) as tally:  # the ManimGX compared with may lack a count
         try:
             runpy.run_module("manimgx", run_name="__main__", alter_sys=True)
         except SystemExit as done:

@@ -1,4 +1,4 @@
-# The engine's crates, each a folder here: the engine (engine/, built into the manimgx package by
+# The engine's crates, each a folder here: the engine (engine/, built into the ManimGX package by
 # maturin), and the ones it is built with from others' sources, which their build scripts fetch
 # (fetch/): x264, NASM, FFmpeg with libopus, and mitex's Typst package. Cargo runs here
 # (`cargo test`, `cargo clippy`); it builds into target/.

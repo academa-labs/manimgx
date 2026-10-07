@@ -1,5 +1,5 @@
-"""What manimgx's wheels hold is licensed, and says so: their third-party notice,
-`LICENSE-THIRD-PARTY`, is current, and manimgx's `license` covers all it names
+"""What ManimGX's wheels hold is licensed, and says so: their third-party notice,
+`LICENSE-THIRD-PARTY`, is current, and ManimGX's `license` covers all it names
 (scripts/release/licenses.py); the lavapipe's, `LICENSE-LAVAPIPE`, is of the Mesa the Linux wheels are
 built with; and a module holding code ported from Manim CE carries CE's copyright lines,
 wherever that code moves."""
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# fragments of Manim CE's code, as manimgx's modules hold them: `Mobject.move_to`'s mask,
+# fragments of Manim CE's code, as ManimGX's modules hold them: `Mobject.move_to`'s mask,
 # `color_gradient`'s last step, `ApplyWave`'s phases (a port's own fragment goes here)
 PORTED_FROM_CE = ("coor_mask", "alphas_mod1", "phases = ripples * 2")
 CE_COPYRIGHT = "SPDX-FileCopyrightText: 2024 the Manim Community Developers"

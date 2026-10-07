@@ -1554,7 +1554,7 @@ class FadeTransform(Transform):
         self.ghost_to(group[i], group[j])
         return group
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def ghost_to(self, source: Mobject, target: Mobject) -> None:
         """Fit a mobject onto another and make it transparent.
 
@@ -1943,7 +1943,7 @@ class Homotopy(Animation):
         self.apply_function_kwargs: Pivot = apply_function_kwargs or {}
         super().__init__(mobject, **kwargs)
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def function_at_time_t(self, t: float) -> Callable[[Point3D], Point3D]:
         """Return the homotopy at one progress, as a function of a point.
 
@@ -2369,7 +2369,7 @@ class ShowIncreasingSubsets(Animation):
         super().__init__(group, **kwargs)
 
     @property
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def hidden(self) -> Sequence[Mobject]:
         """The submobjects it has not shown yet, or no longer shows."""
         return self._hidden
@@ -2382,7 +2382,7 @@ class ShowIncreasingSubsets(Animation):
         )
         self.update_submobject_list(int(self.int_func(value * len(self.all_submobs))))
 
-    @deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def update_submobject_list(self, index: int) -> None:
         """Show the first `index` submobjects and hide the rest.
 

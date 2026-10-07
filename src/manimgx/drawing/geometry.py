@@ -162,7 +162,7 @@ def rotation_matrix(angle: float, axis: Vector3DLike = _OUT) -> MatrixMN:
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def rotation_about_z(angle: float) -> MatrixMN:
     """The matrix of a rotation about the z axis.
 
@@ -195,7 +195,7 @@ def rotate_vector(
     return rotation_matrix(angle, axis) @ v
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def z_to_vector(vector: Vector3DLike) -> MatrixMN:
     """A rotation that takes the z axis to a vector's direction.
 
@@ -265,7 +265,7 @@ def turn_between(v1: Vector3DLike, v2: Vector3DLike) -> tuple[float, Vector3D]:
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def get_unit_normal(v1: Vector3DLike, v2: Vector3DLike, tol: float = 1e-6) -> Vector3D:
     """A unit vector perpendicular to two vectors: their cross product, normalized.
 
@@ -301,7 +301,7 @@ def get_unit_normal(v1: Vector3DLike, v2: Vector3DLike, tol: float = 1e-6) -> Ve
     return cp / np.linalg.norm(cp)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def compass_directions(n: int = 4, start_vect: Vector3DLike = _RIGHT) -> Point3D_Array:
     """Vectors evenly spread around the z axis, counterclockwise from a first one.
 
@@ -322,7 +322,7 @@ def compass_directions(n: int = 4, start_vect: Vector3DLike = _RIGHT) -> Point3D
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def regular_vertices(
     n: int, *, radius: float = 1, start_angle: float | None = None
 ) -> tuple[Point3D_Array, float]:
@@ -369,7 +369,7 @@ def line_intersection(line1: Point3DLike_Array, line2: Point3DLike_Array) -> Poi
     return np.array([x / z, y / z, 0])
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def find_intersection(
     p0s: Point3DLike_Array,
     v0s: Point3DLike_Array,
@@ -454,7 +454,7 @@ def spherical_to_cartesian(spherical: np.ndarray) -> Vector3D:
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def shoelace(xy: np.ndarray) -> float:
     """The signed area of the polygon through points in turn, back to the first: the
     integral of y dx around it.
@@ -472,7 +472,7 @@ def shoelace(xy: np.ndarray) -> float:
     return float((np.roll(x, -1) - x) @ (np.roll(y, -1) + y) / 2)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def shoelace_direction(xy: np.ndarray) -> str:
     """Which way a polygon runs around: "CW" (clockwise) if its
     [shoelace][manimgx.shoelace] area is positive, "CCW" (counterclockwise) otherwise.
@@ -506,7 +506,7 @@ def perpendicular_bisector(
     return np.array([m + direction, m - direction])
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def cross2d(a: np.ndarray, b: np.ndarray) -> npt.NDArray[np.float64] | float:
     """The z of the cross product of vectors in the xy plane: `a.x·b.y − a.y·b.x`.
 
@@ -532,7 +532,7 @@ def center_of_mass(points: Point3D_Array) -> Point3D:
     return np.average(np.asarray(points), 0)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def angle_axis_from_quaternion(quaternion: np.ndarray) -> tuple[float, Vector3D]:
     """The angle and axis of a unit quaternion (w, x, y, z): the angle 2·arccos(w),
     taken from 2π when it is larger than π, and the axis (x, y, z), normalized.
@@ -592,7 +592,7 @@ def complex_func_to_R3_func(
     return lambda p: complex_to_R3(complex_func(R3_to_complex(p)))
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def norm_squared(v: Vector3DLike) -> float:
     """A vector's length, squared.
 
@@ -606,7 +606,7 @@ def norm_squared(v: Vector3DLike) -> float:
     return float(np.dot(v, v))
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def rotation_matrix_transpose(angle: float, axis: Vector3DLike) -> MatrixMN:
     """The transpose of [rotation_matrix][manimgx.rotation_matrix]: the rotation by
     `-angle`.
@@ -621,7 +621,7 @@ def rotation_matrix_transpose(angle: float, axis: Vector3DLike) -> MatrixMN:
     return rotation_matrix(angle, axis).T
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def rotation_matrix_from_quaternion(quat: np.ndarray) -> MatrixMN:
     """The matrix of the rotation by a unit quaternion.
 
@@ -641,7 +641,7 @@ def rotation_matrix_from_quaternion(quat: np.ndarray) -> MatrixMN:
     )
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def get_winding_number(points: Point3DLike_Array) -> float:
     """How many times the closed polygon through points winds counterclockwise around
     the origin, in the xy plane.
@@ -663,7 +663,7 @@ def get_winding_number(points: Point3DLike_Array) -> float:
     return total / (2 * np.pi)
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def quaternion_mult(*quats: Sequence[float] | npt.NDArray[np.float64]) -> list[float]:
     """The product of quaternions (w, x, y, z), in order: the first times the second,
     and so on.
@@ -686,7 +686,7 @@ def quaternion_mult(*quats: Sequence[float] | npt.NDArray[np.float64]) -> list[f
     return result
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def quaternion_from_angle_axis(
     angle: float, axis: np.ndarray, axis_normalized: bool = False
 ) -> list[float]:
@@ -708,7 +708,7 @@ def quaternion_from_angle_axis(
     return [np.cos(angle / 2), *np.sin(angle / 2) * unit]
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def quaternion_conjugate(
     quaternion: Sequence[float] | npt.NDArray[np.float64],
 ) -> Vec:
@@ -722,7 +722,7 @@ def quaternion_conjugate(
     return result
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     """The transpose of the matrix of the rotation by a unit quaternion: its rows are
     where the x, y and z axes go.
@@ -740,7 +740,7 @@ def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     ]
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def thick_diagonal(dim: int, thickness: int = 2) -> npt.NDArray[np.uint8]:
     """A square matrix of ones in a band along its diagonal, and zeros elsewhere.
 
@@ -755,7 +755,7 @@ def thick_diagonal(dim: int, thickness: int = 2) -> npt.NDArray[np.uint8]:
     return (np.abs(rows - rows.T) < thickness).astype("uint8")
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def normalize_along_axis(array: np.ndarray, axis: int) -> npt.NDArray[np.float64]:
     """Divide the vectors along an array's last axis by their lengths, in place (zero
     vectors are left as they are).
@@ -774,7 +774,7 @@ def normalize_along_axis(array: np.ndarray, axis: int) -> npt.NDArray[np.float64
     return array
 
 
-@deprecated("Manim CE's machinery: manimgx calls it itself", category=None)
+@deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
 def earclip_triangulation(
     verts: Point3DLike_Array, ring_ends: Sequence[int]
 ) -> list[int]:
@@ -1615,7 +1615,7 @@ class Path:
     A path takes each point to Lₛ·start + Lₑ·end + k, where Lₛ, Lₑ and k depend on the
     animation's progress α alone: so a shape moves without its points being touched.
     Call it as `path(start, end, alpha)`, on arrays of points; the functions below make
-    the paths manimgx provides.
+    the paths ManimGX provides.
 
     Args:
         kind: What the path is. "motion": the shape is carried by the motion G of its
@@ -1638,7 +1638,7 @@ class Path:
     steps: tuple[Step, ...] = ()
     _end: list[Floats] = field(default_factory=list, init=False, repr=False)  # G(1)
 
-    @deprecated("manimgx's machinery: a transform calls it", category=None)
+    @deprecated("ManimGX's machinery: a transform calls it", category=None)
     def coefficients(self, alpha: float) -> Coefficients:
         """The path's rule at a moment: each point goes to Lₛ·start + Lₑ·end + k.
 
@@ -1674,7 +1674,7 @@ class Path:
             cs, ce = 0.5 * _EYE - k, 0.5 * _EYE + k
         return (_EYE - rot) @ cs + rot - along, (_EYE - rot) @ ce + along, _ZERO
 
-    @deprecated("manimgx's machinery: a transform calls it", category=None)
+    @deprecated("ManimGX's machinery: a transform calls it", category=None)
     def motion(self, alpha: float) -> Floats:
         """The motion the path's steps have carried the shape by at a moment.
 
@@ -1693,7 +1693,7 @@ class Path:
         return start @ ls.T + end @ le.T + k
 
 
-@deprecated("manimgx's machinery: a transform calls it", category=None)
+@deprecated("ManimGX's machinery: a transform calls it", category=None)
 def carried(steps: Iterable[tuple[Step, float]]) -> Floats:
     """The motion of steps taken in order, each as far as its own fraction.
 

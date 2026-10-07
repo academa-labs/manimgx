@@ -1,4 +1,4 @@
-# The executables, one per platform: manimgx as one file that holds a Python with manimgx
+# The executables, one per platform: ManimGX as one file that holds a Python with ManimGX
 # installed (PyApp; see scripts/release/create_executable.py). The release makes them from its wheels;
 # run by hand, this workflow builds the wheels first.
 

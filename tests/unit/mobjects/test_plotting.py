@@ -442,7 +442,7 @@ def test_a_polar_planes_lines_are_its_grid(
 
 @pytest.mark.parametrize("size", [(1920, 1080), (1080, 1920), (1000, 1000)])
 def test_a_plane_fills_the_frame_it_is_made_in(size: tuple[int, int]) -> None:
-    # the frame as the scene's file sets it, after manimgx is imported: wide, tall, square
+    # the frame as the scene's file sets it, after ManimGX is imported: wide, tall, square
     m.config.pixel_width, m.config.pixel_height = size
     w, h = m.config.frame_x_radius, m.config.frame_y_radius
     plane = m.NumberPlane()
@@ -459,7 +459,7 @@ def test_a_plane_fills_the_frame_it_is_made_in(size: tuple[int, int]) -> None:
 def test_axes_fit_the_frame_they_are_made_in(
     size: tuple[int, int], lengths: tuple[float, float]
 ) -> None:
-    # the frame as the scene's file sets it, after manimgx is imported: wide, tall, square
+    # the frame as the scene's file sets it, after ManimGX is imported: wide, tall, square
     m.config.pixel_width, m.config.pixel_height = size
     axes = m.Axes()
     assert (axes.x_length, axes.y_length) == pytest.approx(lengths)

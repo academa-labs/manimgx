@@ -1,4 +1,4 @@
-//! The player: manimgx's, on any screen. A projector of takes (see `project`) on a clock of its
+//! The player: ManimGX's, on any screen. A projector of takes (see `project`) on a clock of its
 //! own: it plays the takes its director sends, keeps its place when a newer take replaces the one
 //! shown, sounds them (`speaker`) and draws its face (`chrome`) over the film; its viewer moves
 //! through the film with keys, a pointer, a wheel or a finger.

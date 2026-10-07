@@ -1,4 +1,4 @@
-"""What manimgx remembers: values it has worked out once, kept to be read again.
+"""What ManimGX remembers: values it has worked out once, kept to be read again.
 
 Every such memory is a `Memo`: bounded (past its limit it forgets everything at once) and
 invisible (forgetting changes no result, only the time one takes). `clear` forgets them all,

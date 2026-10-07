@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.14"
 # ///
-"""Create manimgx's executable for this machine, from its wheel in dist/: one file holding a
-Python with manimgx and its locked dependencies installed.
+"""Create ManimGX's executable for this machine, from its wheel in dist/: one file holding a
+Python with ManimGX and its locked dependencies installed.
 
 The file is PyApp (https://ofek.dev/pyapp). Its first run unpacks the Python it holds; every
 run then runs `manimgx` there, with no network and no Python on the machine. `manimgx self`
@@ -116,10 +116,10 @@ def run(
 
 
 def the_wheel() -> Path:
-    """The one manimgx wheel in dist/ (the workflows put this machine's there)."""
+    """The one ManimGX wheel in dist/ (the workflows put this machine's there)."""
     wheels = sorted(DIST.glob("manimgx-*.whl"))
     if len(wheels) != 1:
-        sys.exit(f"expected one manimgx wheel in {DIST}, found {len(wheels)}")
+        sys.exit(f"expected one ManimGX wheel in {DIST}, found {len(wheels)}")
     return wheels[0]
 
 
@@ -330,7 +330,7 @@ def install_python(work: Path, retained: Path) -> tuple[Path, dict[str, object]]
 
 
 def install_manimgx(python: Path, wheel: Path, work: Path) -> None:
-    """manimgx, from its wheel, with its fonts (fonts/manimgx-fonts*, as this commit has
+    """ManimGX, from its wheel, with its fonts (fonts/manimgx-fonts*, as this commit has
     them) and the dependencies uv.lock pins."""
     requirements = work / "requirements.txt"
     run(
@@ -346,7 +346,7 @@ def install_manimgx(python: Path, wheel: Path, work: Path) -> None:
         "uv", "pip", "install", "--python", python / INTERPRETER, "--break-system-packages",
         "--compile-bytecode", "--no-deps", wheel, *fonts,
     )  # fmt: skip
-    # the Python is manimgx's own: `manimgx self pip install` may add packages to it
+    # the Python is ManimGX's own: `manimgx self pip install` may add packages to it
     for marker in python.glob("**/EXTERNALLY-MANAGED"):
         marker.unlink()
 
@@ -379,7 +379,7 @@ def sha256(path: Path) -> str:
 
 def build_pyapp(distribution: Path, version: str, work: Path, source: Path) -> Path:
     """PyApp, built with the distribution inside it: it unpacks it and runs `manimgx`."""
-    # the distribution itself runs manimgx, installed in it already: no virtual environment,
+    # the distribution itself runs ManimGX, installed in it already: no virtual environment,
     # no installation at runtime
     env = os.environ | {
         # Keep compiled output outside the source closure retained for the release.

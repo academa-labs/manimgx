@@ -1,14 +1,14 @@
-"""CE's frames against manimgx's, at the same scene times.
+"""CE's frames against ManimGX's, at the same scene times.
 
-Each manimgx frame (frame k shows the scene at k/fps, exactly) is compared with the frame CE has
+Each ManimGX frame (frame k shows the scene at k/fps, exactly) is compared with the frame CE has
 on screen at that scene time: CE's latest frame at or before it, since a frame stays up until
 the next one. Never by index: CE rounds each play to whole frames (after a 0.75 s play at 10 fps
-its frames fall at .75, .85, … while manimgx's stay at .8, .9, …), floors frozen waits, and
-never shows a scene's last animation landing, and none of that may count against manimgx.
+its frames fall at .75, .85, … while ManimGX's stay at .8, .9, …), floors frozen waits, and
+never shows a scene's last animation landing, and none of that may count against ManimGX.
 From the end of CE's scene on, only a CE frame of exactly the same time is compared — the
 landed scene, which CE shows only when its float arithmetic gives a play one frame too many —
-so manimgx's closing frame is otherwise its own. A CE frame on screen at no manimgx frame's
-time (up for less than a frame, or after manimgx's scene ended) is unpaired.
+so ManimGX's closing frame is otherwise its own. A CE frame on screen at no ManimGX frame's
+time (up for less than a frame, or after ManimGX's scene ended) is unpaired.
 
 Each pair is measured in every metric (all 0–255), so the metric and tolerance a reviewer picks
 (`settings.json`) apply without measuring again:
@@ -59,7 +59,7 @@ def measure(a: Pixels, b: Pixels) -> tuple[float, ...]:
 def pair(
     ce: Frames, manimgx: Frames, fps: int
 ) -> tuple[list[tuple[int, int]], list[int]]:
-    """(the CE frame on screen at a manimgx frame's scene time, that manimgx frame); and the
+    """(the CE frame on screen at a ManimGX frame's scene time, that ManimGX frame); and the
     CE frames on screen at none."""
     times = ce.times(fps)  # in order: plays follow one another
     pairs: list[tuple[int, int]] = []
@@ -128,8 +128,8 @@ class Slot:
 
 
 def slots(ce: Frames | None, manimgx: Frames | None, fps: int) -> list[Slot]:
-    """The timeline: a slot per manimgx frame, with the CE frame on screen at its time, then
-    CE's frames that no manimgx frame is compared with, where their time falls."""
+    """The timeline: a slot per ManimGX frame, with the CE frame on screen at its time, then
+    CE's frames that no ManimGX frame is compared with, where their time falls."""
     ce_times = [] if ce is None else ce.times(fps)
     if manimgx is None:
         return [Slot(t, i, t, None) for i, t in enumerate(ce_times)]

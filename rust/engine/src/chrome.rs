@@ -1,4 +1,4 @@
-//! The player's face, drawn by the engine itself: its controls as shapes and its text in manimgx's
+//! The player's face, drawn by the engine itself: its controls as shapes and its text in ManimGX's
 //! fonts (see `text`), records of a 2D view in points (y up, from the bottom left) over a clear
 //! background, laid over the film. So they are drawn as a film is, exactly, and need no toolkit: a
 //! `Face` (what the player shows) in, a picture out, and where its controls are.

@@ -28,7 +28,7 @@ speaks. Put the words of each animation in brackets, and give the animations in 
 order: each starts with the first of its words. The scene waits until the line ends, so
 lines don't overlap; change the words, and the animations follow the new words.
 
-The scene's voice speaks through a text-to-speech service. manimgx keeps what it says in a
+The scene's voice speaks through a text-to-speech service. ManimGX keeps what it says in a
 folder named `voice/`, next to the scene's file, so the scene renders again without the
 service, and only a changed line goes to it again. What the voice says becomes the video's
 captions.
@@ -51,7 +51,7 @@ captions.
 
 ## Voices
 
-The voices manimgx brings are fal.ai's: `m.voices.Fal`, with the model you choose and its
+The voices ManimGX brings are fal.ai's: `m.voices.Fal`, with the model you choose and its
 settings. Your editor shows each model's settings.
 
 ::: manimgx.audio.fal.Fal

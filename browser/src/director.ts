@@ -1,7 +1,7 @@
 // The director's worker: Python (Pyodide) running scenes, their takes sent to the page's players.
-// manimgx comes from PyPI (micropip), and with it the player's engine, which is handed on.
+// ManimGX comes from PyPI (micropip), and with it the player's engine, which is handed on.
 //
-// In: {boot: {pyodide, manimgx}} once; {film, run: {source, scene}}; {film, drop} on detach.
+// In: {boot: {pyodide, ManimGX}} once; {film, run: {source, scene}}; {film, drop} on detach.
 // Out: {status} while it boots (what it waits for); {engine: {js, wasm, fonts}} once (the
 // player: its JS and WebAssembly, and the fonts its face is set in); then each film's take stream,
 // {film, feed}: its takes, and between them the director's notes (the file's scenes, an error),
@@ -60,7 +60,7 @@ onmessage = ({ data }: MessageEvent<ToDirector>) => {
     booted = boot(data.boot).catch((error: unknown) => {
       failed = true;
       queue.clear();
-      send({ failure: `manimgx could not start: ${message(error)}` });
+      send({ failure: `ManimGX could not start: ${message(error)}` });
       return null;
     });
     return;
@@ -75,7 +75,7 @@ async function boot({ pyodide, manimgx }: Boot): Promise<Python> {
   send({ status: "Loading Python…" });
   const { loadPyodide } = (await import(`${pyodide}pyodide.mjs`)) as PyodideModule;
   const py = await loadPyodide({ indexURL: pyodide });
-  send({ status: "Installing manimgx…" });
+  send({ status: "Installing ManimGX…" });
   await py.loadPackage("micropip");
   const micropip = py.pyimport("micropip") as Micropip;
   await micropip.install(manimgx);

@@ -1,19 +1,19 @@
 ---
 name: manimgx
-description: Create and refine mathematical or 3D animations in Python with manimgx, including scene authoring, layout inspection, and video export.
+description: Create and refine mathematical or 3D animations in Python with ManimGX, including scene authoring, layout inspection, and video export.
 license: MIT
 ---
 
-# manimgx
+# ManimGX
 
-Use manimgx to turn the user's explanation into a scene, inspect its layout and timing,
+Use ManimGX to turn the user's explanation into a scene, inspect its layout and timing,
 and deliver the rendered video with its editable Python source.
 
 Use the project's existing Python environment. For a standalone installation,
 `uv tool install --python 3.14 manimgx` provides the `manimgx` command. Python 3.13 or newer
 is required. Text, mathematics, and video encoding are included in the package.
 
-Import `manimgx as m`. Its authoring API follows Manim Community Edition; check manimgx's
+Import `manimgx as m`. Its authoring API follows Manim Community Edition; check ManimGX's
 own [reference](https://manimgx.academa.ai/reference/) for supported options and behavior.
 [The agent primer](https://manimgx.academa.ai/llms.txt) links the guides and examples as
 Markdown. Read the relevant page when using an unfamiliar feature.

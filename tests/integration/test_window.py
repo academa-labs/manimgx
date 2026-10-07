@@ -1,4 +1,4 @@
-"""manimgx's window: a process of its own, which plays the takes it is sent and closes when its
+"""ManimGX's window: a process of its own, which plays the takes it is sent and closes when its
 director closes it; a film sent to a closed window is cut. It needs a screen: on a Linux
 without a display these are skipped; anywhere else, a window that cannot open is a failure.
 """

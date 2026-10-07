@@ -1,7 +1,7 @@
 # Updaters
 
 Sometimes a mobject must follow a rule while others move: a label stays above a dot, or a
-number shows where a dot is. An updater is a function that keeps such a rule. manimgx
+number shows where a dot is. An updater is a function that keeps such a rule. ManimGX
 calls it at every frame.
 
 ## Follow another mobject
@@ -24,7 +24,7 @@ class Follow(m.Scene):
         self.play(dot.animate.shift(3 * m.DOWN))
 ```
 
-`label.add_updater(stay_above)` makes manimgx call `stay_above(label)` at every frame. So
+`label.add_updater(stay_above)` makes ManimGX call `stay_above(label)` at every frame. So
 the label stays above the dot, wherever the dot goes. `label.clear_updaters()` stops it.
 
 ## A number that you animate

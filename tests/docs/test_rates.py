@@ -1,5 +1,5 @@
 """The rate function explorer's curves (`docs/content/javascripts/rate-functions.json`, which
-`scripts/docs/rates.py` writes) are manimgx's rate functions: the committed file is what the
+`scripts/docs/rates.py` writes) are ManimGX's rate functions: the committed file is what the
 script writes now, and every function a page names in an explorer (`data-rates`) is in it."""
 
 import json

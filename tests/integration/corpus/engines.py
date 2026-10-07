@@ -30,7 +30,7 @@ class Result:
     frames: Frames | Failure
     # CE's version
     manim: str | None = None
-    # manimgx asked for an MP4: the film's own frame count, and the MP4's
+    # ManimGX asked for an MP4: the film's own frame count, and the MP4's
     film_frames: int | None = None
     mp4_frames: int | None = None
     differences: tuple[Difference, ...] = ()

@@ -1,6 +1,6 @@
 <!--
   @component
-  The scene's time, a block per step: green where CE and manimgx show the same thing (within
+  The scene's time, a block per step: green where CE and ManimGX show the same thing (within
   tolerance), red where they differ, and the engine's colour where only one of them has a frame.
 -->
 <script lang="ts">
@@ -22,7 +22,7 @@
     { kind: 'same', text: 'same' },
     { kind: 'differs', text: 'differs' },
     { kind: 'unmeasured', text: 'not compared' },
-    { kind: 'manimgx-only', text: 'manimgx only' },
+    { kind: 'manimgx-only', text: 'ManimGX only' },
     { kind: 'ce-only', text: 'ce only' },
   ]
 

@@ -1,4 +1,4 @@
-"""Window: manimgx's player in a window of its own, on this machine's screen, drawn by its GPU.
+"""Window: ManimGX's player in a window of its own, on this machine's screen, drawn by its GPU.
 
 A window plays the takes it is sent (see [`Film`][manimgx.Film]): each frame as soon as it is
 recorded, any frame again at once. A newer take — the scene run again — replaces the one shown
@@ -29,7 +29,7 @@ from manimgx.rendering.film import Cut
 
 
 class Window:
-    """manimgx's player in a window on this machine's screen, which plays the takes it is sent.
+    """ManimGX's player in a window on this machine's screen, which plays the takes it is sent.
 
     A window is a [`Take`][manimgx.rendering.film.Take]: hand it to
     [`Scene.render`][manimgx.Scene.render] as `take`, and it plays the film as it is recorded.
@@ -42,7 +42,7 @@ class Window:
         time: Where its playhead starts, in seconds.
     """
 
-    def __init__(self, title: str = "manimgx", *, time: float = 0.0) -> None:
+    def __init__(self, title: str = "ManimGX", *, time: float = 0.0) -> None:
         self._process = subprocess.Popen(
             [
                 sys.executable,
@@ -76,7 +76,7 @@ class Window:
                 pipe.close()
             raise Cut from None
 
-    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
+    @deprecated("ManimGX's machinery: ManimGX preview calls it", category=None)
     def scenes(self, names: Sequence[str], playing: str) -> None:
         """Tell the window the file's scenes, and the one it plays: its viewer can ask for
         the others (N, P; see [`asked`][manimgx.Window.asked]).
@@ -87,7 +87,7 @@ class Window:
         """
         self._say({"scenes": list(names), "scene": playing})
 
-    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
+    @deprecated("ManimGX's machinery: ManimGX preview calls it", category=None)
     def failed(self, error: BaseException, trace: str, line: int | None = None) -> None:
         """Show the scene's error over the last picture it made, until the next take.
 
@@ -109,7 +109,7 @@ class Window:
         """Whether the window is open: until its viewer closes it, or it is closed."""
         return self._process.poll() is None
 
-    @deprecated("manimgx's machinery: manimgx preview calls it", category=None)
+    @deprecated("ManimGX's machinery: ManimGX preview calls it", category=None)
     def asked(self) -> str | None:
         """The scene the viewer asked for last, if they asked since (N, P: the next or the
         previous of the file's scenes)."""

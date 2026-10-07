@@ -1,4 +1,4 @@
-"""The ManimGX logo, made by manimgx: its word typeset by manimgx's Typst beside Manim's three
+"""The ManimGX logo, made by ManimGX: its word typeset by ManimGX's Typst beside Manim's three
 shapes made solid, seen through a camera and written as SVG paths.
 
 `python -m scripts.showcase.logo` writes into `docs/content/`:
@@ -89,7 +89,7 @@ def extent(outline: Outline) -> tuple[float, float, float, float]:
 
 
 def glyphs(code: str) -> list[Outline]:
-    """A run of type, set by manimgx's Typst after a probe "x" in the same document, whose
+    """A run of type, set by ManimGX's Typst after a probe "x" in the same document, whose
     foot is the baseline: its glyphs, the baseline at y = 0, the run's ink starting at x = 0."""
     doc = m.Typst(code, font_size=96, font_paths=[str(playwrite().parent)])
     probe, *run = [

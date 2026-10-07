@@ -1,4 +1,4 @@
-"""`manimgx preview`: a scene in manimgx's player, in a window of its own, made again each time
+"""`manimgx preview`: a scene in ManimGX's player, in a window of its own, made again each time
 its code is saved.
 
 The scene runs here, as `manimgx render` runs it, but its film is recorded as a take (see
@@ -65,7 +65,7 @@ def preview(
     play, ? all of them. Closing the window, or Ctrl+C, stops."""
     if not file.is_file():
         raise fail(f"error: {file}: no such file")
-    with Window(f"{file.name} — manimgx", time=time_) as window:
+    with Window(f"{file.name} — ManimGX", time=time_) as window:
         try:
             files = [file]
             while window.open:

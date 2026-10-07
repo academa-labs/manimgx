@@ -137,8 +137,8 @@ targets.include = ["*"]
 [project.plugins.llmstxt]
 full_output = "llms-full.txt"
 markdown_description = '''
-manimgx is a self-contained animation engine for AI agents: it makes mathematical and 3D
-videos from Python scenes. Scenes use the API of Manim Community Edition, and manimgx
+ManimGX is a self-contained animation engine for AI agents: it makes mathematical and 3D
+videos from Python scenes. Scenes use the API of Manim Community Edition, and ManimGX
 annotates all of it with types, so a type checker finds errors before a render. A Rust core
 draws each frame on the GPU, typesets text and LaTeX mathematics with Typst, and encodes the
 video and its sound to MP4. Animations are evaluated at each frame's time, and time-based
@@ -148,7 +148,7 @@ command runs a scene without video, prints its timeline and layout problems, for
 over other text, and writes a storyboard. In a web browser, Pyodide runs the same scenes in a Web Worker, and a WebAssembly build of the
 core draws them with WebGPU.
 
-These are instructions for an AI agent asked to make a video with manimgx. Follow them in order.
+These are instructions for an AI agent asked to make a video with ManimGX. Follow them in order.
 
 ## 1. Install
 
@@ -157,11 +157,11 @@ uv tool install --python 3.14 manimgx   # puts `manimgx` on PATH
 manimgx --version
 ```
 
-- Keep `--python 3.14`: manimgx needs Python 3.13 or 3.14, and uv downloads one if the machine has none. Without it, uv takes the machine's default Python (macOS's is 3.9) and finds no manimgx.
+- Keep `--python 3.14`: ManimGX needs Python 3.13 or 3.14, and uv downloads one if the machine has none. Without it, uv takes the machine's default Python (macOS's is 3.9) and finds no `manimgx`.
 - No `uv`? Install it: `curl -LsSf https://astral.sh/uv/install.sh | sh`, then `source $HOME/.local/bin/env` (or call `~/.local/bin/uv`).
 - Without installing: `uvx --python 3.14 manimgx <command>` runs the same CLI.
-- pip works in a virtual environment with Python 3.13 or 3.14 (older Pythons find no manimgx): `python3.14 -m venv .venv && .venv/bin/pip install manimgx`.
-- manimgx is not the `manim` package: do not install `manim`, ffmpeg or LaTeX, and do not `import manim`.
+- pip works in a virtual environment with Python 3.13 or 3.14 (older Pythons find no `manimgx`): `python3.14 -m venv .venv && .venv/bin/pip install manimgx`.
+- ManimGX is not the `manim` package: do not install `manim`, ffmpeg or LaTeX, and do not `import manim`.
 - It draws on the GPU: Metal on macOS, Direct3D 12 on Windows, Vulkan on Linux. With no GPU (a server, a container) it draws on the CPU, with nothing more to install: the Linux wheels bring Mesa's lavapipe.
 
 ## 2. Write a scene
@@ -195,7 +195,7 @@ manimgx render scene.py      # writes SquareToCircle.mp4 beside scene.py and pri
 - `inspect` samples play and wait endings. It lists each play with its line of code, reports 2D layout problems, and writes `<Scene>.storyboard.png` with problems outlined and numbered. Look at the pictures if you can view images. Fix problems and inspect again. 3D scenes get storyboards and timelines; layout checks are skipped.
 - `manimgx inspect scene.py -t 1.5,end` inspects the frames at 1.5 s and at the end instead. Repeat `-t` or separate times with commas; `-o detail.png` names the output. Pictures are chronological, six per sheet; more go to `…-2.png`, and so on. Without `end`, inspection stops after the last requested frame's play. Only sampled moments are checked.
 - `render` makes 1920×1080 at 60 fps; `-r 1280x720 --fps 30` is quicker for drafts. A file with several scenes needs the scene's name: `manimgx render scene.py MyScene`.
-- An error prints the scene's line that failed and, for a wrong name, a hint (`ShowCreation is Create in manimgx`).
+- An error prints the scene's line that failed and, for a wrong name, a hint (`ShowCreation is Create in ManimGX`).
 - `no GPU adapter` means the command ran in a sandbox that hides the GPU: run it outside the sandbox (ask the user if your tool needs approval).
 
 ## 4. Show it

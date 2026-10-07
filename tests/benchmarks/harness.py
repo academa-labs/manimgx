@@ -1,6 +1,6 @@
-"""Two manimgx trees, timed side by side on one machine.
+"""Two ManimGX trees, timed side by side on one machine.
 
-A `Tree` is a manimgx package on disk, with its engine. `here()` is the imported package,
+A `Tree` is a ManimGX package on disk, with its engine. `here()` is the imported package,
 editable or installed; `checkout(ref, trees)` makes one of a commit under `trees` (its sources from git; its
 engine this checkout's when the commit's engine sources are this checkout's, else built), or
 takes another checkout's. A `Workload` is a scene file, rendered as a user renders it:
@@ -53,7 +53,7 @@ ENGINE = ("rust",)
 
 @dataclass(frozen=True, slots=True)
 class Tree:
-    """A manimgx to time: `src` holds the package, its engine built; `label` names it."""
+    """A ManimGX to time: `src` holds the package, its engine built; `label` names it."""
 
     src: Path
     label: str
@@ -122,7 +122,7 @@ def here() -> Tree:
 
 
 def checkout(ref: str, trees: Path) -> Tree:
-    """The tree of `ref`: a directory holding a manimgx checkout, or a commit (a branch, tag
+    """The tree of `ref`: a directory holding a ManimGX checkout, or a commit (a branch, tag
     or hash), made once under `trees/<hash>/`."""
     path = Path(ref)
     for src, _ in LAYOUTS:
@@ -217,7 +217,7 @@ def _environment(tree: Tree, tmp: str, *path: Path) -> dict[str, str]:
 
 
 def _verified(tree: Tree) -> Tree:
-    """`tree`, once a process given its environment has been seen to import its manimgx."""
+    """`tree`, once a process given its environment has been seen to import its ManimGX."""
     with tempfile.TemporaryDirectory(prefix="manimgx-benchmark-") as tmp:
         where = subprocess.run(
             [sys.executable, "-c", "import manimgx; print(manimgx.__file__)"],

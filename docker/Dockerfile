@@ -1,10 +1,10 @@
-# manimgx from PyPI, with a GPU to draw on: Mesa's lavapipe on the CPU, or the machine's GPU
+# ManimGX from PyPI, with a GPU to draw on: Mesa's lavapipe on the CPU, or the machine's GPU
 # when the container is given one (--device /dev/dri for AMD and Intel, --gpus all for NVIDIA).
 #
 #   docker run --rm -v "$PWD:/work" ghcr.io/academa-labs/manimgx render scene.py
 #
 # Build a release with `just build-docker-image VERSION` (VERSION unset: the latest): this folder
-# is its context, as it installs manimgx from PyPI.
+# is its context, as it installs ManimGX from PyPI.
 
 # Mount this pinned installer only while adding Python packages.
 FROM ghcr.io/astral-sh/uv:0.12.19 AS uv

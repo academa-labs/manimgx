@@ -1,4 +1,4 @@
-"""No example teaches a name manimgx hides (`@deprecated`): not the pages', the README's, the
+"""No example teaches a name ManimGX hides (`@deprecated`): not the pages', the README's, the
 docstrings' nor the example films' (`examples/`, which the Gallery shows). ty checks each with
 `deprecated` an error. The example of a hidden object's own docstring is not shown, and is
 not checked."""

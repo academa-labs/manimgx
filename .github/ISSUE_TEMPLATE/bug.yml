@@ -41,11 +41,11 @@ body:
     id: render
     attributes:
       label: Frames or video
-      description: What manimgx made, and what you expected if you can show it.
+      description: What ManimGX made, and what you expected if you can show it.
   - type: input
     id: version
     attributes:
-      label: manimgx version
+      label: ManimGX version
       description: What `manimgx --version` prints.
       placeholder: manimgx 0.1.0
     validations:

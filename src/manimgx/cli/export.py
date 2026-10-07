@@ -82,7 +82,7 @@ def render(
     kind = scene(file, name)
     video = output or file.with_name(f"{kind.__name__}.mp4")
     if video.suffix.lower() != ".mp4":
-        raise fail(f"error: {video}: manimgx writes MP4 video; name the output *.mp4")
+        raise fail(f"error: {video}: ManimGX writes MP4 video; name the output *.mp4")
     look = Format.own(resolution, fps)
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
@@ -267,7 +267,7 @@ def present(
     kind = scene(file, name)
     video = output or file.with_name(f"{kind.__name__}.mp4")
     if video.suffix.lower() != ".mp4":
-        raise fail(f"error: {video}: manimgx writes MP4 video; name the output *.mp4")
+        raise fail(f"error: {video}: ManimGX writes MP4 video; name the output *.mp4")
     look = Format.own(resolution, fps)
     pictures: list[bytes] = []  # the pictures slides end on, for the PDF
     last: list[Frame] = []
@@ -299,7 +299,7 @@ def present(
         webbrowser.open(html.resolve().as_uri())
 
 
-def page(film: Film, video: str | os.PathLike[str], title: str = "manimgx") -> str:
+def page(film: Film, video: str | os.PathLike[str], title: str = "ManimGX") -> str:
     """The page that presents `film`, whose video is `video` (a path or URL, as the page
     will find it: relative to the page, typically).
 

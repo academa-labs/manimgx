@@ -225,7 +225,7 @@ class Film:
 
     A film can instead be recorded as a take: the engine's work written down — each shape
     once, then each frame's view and records, and at the end its sound and captions — for
-    manimgx's player to play, at any moment: in a [`Window`][manimgx.Window], live as the
+    ManimGX's player to play, at any moment: in a [`Window`][manimgx.Window], live as the
     scene runs (`manimgx preview`), or in the browser, where Python has no GPU (Pyodide).
 
     Args:
@@ -270,7 +270,7 @@ class Film:
             )
         self.fps = clock.rational(fps)
         """How many frames a second the film has: the configuration's when it began."""
-        # the GPU draws the film; or its take is recorded, to be drawn by manimgx's player: by
+        # the GPU draws the film; or its take is recorded, to be drawn by ManimGX's player: by
         # choice, or where the engine has no GPU (in Pyodide)
         self._player: _engine.Player | None = None
         self._recorder: _engine.Recorder | None = None
@@ -287,7 +287,7 @@ class Film:
             self._recorder = drawn = _engine.Recorder(width, height, fps)
         else:
             raise ValueError(
-                "a film recorded as a take is drawn by manimgx's player, not here: it"
+                "a film recorded as a take is drawn by ManimGX's player, not here: it"
                 " has no video or pixels"
                 + ("" if feed.Player else " (this Python has no GPU)")
             )
@@ -334,7 +334,7 @@ class Film:
 
         return mix(self.clips, self.frame_count / self.fps)
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def section(
         self, name: str, start: Fraction, type: SectionType, notes: str
     ) -> None:
@@ -391,7 +391,7 @@ class Film:
         ]
         return sorted(self.subcaptions + spoken, key=lambda c: c.start)
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def played(self, play: Play, animations: "tuple[Animation, ...]") -> None:
         """Keep a play that has ended, and hand it to the play hook with the animations
         it played: the scene calls it as each play ends, the world as the play left it.
@@ -406,7 +406,7 @@ class Film:
         if self._hook is not None:
             self._hook(play, animations)
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def picture(self, camera: "Camera", mobjects: "list[Mobject]") -> bytes:
         """Draw the world as `camera` sees it now: a picture, not a frame of the film.
 
@@ -419,12 +419,12 @@ class Film:
         """
         view, records, cameras = self.feeder.frame(camera, mobjects)
         if self._player is None:
-            raise RuntimeError("a film recorded as a take is drawn by manimgx's player")
+            raise RuntimeError("a film recorded as a take is drawn by ManimGX's player")
         if self._player.pressured():
             self.feeder.sweep([records, *[c[4] for c in cameras]], pressed=True)
         return self._player.render(view, records, cameras)
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def record(
         self, camera: "Camera", mobjects: "list[Mobject]", repeat: int = 1
     ) -> None:
@@ -442,7 +442,7 @@ class Film:
         view, records, cameras = self.feeder.frame(camera, mobjects)
         self._add(view, records, cameras, repeat)
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def tween(
         self,
         camera: "Camera",
@@ -522,7 +522,7 @@ class Film:
             raise
         push()
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def close(self) -> None:
         """Close the film: send its last frame, and write its video, if any.
 
@@ -564,7 +564,7 @@ class Film:
             self._recorder.end()
             self._flush()
 
-    @deprecated("manimgx's machinery: the scene calls it", category=None)
+    @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def abort(self) -> None:
         """Stop the film without writing its video; its take, if it is recorded as one, ends
         saying that its scene failed.

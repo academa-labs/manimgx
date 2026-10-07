@@ -57,7 +57,7 @@ class Thing:
 
 
 def written_frame() -> FrameType | None:
-    """The innermost frame of the scene's own code on the stack (outside manimgx)."""
+    """The innermost frame of the scene's own code on the stack (outside ManimGX)."""
     here = inspect.currentframe()
     frame = None if here is None else here.f_back
     while frame is not None and frame.f_code.co_filename.startswith(PACKAGE):

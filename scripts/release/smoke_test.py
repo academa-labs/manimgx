@@ -1,7 +1,7 @@
-"""Render a scene with an installed manimgx: the check a built wheel or executable passes
+"""Render a scene with an installed ManimGX: the check a built wheel or executable passes
 before it is kept.
 
-`python scripts/release/smoke_test.py` runs this Python's manimgx (`python -m manimgx`);
+`python scripts/release/smoke_test.py` runs this Python's ManimGX (`python -m manimgx`);
 `python scripts/release/smoke_test.py PATH/TO/manimgx` runs that executable;
 `python scripts/release/smoke_test.py --take` records the scene as a take in this process (the
 browser's wheel: Pyodide has no GPU, and starts no process); the browser's wheel's engine
@@ -67,7 +67,7 @@ def main() -> None:
         subprocess.run([*manimgx, "render", str(scene), "-r", "320x180"], check=True)
         video = scene.with_name("Smoke.mp4")
         if not video.is_file() or video.stat().st_size == 0:
-            sys.exit(f"manimgx rendered no video: {video}")
+            sys.exit(f"ManimGX rendered no video: {video}")
         # Reopen the exported container with the installed audio decoder. This runs
         # through the executable's own Python too, without assuming a host installation.
         scene.write_text(
@@ -88,7 +88,7 @@ def take() -> None:
     chunks: list[bytes] = []
     film = scene["Smoke"]().render(take=chunks.append)  # ty: ignore[call-non-callable]
     if not film.frame_count or not b"".join(chunks):
-        sys.exit("manimgx recorded no take")
+        sys.exit("ManimGX recorded no take")
     validate_take(b"".join(chunks), film.frame_count)
     player()
 

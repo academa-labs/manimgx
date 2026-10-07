@@ -18,7 +18,7 @@
       {/each}
     </ul>
   {:else}
-    <p class="clean">type safe: strict ty, no escapes, nothing manimgx leaves Any</p>
+    <p class="clean">type safe: strict ty, no escapes, nothing ManimGX leaves Any</p>
   {/if}
 </div>
 

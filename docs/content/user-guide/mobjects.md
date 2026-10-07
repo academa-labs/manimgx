@@ -92,7 +92,7 @@ class Colors(m.Scene):
 - `stroke_width` sets the width of the outline: 4 for most shapes, and 6 for an
   arrow, unless you give another.
 
-manimgx has names for colors: `m.WHITE`, `m.GREY`, `m.BLUE`, `m.TEAL`, `m.GREEN`,
+ManimGX has names for colors: `m.WHITE`, `m.GREY`, `m.BLUE`, `m.TEAL`, `m.GREEN`,
 `m.YELLOW`, `m.GOLD`, `m.ORANGE`, `m.RED`, `m.PINK`, `m.PURPLE` and more. Most of them
 also come in five shades: `m.BLUE_A` is the lightest blue, and `m.BLUE_E` the
 darkest. You can also give a color as a hex code, such as `"#58C4DD"`.

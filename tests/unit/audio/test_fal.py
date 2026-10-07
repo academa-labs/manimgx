@@ -2,7 +2,7 @@
 audio.
 
 - A model is asked at its endpoint with the key, its text in the model's own input, the settings
-  given (over what manimgx sends unless told otherwise), and what the model is always sent; what
+  given (over what ManimGX sends unless told otherwise), and what the model is always sent; what
   it says is the audio at the URL fal answers with.
 - A model's settings are its own: another's are refused as the voice is made, and by a type
   checker.
@@ -99,7 +99,7 @@ class TestAsking:
         (url, body, headers), (audio_url, nothing, _) = fake.asked
         assert url == f"https://fal.run/{model}"
         assert headers == {"Authorization": "Key k"}
-        # what manimgx sends unless told otherwise, the settings over it, what is always sent
+        # what ManimGX sends unless told otherwise, the settings over it, what is always sent
         assert body == {
             **dict(spec.defaults),
             **settings,

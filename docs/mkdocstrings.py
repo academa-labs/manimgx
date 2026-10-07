@@ -1,4 +1,4 @@
-"""A Markdown extension: mkdocstrings finds manimgx's templates, `docs/templates/`.
+"""A Markdown extension: mkdocstrings finds ManimGX's templates, `docs/templates/`.
 
 mkdocstrings' `custom_templates` names a folder. MkDocs makes it absolute, from the folder of
 its settings, before mkdocstrings reads it; Zensical passes it on as written. Then mkdocstrings

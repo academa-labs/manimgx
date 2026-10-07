@@ -1,4 +1,4 @@
-"""Every text file manimgx reads or writes (its packages, tests, docs and scripts) names its
+"""Every text file ManimGX reads or writes (its packages, tests, docs and scripts) names its
 encoding. Without one, Python takes the locale's, which on Windows is its ANSI code page: a
 subtitle, a page or a scene with characters beyond it would fail to write, or read wrong.
 """

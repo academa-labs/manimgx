@@ -1,6 +1,6 @@
 //! The Python extension's build. Pyodide's (the browser's wheel) carries the player for a page —
 //! this crate for wasm32-unknown-unknown with its `web` feature, the same player as a window's,
-//! drawing with WebGPU — built beside it (`_engine.web()`), which manimgx's element in the browser
+//! drawing with WebGPU — built beside it (`_engine.web()`), which ManimGX's element in the browser
 //! plays films with. x264 is built by its own crate (`../x264`).
 
 #[cfg(feature = "python")]
@@ -44,7 +44,7 @@ fn web_player() {
         .status();
     let module = target.join("wasm32-unknown-unknown/release/_engine.wasm");
     if !built.is_ok_and(|s| s.success()) || !module.exists() {
-        println!("cargo:warning=the player for a page (manimgx in the browser) was not built: `rustup target add wasm32-unknown-unknown`");
+        println!("cargo:warning=the player for a page (ManimGX in the browser) was not built: `rustup target add wasm32-unknown-unknown`");
         return;
     }
     match bindgen(&module, Path::new(&std::env::var("OUT_DIR").unwrap())) {

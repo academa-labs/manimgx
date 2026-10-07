@@ -1,4 +1,4 @@
-"""manimgx's engine (Rust): typesets Typst documents, and draws a film's frames on the GPU and
+"""ManimGX's engine (Rust): typesets Typst documents, and draws a film's frames on the GPU and
 encodes them into an MP4.
 
 Shapes, brushes and images are uploaded once, under a nonzero key; a frame is then a view (48
@@ -162,7 +162,7 @@ def read_hdr(data: bytes) -> tuple[int, int, bytes]:
 
 class Recorder:
     """A take being recorded: the engine's calls — the same uploads a player takes, then frames —
-    written as the stream manimgx's player (in a window, or a page) plays back. It
+    written as the stream ManimGX's player (in a window, or a page) plays back. It
     draws nothing."""
 
     def __init__(self, width: int, height: int, fps: float) -> None: ...
@@ -223,7 +223,7 @@ def web() -> tuple[str, bytes] | None:
     """
 
 def window(title: str, time: float = 0.0, fonts: Sequence[str] = ...) -> None:
-    """Open manimgx's player in a window on this machine's screen, playing the takes that come
+    """Open ManimGX's player in a window on this machine's screen, playing the takes that come
     on standard input, until the window is closed or its input ends. It starts at `time`
     seconds; its text is set in the fonts under `fonts`. Natively only."""
 
@@ -269,5 +269,5 @@ def system_fonts_fingerprint() -> int:
     """The system's fonts' fingerprint (their files' paths, sizes and times), once per process."""
 
 def face_fonts(dirs: Sequence[str]) -> list[bytes]:
-    """The fonts a player's face is set in: the font files in `dirs` (manimgx's), and Typst's
+    """The fonts a player's face is set in: the font files in `dirs` (ManimGX's), and Typst's
     monospace one (DejaVu Sans Mono), each file's bytes."""

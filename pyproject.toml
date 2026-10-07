@@ -1,4 +1,4 @@
-# manimgx: the package (src/manimgx, with its engine built from the crates in rust/), the
+# ManimGX: the package (src/manimgx, with its engine built from the crates in rust/), the
 # workspace it is developed in (with the font packages it requires, in fonts/), and what
 # developing it takes: the tools, in dependency groups, and their settings.
 [project]
@@ -6,7 +6,7 @@ name = "manimgx"
 version = "0.1.0"
 description = "The animation engine for agents: blazingly fast math and 3D videos with Manim's Python API, on a Rust GPU core."
 requires-python = ">=3.13"
-# what the distributions hold: manimgx (MIT, LICENSE); what others hold the copyright in
+# what the distributions hold: ManimGX (MIT, LICENSE); what others hold the copyright in
 # (LICENSE-THIRD-PARTY, which scripts/release/licenses.py writes, checking that this covers it): the
 # modules ported from Manim CE, the crates compiled into the engine, x264 (GPL-2.0-or-later),
 # FFmpeg (LGPL-2.1-or-later) with libopus, and mitex's Typst package among them, Typst's fonts
@@ -32,7 +32,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 readme = "README.md"
-# the fonts text is set in, at the versions manimgx is made with; in the browser (Pyodide:
+# the fonts text is set in, at the versions ManimGX is made with; in the browser (Pyodide:
 # sys_platform "emscripten") the CJK font is too big to download with a page, there is no
 # command line, networkx is installed when a Graph needs it (Pyodide's own brings matplotlib),
 # and skia-pathops has no build: Union, Difference, Intersection and Exclusion can't be made there
@@ -72,8 +72,8 @@ include = [
     { path = "dxcompiler.dll", from = "out-dir", to = "manimgx/" },
 ]
 
-# the font packages, as they are here: manimgx requires them at exact versions, and in the
-# workspace those are fonts/'s, installed editable, like manimgx, whose engine uv builds
+# the font packages, as they are here: ManimGX requires them at exact versions, and in the
+# workspace those are fonts/'s, installed editable, like ManimGX, whose engine uv builds
 [tool.uv.workspace]
 members = ["fonts/*"]
 
@@ -272,9 +272,9 @@ allowed-unresolved-imports = ["manim", "manim.**"]
 [tool.ty.rules]
 unused-ignore-comment = "error"
 
-# What manimgx keeps for Manim CE's code but doesn't document is `@deprecated` (PEP 702), for
+# What ManimGX keeps for Manim CE's code but doesn't document is `@deprecated` (PEP 702), for
 # its users: ty flags it in their code, and in the docs' examples (tests/docs/test_hidden.py).
-# manimgx's own code, its package, tests, docs build and scripts, calls that machinery itself.
+# ManimGX's own code, its package, tests, docs build and scripts, calls that machinery itself.
 [[tool.ty.overrides]]
 include = ["src/**", "tests/**", "docs/**", "scripts/**"]
 

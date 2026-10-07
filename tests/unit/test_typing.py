@@ -3,9 +3,9 @@
 
 - Every TypedDict that a signature unpacks (`**kwargs: Unpack[Style]`) is closed (PEP 728):
   a keyword it doesn't name is an error to a type checker, not a key of type `object`.
-- So ty reports a misspelled keyword (`m.Circle(colour=…)`), where manimgx would ignore it,
+- So ty reports a misspelled keyword (`m.Circle(colour=…)`), where ManimGX would ignore it,
   and a misspelled method through `.animate` or `.always` (`.animate.shfit(…)`), or in a
-  function given to `.animate`, which manimgx reports only when the scene runs; it takes the
+  function given to `.animate`, which ManimGX reports only when the scene runs; it takes the
   methods there as the mobject's.
 - Mutable mappings and numbers retain their key and value types through construction,
   updates, and animation proxies.

@@ -4,7 +4,7 @@ Each law compares two runs in one process: no number is pinned, and every machin
 the same, since work (counted by `tests.benchmarks.work`) is the same everywhere. Each run
 starts from nothing remembered and is run once before it is counted, so it pays for its own
 work only: not for its first run's (imports, layouts, prototypes), nor for what another run
-left in manimgx's memories or flushed from them.
+left in ManimGX's memories or flushed from them.
 
 - **Growth.** Made twice as big, a thing costs at most twice the work (a surface of twice the
   resolution, four times): a path built curve by curve, a group of shapes played, a text
@@ -29,7 +29,7 @@ left in manimgx's memories or flushed from them.
   makes its later frames dearer.
 - **Restating.** Assigning any mobject the points, colors and triangles it holds computes,
   hashes and uploads nothing, once or every frame: all that was made of them stands.
-- **Remembering.** A construction manimgx remembers (an SVG, a text, a formula), made again,
+- **Remembering.** A construction ManimGX remembers (an SVG, a text, a formula), made again,
   computes nothing again.
 """
 
@@ -86,7 +86,7 @@ def growth(small: Work, large: Work) -> dict[str, float]:
 def measured(make: Callable[[], Run]) -> Work:
     """The work of the run `make` sets up (the setting up uncounted), from nothing
     remembered (`caches.clear`) and once before it is counted: a run pays only for its own
-    work, never for what another left in, or flushed from, manimgx's memories."""
+    work, never for what another left in, or flushed from, ManimGX's memories."""
     caches.clear()
     make()()  # what a first run pays once: imports, layouts, prototypes
     return count(make())[1]
@@ -371,7 +371,7 @@ def annotated(n: int) -> Run:
 
 def graphed(n: int) -> Run:
     """The graph of a function that takes arrays, sampled at `n` points: the function
-    (manimgx's, so its calls count) called on them at once (the smoothing of the samples
+    (ManimGX's, so its calls count) called on them at once (the smoothing of the samples
     loops over them)."""
     return lambda: m.FunctionGraph(
         lambda t: m.interpolate(0.0, 2.0, t), x_range=(0, 1, 1 / n)

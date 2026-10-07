@@ -1,4 +1,4 @@
-//! Others' sources for a build script: the engine's crates hold only manimgx's code, and fetch
+//! Others' sources for a build script: the engine's crates hold only ManimGX's code, and fetch
 //! what they build from others (x264, NASM, FFmpeg, libopus, mitex's Typst package) at build time,
 //! each pinned by the hash of its files. Immutable binary resources are pinned by their bytes.
 

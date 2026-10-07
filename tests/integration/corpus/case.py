@@ -3,7 +3,7 @@
 A case is a directory under `cases/`:
 
 - `scene.py`: the only source. It is Manim CE's code, and it reaches the engine only through
-  `manimgx`'s top level (and its types, `manimgx.typing`): manimgx runs it as written, and CE
+  `manimgx`'s top level (and its types, `manimgx.typing`): ManimGX runs it as written, and CE
   runs the same bytes with `manimgx` resolving to `manim` (`run_ce.py`).
 - `manimgx.mkv`, `ce.mkv`: each engine's lossless frames, generated locally and ignored by Git.
 - `manimgx.mkv.sha256`, `ce.mkv.sha256`: hashes of the reviewed reference videos.
@@ -14,9 +14,9 @@ A case is a directory under `cases/`:
 
 A case's state is a verdict — `working`, `not_matching` or `not_working` — or `stale` /
 `unrendered` while it has no current renders to judge. The comparison gives a verdict under
-the metric and tolerance of `settings.json`: working when, at every manimgx frame's scene time,
+the metric and tolerance of `settings.json`: working when, at every ManimGX frame's scene time,
 the frame CE has on screen is within tolerance of it and the scenes last as long; not_matching
-otherwise, or when CE could not render the scene; not_working when manimgx could not. A
+otherwise, or when CE could not render the scene; not_working when ManimGX could not. A
 person's verdict on exactly these renders overrides it: CE is a reference to look at, not a
 definition of correct.
 """
@@ -93,7 +93,7 @@ def save_settings(value: Settings) -> None:
 @dataclass(frozen=True, slots=True)
 class Frames:
     """What one engine drew from one source: its frames, the scene's length, and when each
-    frame shows the scene (manimgx's frame k shows k/fps; CE places each play's frames from the
+    frame shows the scene (ManimGX's frame k shows k/fps; CE places each play's frames from the
     play's start)."""
 
     runs: tuple[Run, ...]
@@ -126,9 +126,9 @@ class Failure:
 
 @dataclass(frozen=True, slots=True)
 class Comparison:
-    """CE's frames against manimgx's at the same scene times: `pairs` are (the CE frame on
-    screen at a manimgx frame's time, that manimgx frame, their difference in each of
-    `METRICS`); `unpaired` are the CE frames on screen at no manimgx frame's time."""
+    """CE's frames against ManimGX's at the same scene times: `pairs` are (the CE frame on
+    screen at a ManimGX frame's time, that ManimGX frame, their difference in each of
+    `METRICS`); `unpaired` are the CE frames on screen at no ManimGX frame's time."""
 
     pairs: tuple[tuple[int, int, tuple[float, ...]], ...]
     unpaired: tuple[int, ...]

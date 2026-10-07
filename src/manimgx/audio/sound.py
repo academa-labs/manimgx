@@ -449,7 +449,7 @@ def estimate(text: str, samples: np.ndarray) -> tuple[Word, ...]:
     )
 
 
-@deprecated("manimgx's machinery: the captions call it", category=None)
+@deprecated("ManimGX's machinery: the captions call it", category=None)
 def lines(speech: Speech, width: int = 42) -> list[tuple[float, float, str]]:
     """A speech as captions: its words in lines of at most `width` characters, a line ending
     at the end of a sentence, each shown from its first word's start until the next line's
@@ -474,7 +474,7 @@ def lines(speech: Speech, width: int = 42) -> list[tuple[float, float, str]]:
 _SPAN = re.compile(r"\[([^\[\]]*)\]")
 
 
-@deprecated("manimgx's machinery: say calls it", category=None)
+@deprecated("ManimGX's machinery: say calls it", category=None)
 def spans(script: str) -> tuple[str, list[tuple[int, int]]]:
     """The text of a script, its brackets taken out, and each bracketed span's characters
     in that text: `"Here is [a circle]."` is `("Here is a circle.", [(8, 16)])`."""
@@ -490,7 +490,7 @@ def spans(script: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(text), found
 
 
-@deprecated("manimgx's machinery: say calls it", category=None)
+@deprecated("ManimGX's machinery: say calls it", category=None)
 def times(speech: Speech, span: tuple[int, int]) -> tuple[float, float]:
     """When the characters `span` of a speech's text are said: from the start of its first
     word to the end of its last; an empty span, the start of the word it comes before.

@@ -77,20 +77,20 @@
 
     <span class="actions">
       {#if review.busy}<span class="busy">{review.busy}…</span>{/if}
-      <button class="button" disabled={review.busy !== null} onclick={() => review.render('manimgx')}>↻ manimgx</button>
+      <button class="button" disabled={review.busy !== null} onclick={() => review.render('manimgx')}>↻ ManimGX</button>
       <button class="button" disabled={review.busy !== null} onclick={() => review.render('ce')}>↻ ce</button>
       <button class="button" disabled={review.busy !== null} onclick={() => review.render('both')}>↻ both</button>
     </span>
   </div>
 
   <div class="line facts">
-    <span>manimgx {detail.manimgx.frames.length} frames · {seconds(detail.manimgx.duration)}</span>
+    <span>ManimGX {detail.manimgx.frames.length} frames · {seconds(detail.manimgx.duration)}</span>
     <span>ce {detail.ce.version} {detail.ce.frames.length} frames · {seconds(detail.ce.duration)}</span>
     {#if detail.reasons.length}
       <span class="reasons">differs: {detail.reasons.join(', ')}</span>
     {/if}
     {#each [detail.manimgx, detail.ce] as render, i (i)}
-      {#if render.error}<span class="failed">{i === 0 ? 'manimgx' : 'ce'}: {render.error}</span>{/if}
+      {#if render.error}<span class="failed">{i === 0 ? 'ManimGX' : 'ce'}: {render.error}</span>{/if}
     {/each}
   </div>
 

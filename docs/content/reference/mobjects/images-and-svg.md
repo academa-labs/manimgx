@@ -26,7 +26,7 @@ class ImagesAndSvgHero(m.Scene):
 An image is a picture on a rectangle: read from a file (PNG, JPEG and the rest), or made from
 an array of pixels. It moves, scales, turns and fades as any mobject; its pixels stay its
 own. An SVG drawing is different: its shapes become paths, each a part to color, move and
-draw in, as a shape of manimgx's own.
+draw in, as a shape of ManimGX's own.
 
 ::: manimgx.ImageMobject
     options:

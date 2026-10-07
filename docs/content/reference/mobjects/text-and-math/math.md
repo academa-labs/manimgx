@@ -1,6 +1,6 @@
 ---
 title: "Math"
-description: "Formulas in LaTeX or in Typst, typeset by manimgx, and the parts of a formula to color, move and match."
+description: "Formulas in LaTeX or in Typst, typeset by ManimGX, and the parts of a formula to color, move and match."
 ---
 
 # Math
@@ -22,7 +22,7 @@ class MathHero(m.Scene):
 
 [MathTex][manimgx.MathTex] typesets a formula written in LaTeX: fractions, roots, sums and
 integrals, matrices, `cases`, Greek letters. Write it in a raw string, `r"..."`, so that
-Python keeps its backslashes. LaTeX packages and `\def` don't work; a command manimgx
+Python keeps its backslashes. LaTeX packages and `\def` don't work; a command ManimGX
 doesn't know stops the scene with its name.
 
 Give `MathTex` several strings, and each one is a part of the formula, to color, move or

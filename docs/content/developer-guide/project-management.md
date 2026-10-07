@@ -2,7 +2,7 @@
 
 ## What is project management?
 
-The repository is the package, manimgx, and holds more than its code:
+The repository is the package, ManimGX, and holds more than its code:
 
 ```text
 .
@@ -14,7 +14,7 @@ The repository is the package, manimgx, and holds more than its code:
 ├── fonts/                   ← the fonts text is set in, packages of their own:
 │   ├── manimgx-fonts/         the Noto fonts
 │   └── manimgx-fonts-cjk/     Noto Sans CJK (not in the browser)
-├── browser/                 ← manimgx for the browser, published on npm, with its tests
+├── browser/                 ← ManimGX for the browser, published on npm, with its tests
 ├── docker/                  ← the Docker image
 ├── docs/                    ← the docs site: its pages, its settings, what its build loads
 ├── examples/                ← thirty example films, a Python file each
@@ -28,8 +28,8 @@ The repository is the package, manimgx, and holds more than its code:
 ├── .pre-commit-config.yaml  ← the checks
 ├── README.md                ← the front page: GitHub's, PyPI's, and the docs' Welcome
 ├── AGENTS.md                ← this guide's commands and rules in brief, for coding agents
-├── CITATION.cff             ← how to cite manimgx
-├── LICENSE                  ← manimgx's license, the MIT License
+├── CITATION.cff             ← how to cite ManimGX
+├── LICENSE                  ← ManimGX's license, the MIT License
 ├── LICENSE-THIRD-PARTY      ← what the wheels hold that others hold the copyright in
 ├── LICENSE-LAVAPIPE         ← the notices of the lavapipe the Linux wheels bundle
 ├── LICENSES/                ← the text of each license a file of the repository is under
@@ -49,9 +49,9 @@ Code alone leaves two problems open: how users get it, and how developers work o
 
 ### Distribution
 
-A user wants `pip install manimgx` and a working `manimgx` command. manimgx is harder to
+A user wants `pip install manimgx` and a working `manimgx` command. ManimGX is harder to
 ship than pure Python: its engine is compiled, so every platform needs a build of its own,
-with the engine inside. A release publishes manimgx in five forms:
+with the engine inside. A release publishes ManimGX in five forms:
 
 - **Wheels**, one per platform: Linux (x86_64 and arm64), macOS (arm64, and x86_64
   cross-compiled on arm64) and Windows (x86_64). The engine is built against Python's
@@ -68,14 +68,14 @@ with the engine inside. A release publishes manimgx in five forms:
 - **A source distribution**, which builds the engine on the machine that installs it: that
   needs Rust and a C compiler, nothing else (the engine's build fetches the sources it takes
   from others: see [Others' sources](engine.md#others-sources)).
-- **Executables**, one per platform: one file that holds a Python with manimgx installed,
+- **Executables**, one per platform: one file that holds a Python with ManimGX installed,
   for a machine without Python (see [`scripts/`](#scripts)).
 - **A Docker image**, `ghcr.io/academa-labs/manimgx` (see [`docker/`](#docker)).
 - **The package for the browser**, `manimgx` on npm: the player in one file, which runs
   scenes with the wheel for the browser (see [`browser/`](#browser)).
 
 The fonts text is set in are packages of their own, `manimgx-fonts` and `manimgx-fonts-cjk`:
-a wheel for every platform, released when the fonts change, not with every manimgx (see
+a wheel for every platform, released when the fonts change, not with every ManimGX (see
 [`fonts/`](#fonts)).
 
 PyPI gets the wheels, the source distribution and the font packages; the GitHub release gets
@@ -86,7 +86,7 @@ gets the image. [Releases](#releases) says how a release is made.
 ### The development environment
 
 Developer A installs the dependencies today and the tests pass. Developer B installs them
-a month later, gets a newer Typst or numpy, and the tests fail. For manimgx the risk is
+a month later, gets a newer Typst or numpy, and the tests fail. For ManimGX the risk is
 sharper than usual: the integration corpus compares the current and frozen packages' frames
 pixel for pixel, so any change in how a glyph is laid out or a color is rounded shows.
 
@@ -114,14 +114,14 @@ the workspace as one:
 - `[tool.uv.workspace]`: its other members, the font packages in `fonts/`, each with a
   `pyproject.toml` of its own (see [`fonts/`](#fonts)). One lockfile holds them all, and one
   environment, `.venv`, has them all installed.
-- `[tool.uv.sources]`: the members as they are here. manimgx requires its font packages
+- `[tool.uv.sources]`: the members as they are here. ManimGX requires its font packages
   at exact versions; in the workspace those are the ones in `fonts/`, installed editable,
-  like manimgx, whose engine uv builds.
+  like ManimGX, whose engine uv builds.
 - `[dependency-groups]`: what developing needs. `dev` holds the tools (ruff, ty, pytest and
   its plugins, prek), FastAPI for the review panel, and PyAV, with which the
   corpus writes and reads its videos. `docs` holds Zensical and mkdocstrings. `ce` holds
   Manim Community Edition, which renders the corpus's Manim references (see
-  [Setup](index.md#manim-community-edition)). Each is installed with manimgx.
+  [Setup](index.md#manim-community-edition)). Each is installed with ManimGX.
 - `[tool.uv]`: `dev` and `docs` are installed by default.
 - The tools' settings: `[tool.pytest]`, `[tool.coverage.run]` (see
   [Testing](testing.md#coverage)), `[tool.mutmut]`, `[tool.fastapi]`, and those of the tools
@@ -171,13 +171,13 @@ generated from them: see [Documentation](documentation.md#docstrings).
 
 ### ty
 
-[ty](https://docs.astral.sh/ty/) checks types. manimgx is typed throughout, and ty reports
+[ty](https://docs.astral.sh/ty/) checks types. ManimGX is typed throughout, and ty reports
 nothing on it: `just check` must pass with no errors, and a change keeps it that way. Two
 rules follow:
 
 - **No `Any` in a public signature.** Keyword options are a `TypedDict`, taken as
   `**kwargs: Unpack[…]`, never as `**kwargs: Any`, so a misspelled keyword fails the check,
-  in manimgx and in a user's scene alike. [`Style`][manimgx.drawing.paint.Style], in
+  in ManimGX and in a user's scene alike. [`Style`][manimgx.drawing.paint.Style], in
   [`drawing/paint.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/drawing/paint.py),
   is the style keywords; [`Polygon`][manimgx.Polygon] takes `**kwargs: Unpack[Style]`.
 - **Only live suppressions, in ty's form.** ty honors `# ty: ignore[rule]` and a bare
@@ -193,7 +193,7 @@ so `just check` checks that list. It also reads `svgelements` as untyped (ty can
 source's encoding).
 
 A user's scene is held to more: every corpus case type-checks with every rule, and no
-value manimgx gives it may be `Any` (see [Testing](testing.md#the-three-checks)).
+value ManimGX gives it may be `Any` (see [Testing](testing.md#the-three-checks)).
 
 ### [`.pre-commit-config.yaml`](https://github.com/academa-labs/manimgx/blob/main/.pre-commit-config.yaml) and `just check`
 
@@ -221,7 +221,7 @@ to `main` and every pull request, in the Test workflow (see
 
 ### Licenses
 
-manimgx is under the MIT License, in
+ManimGX is under the MIT License, in
 [`LICENSE`](https://github.com/academa-labs/manimgx/blob/main/LICENSE): GitHub, PyPI and
 npm show it. Some files are others': modules ported from Manim CE, the Noto fonts, the
 corpus's scenes from CE's documentation, the command spec made from mitex's Typst package, a
@@ -229,17 +229,17 @@ few documents and images. The repository says whose each file is, and under whic
 [REUSE](https://reuse.software) specifies:
 
 - a file with code from elsewhere says it in its first lines: an `SPDX-FileCopyrightText`
-  line for each copyright holder (manimgx's, `2026 Academa, Inc.`, among them) and an
+  line for each copyright holder (ManimGX's, `2026 Academa, Inc.`, among them) and an
   `SPDX-License-Identifier` line, as the modules ported from Manim CE do;
 - [`REUSE.toml`](https://github.com/academa-labs/manimgx/blob/main/REUSE.toml) says it for the
-  rest: manimgx's own files, in one annotation; the fonts, the corpus, data and images;
+  rest: ManimGX's own files, in one annotation; the fonts, the corpus, data and images;
 - [`LICENSES/`](https://github.com/academa-labs/manimgx/tree/main/LICENSES) holds each
   license's text, once, named by its SPDX identifier.
 
 The license texts the engine's crates keep for the sources they fetch (`COPYING`, `LICENSE`;
 see [Others' sources](engine.md#others-sources)) are their projects', as published: REUSE
 leaves files of those names be. `reuse lint`, a hook of `just check`, fails while a file's
-license or copyright is unknown, or a license has no text. A new file of manimgx's needs
+license or copyright is unknown, or a license has no text. A new file of ManimGX's needs
 nothing; code brought from elsewhere needs its lines; data or an image needs an annotation.
 What a wheel holds that others hold the copyright in comes with its notices (see
 [The package](#the-package)).
@@ -272,7 +272,7 @@ What writes and builds, a folder for each thing it makes:
     adds a package a scene imports). The script writes
     `dist/manimgx-<os>-<arch>.tar.gz` (a `.zip` on Windows), after running what it made once.
   - [`smoke_test.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/release/smoke_test.py)
-    renders a scene with an installed manimgx: the check a wheel or an executable passes
+    renders a scene with an installed ManimGX: the check a wheel or an executable passes
     before it is kept. It decodes generated PCM and the reference Opus fixture, exports
     their soundtrack and reopens the MP4's AAC sound. Pyodide records the same scene and
     checks the take's version, frame count, sound and successful end, and its embedded player.
@@ -298,7 +298,7 @@ What writes and builds, a folder for each thing it makes:
   [`dfg_table.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/engine/dfg_table.py) writes `rust/engine/src/dfg.bin`, the
   split-sum table a lit surface's specular reflection is read from, run again only if the
   lighting changes.
-- [`benchmark/`](https://github.com/academa-labs/manimgx/tree/main/scripts/benchmark): manimgx against Manim CE, ManimGL and Blender on
+- [`benchmark/`](https://github.com/academa-labs/manimgx/tree/main/scripts/benchmark): ManimGX against Manim CE, ManimGL and Blender on
   the README's scenes, and the README's chart from its results.
 
 ### The docs' and the coverage's hosting
@@ -330,10 +330,10 @@ The repository's root is the package, defined in
 [standard format](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/):
 
 - `[project]`: the name, version, supported Pythons (3.13 and 3.14), license, and the
-  packages manimgx needs at run time.
-  [Understanding manimgx](understanding-manimgx.md#dependencies) says what each is for.
+  packages ManimGX needs at run time.
+  [Understanding ManimGX](understanding-manimgx.md#dependencies) says what each is for.
   `license` names every license of what the distributions hold, as one SPDX expression:
-  manimgx's own MIT, those of the crates compiled into the engine (x264's GPL-2.0-or-later
+  ManimGX's own MIT, those of the crates compiled into the engine (x264's GPL-2.0-or-later
   among them), of Typst's fonts and data, and of the lavapipe a Linux wheel bundles.
   `license-files` puts `LICENSE` and the three notices beside it into the wheel's metadata.
   Its README is the repository's, `README.md`.
@@ -357,7 +357,7 @@ Beside it, at the root, the notices `license-files` names besides `LICENSE`:
   those of what they fetch (x264's, FFmpeg's, libopus's, mitex's). `just licenses` writes it
   again after `Cargo.lock` changes (so does `just upgrade`), or after code carrying
   third-party notices moves between files. A test fails while the notice is stale, or
-  while a license in it is not among manimgx's.
+  while a license in it is not among ManimGX's.
 - [`LICENSE-LAVAPIPE`](https://github.com/academa-labs/manimgx/blob/main/LICENSE-LAVAPIPE):
   the notices of the lavapipe the Linux wheels hold: Mesa's, with the copyright lines of the
   sources it is built from, and those of what it holds, of the libraries it links to and of
@@ -405,17 +405,17 @@ The Noto fonts text is set in, besides Typst's own, so that text is the same on 
 machine: Noto Sans and the faces for the scripts Latin faces lack in `manimgx-fonts`, Noto
 Sans CJK in `manimgx-fonts-cjk`, each under the SIL Open Font License (`LICENSE`). They are
 data, 40 MB of it, and change rarely: packages of their own, built by uv's backend into one
-wheel for every platform, and released when they change, not with every manimgx, which
+wheel for every platform, and released when they change, not with every ManimGX, which
 requires them at exact versions. A version is the date the fonts were taken from Noto.
 `manimgx-fonts-cjk` is not required in the browser, where 33 MB is too much for a page to
-download. manimgx finds the fonts in them (`importlib.resources`), in whichever are
+download. ManimGX finds the fonts in them (`importlib.resources`), in whichever are
 installed.
 
 ## [`rust/`](https://github.com/academa-labs/manimgx/tree/main/rust)
 
 The engine's crates, as one workspace: [`rust/Cargo.toml`](https://github.com/academa-labs/manimgx/blob/main/rust/Cargo.toml)
 lists them (every folder here), the build profiles they are compiled with, and the patch that
-gives mitex manimgx's own spec crate; `Cargo.lock` is to Rust what `uv.lock` is to Python, every
+gives mitex ManimGX's own spec crate; `Cargo.lock` is to Rust what `uv.lock` is to Python, every
 crate's exact version, committed (`just upgrade` moves it too). Cargo runs here, and builds into
 `rust/target/`. [The engine](engine.md) says what the crates do:
 
@@ -437,10 +437,10 @@ alone.
 
 ## [`browser/`](https://github.com/academa-labs/manimgx/tree/main/browser)
 
-manimgx for the browser, published to npm as `manimgx`: the player's element (`src/player.ts`)
+ManimGX for the browser, published to npm as `manimgx`: the player's element (`src/player.ts`)
 and the director's worker (`src/director.ts`). `just build-npm` compiles the worker before
 embedding it in one browser module (`dist/manimgx.js`), and TypeScript 7 generates the public
-declarations from the implementation. The package installs manimgx's wheel for the browser
+declarations from the implementation. The package installs ManimGX's wheel for the browser
 from PyPI, at its own version, in Pyodide, and plays with the player that wheel's engine carries.
 
 The development tools are pinned in `bun.lock`. `just check` checks the TypeScript and its
@@ -448,7 +448,7 @@ formatting; `just test-typescript` runs the package's tests, in `browser/tests/`
 
 ## [`docker/`](https://github.com/academa-labs/manimgx/tree/main/docker)
 
-The `Dockerfile` of an image that installs manimgx from PyPI (the version it is built with,
+The `Dockerfile` of an image that installs ManimGX from PyPI (the version it is built with,
 or the latest) into `python:3.14-slim`, with Vulkan's loader and Mesa's drivers: lavapipe
 draws on the CPU, and a GPU given to the container (`--device /dev/dri` for AMD and Intel,
 `--gpus all` for NVIDIA) is used instead. Its entry point is the `manimgx` command, run in
@@ -466,7 +466,7 @@ archives before any registry publication; publishing copies those same image dig
 ## Releases
 
 The version is in `pyproject.toml` (`0.1.0`; the engine's crate carries the
-same number). manimgx follows [Semantic Versioning](https://semver.org), and its
+same number). ManimGX follows [Semantic Versioning](https://semver.org), and its
 [changelog](../changelog.md) [Keep a Changelog](https://keepachangelog.com): a change a
 user would notice adds a line under "Unreleased" (see
 [Documentation](documentation.md#the-changelog)).
@@ -478,12 +478,12 @@ A release takes three steps:
 2. `just release`, at that commit, asks for confirmation, tags it `vX.Y.Z`, and pushes the
    tag.
 3. The tag starts the [Release workflow](github-workflows.md#4-releaseyaml-a-release). It
-   stops unless the tag is manimgx's version and the changelog has a section for it; then
+   stops unless the tag is ManimGX's version and the changelog has a section for it; then
    it runs the tests, builds everything, and publishes: the GitHub release, whose notes are
    the changelog's section (`just release-notes X.Y.Z` prints them), PyPI, npm and ghcr.io.
    PyPI gets the font packages' versions it doesn't have yet: a change to the fonts sets a
-   new version in their `pyproject.toml` and in manimgx's requirement, and is released with
-   the next manimgx.
+   new version in their `pyproject.toml` and in ManimGX's requirement, and is released with
+   the next ManimGX.
 
 A version that ends in `aN`, `bN` or `rcN` (`0.2.0rc1`, say) is a pre-release.
 

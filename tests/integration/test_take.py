@@ -1,5 +1,5 @@
 """A film recorded as a take: the engine's work written down — each array of its shapes once,
-then what changes of them, and each frame's view and records — for manimgx's player to draw (in
+then what changes of them, and each frame's view and records — for ManimGX's player to draw (in
 its window, or in the browser). A take holds the frames a video would, and tells the player
 what else it shows: the plays, each with the line that played it, its sections, its sound and
 captions, and the end — or that its scene failed. Its taker may cut the film, as a frame sink

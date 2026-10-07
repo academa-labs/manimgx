@@ -5,7 +5,7 @@
 Some tasks must run the same way every time:
 
 - **For every change**, pushed to `main` or proposed in a pull request: run the checks,
-  and the tests on every system and Python manimgx supports; time it against the code
+  and the tests on every system and Python ManimGX supports; time it against the code
   before it; build the docs; publish the tests' coverage and a preview of the docs.
 - **For every release:** test; build the wheels, the source distribution, the font
   packages and the executables; publish them to GitHub and PyPI, the package for the
@@ -32,7 +32,7 @@ repository, installs `just` and `uv` (and, on Linux, Mesa's lavapipe to draw wit
 renders), and runs `just` recipes (see [Setup](index.md)). The
 workflows run the justfile's recipes, so a task does the same in CI as on your machine.
 
-## manimgx's workflows
+## ManimGX's workflows
 
 The seven regular build, release and collaboration workflows are in
 [`.github/workflows/`](https://github.com/academa-labs/manimgx/tree/main/.github/workflows).
@@ -132,7 +132,7 @@ See [Documentation](documentation.md#deployment) for how the site is served.
 
 **What it does**, in order. Everything is built before anything is published:
 
-1. **Check the version.** A tag must be `v` followed by manimgx's version (in
+1. **Check the version.** A tag must be `v` followed by ManimGX's version (in
    `pyproject.toml`), and the changelog must have a section for that
    version. A version that ends in `aN`,
    `bN` or `rcN` is a pre-release.
@@ -154,7 +154,7 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    the changelog's section for the version (`just release-notes`), then where the complete
    source is, which x264's and FFmpeg's licenses ask for. The draft then becomes public,
    making those sources available before registry uploads start.
-5. **Publish to PyPI:** the font packages first, then manimgx's wheels and source
+5. **Publish to PyPI:** the font packages first, then ManimGX's wheels and source
    distribution, with `uv publish`, each with its
    [PEP 740](https://peps.python.org/pep-0740/) attestation. `--check-url` skips files PyPI
    already has: the fonts are released when they change. Each package has its own GitHub
@@ -167,7 +167,7 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    workflow/environment combinations, even when their project names differ. Publishing
    uses the workflow's OIDC token: no PyPI token is stored.
 6. **Publish to npm:** the already-built tarball for the browser, which installs this
-   release of manimgx from PyPI, so it comes after PyPI; by trusted publishing too, with
+   release of ManimGX from PyPI, so it comes after PyPI; by trusted publishing too, with
    provenance. A retry accepts an existing version only when its SHA512 integrity matches
    the exact tarball. For the first release, before the package exists on npm, create a
    short-lived granular token with read/write access to all packages and bypass 2FA,
@@ -181,7 +181,7 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    including the provenance and SBOM, and assemble the `linux/amd64` and `linux/arm64`
    platform index. Its provenance is signed, and it is published to
    `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
-   `X.Y.Z` only), labeled `MIT AND GPL-3.0-or-later`: manimgx's code, and the engine, which
+   `X.Y.Z` only), labeled `MIT AND GPL-3.0-or-later`: ManimGX's code, and the engine, which
    x264 makes GPL-3.0-or-later as a whole. It needs no new package resolution or image build.
 8. **Confirm completion:** all registry uploads have succeeded and the GitHub release is
    public. Publication across registries is not atomic; a failed destination can be retried

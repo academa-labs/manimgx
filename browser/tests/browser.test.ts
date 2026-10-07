@@ -273,8 +273,8 @@ describe("published browser module", () => {
     ]);
     expect(state.canvas).toMatchObject({ width: 640, height: 360 });
     expect(player.tabIndex).toBe(0);
-    await director.onmessage!({ data: { status: "Installing manimgx…" } });
-    expect(state.waiting.textContent).toBe("Installing manimgx…");
+    await director.onmessage!({ data: { status: "Installing ManimGX…" } });
+    expect(state.waiting.textContent).toBe("Installing ManimGX…");
     player.source = "class Changed(Scene): pass";
     expect(director.sent.at(-1)).toEqual({ film: 1, run: { source: player.source, scene: null } });
     player.scene = "Changed";
@@ -545,7 +545,7 @@ describe("published browser module", () => {
     expect(destroyed).toBe(true);
     expect(messages.slice(0, 3)).toEqual([
       { data: { status: "Loading Python…" }, transfer: [] },
-      { data: { status: "Installing manimgx…" }, transfer: [] },
+      { data: { status: "Installing ManimGX…" }, transfer: [] },
       {
         data: { engine: { js: "engine source", wasm, fonts } },
         transfer: [wasm.buffer, fonts[0]!.buffer],
@@ -644,7 +644,7 @@ describe("published browser module", () => {
     await settle();
     expect(messages).toEqual([
       { status: "Loading Python…" },
-      { failure: "manimgx could not start: Python download failed" },
+      { failure: "ManimGX could not start: Python download failed" },
     ]);
     global.onmessage!({
       data: {

@@ -63,7 +63,7 @@ File = Annotated[
     Path,
     typer.Argument(
         metavar="FILE",
-        help="The scene file: a Python file defining manimgx scenes.",
+        help="The scene file: a Python file defining ManimGX scenes.",
         show_default=False,
     ),
 ]
@@ -104,7 +104,7 @@ Fps = Annotated[
 
 PACKAGE = str(Path(manimgx.__file__).parent)
 
-# names from older Manim (CE before 0.x renames, manimgl) and what manimgx has instead
+# names from older Manim (CE before 0.x renames, manimgl) and what ManimGX has instead
 RENAMED = {
     "ShowCreation": "Create",
     "ShowCreationThenDestruction": "ShowPassingFlash",
@@ -156,15 +156,15 @@ def hints(error: BaseException) -> list[str]:
 
 def _instead(name: str) -> str:
     if name in RENAMED:
-        return f"{name} is {RENAMED[name]} in manimgx"
+        return f"{name} is {RENAMED[name]} in ManimGX"
     close = difflib.get_close_matches(name, _names(), n=3, cutoff=0.6)
     if close:
-        return f"manimgx has no {name}; did you mean {' or '.join(close)}?"
-    return f"manimgx has no {name}"
+        return f"ManimGX has no {name}; did you mean {' or '.join(close)}?"
+    return f"ManimGX has no {name}"
 
 
 def report_error(error: BaseException) -> str:
-    """The error as it went through the scene's code: its last frames there (and where manimgx
+    """The error as it went through the scene's code: its last frames there (and where ManimGX
     raised it), the error, and hints."""
     frames = traceback.extract_tb(error.__traceback__)
     own = [
@@ -282,7 +282,7 @@ def fail(message: str, code: int = 2) -> typer.Exit:
 
 
 def scene(file: Path, name: str | None) -> type[Scene]:
-    """The scene the command names: its file run on manimgx's own config (whatever the file
+    """The scene the command names: its file run on ManimGX's own config (whatever the file
     sets there is the scene's, not a take's before it), and it picked."""
     try:
         return pick(file, load(file), name)

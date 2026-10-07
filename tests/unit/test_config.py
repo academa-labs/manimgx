@@ -5,7 +5,7 @@
   proportions. A scene laid out in the central 8 × 8 square fits both, at the same size.
 - A height that is set is the frame's height, whatever the video's proportions; the CLI's
   reset before a scene file forgets it, as it forgets every field.
-- Nothing reads the configuration when manimgx is imported: a scene's file sets the video's
+- Nothing reads the configuration when ManimGX is imported: a scene's file sets the video's
   size after its import, so a default read then would be a wide video's in a tall one.
 """
 

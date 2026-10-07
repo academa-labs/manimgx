@@ -53,7 +53,7 @@
   </header>
 
   {#if review.settings}
-    <div class="row settings" title="how CE and manimgx frames are compared">
+    <div class="row settings" title="how CE and ManimGX frames are compared">
       <span class="label">metric</span>
       <select class="field" bind:value={metric} onchange={saveSettings}>
         {#each review.settings.metrics as name (name)}

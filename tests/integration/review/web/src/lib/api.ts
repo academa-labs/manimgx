@@ -14,7 +14,7 @@ export interface Settings {
 export interface Checks {
   /** Both references were rendered from this exact scene.py. */
   source: boolean
-  /** Strict ty, no escapes, no Any/Unknown from manimgx. */
+  /** Strict ty, no escapes, no Any/Unknown from ManimGX. */
   types: boolean
 }
 
@@ -32,7 +32,7 @@ export interface CaseSummary {
 }
 
 export interface Render {
-  /** The engine's version; for manimgx, empty. */
+  /** The engine's version; for ManimGX, empty. */
   version: string
   /** Each frame's hash, in order (a held frame repeats its hash). */
   frames: string[]
@@ -45,7 +45,7 @@ export interface Slot {
   time: number
   ce: number | null
   /** The scene time CE's frame shows: up to a frame earlier, when CE's frames fall off
-   * manimgx's (CE rounds each play to whole frames). */
+   * ManimGX's (CE rounds each play to whole frames). */
   ce_time: number | null
   manimgx: number | null
   /** Per metric, when both engines show this time. */

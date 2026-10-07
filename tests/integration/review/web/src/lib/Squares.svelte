@@ -1,7 +1,7 @@
 <!--
   @component
   A case's checks at a glance: its source (both references rendered from this exact scene.py),
-  its types (strict ty, no escapes, nothing manimgx leaves Any), and its comparison with CE.
+  its types (strict ty, no escapes, nothing ManimGX leaves Any), and its comparison with CE.
 -->
 <script lang="ts">
   import type { CaseSummary } from './api'
