@@ -8,10 +8,7 @@ description = "Noto Sans CJK, the font ManimGX sets Chinese, Japanese and Korean
 readme = "README.md"
 license = "OFL-1.1"
 license-files = ["LICENSE"]
-authors = [
-    { name = "Sina Atalay", email = "sina.atalay@academa.ai" },
-    { name = "Abdullah Geduk", email = "geduk@academa.ai" },
-]
+authors = [{ name = "Academa Team", email = "team@academa.ai" }]
 classifiers = ["Topic :: Text Processing :: Fonts"]
 
 [project.urls]

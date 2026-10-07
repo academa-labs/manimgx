@@ -2,7 +2,7 @@
 name = "manimgx-engine"
 version = "0.1.0"
 edition = "2024"
-authors = ["Sina Atalay <sina.atalay@academa.ai>", "Abdullah Geduk <geduk@academa.ai>"]
+authors = ["Academa Team <team@academa.ai>"]
 license = "MIT"
 publish = false
 description = "ManimGX's engine: typesets with Typst, draws blends of shapes on the GPU and encodes them to MP4."

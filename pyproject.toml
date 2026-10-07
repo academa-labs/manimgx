@@ -17,10 +17,7 @@ requires-python = ">=3.13"
 # manimgx-fonts'.
 license = "MIT AND GPL-2.0-or-later AND LGPL-2.1-or-later AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MPL-2.0 AND Unicode-3.0 AND Zlib AND 0BSD AND OFL-1.1 AND LPPL-1.3c AND GPL-3.0-or-later WITH Font-exception-2.0 AND Bitstream-Vera AND LicenseRef-Arev-Fonts AND W3C-20150513 AND CC-BY-SA-3.0 AND Apache-2.0 WITH LLVM-exception AND NCSA AND MIT-Khronos-old"
 license-files = ["LICENSE", "LICENSE-THIRD-PARTY", "LICENSE-LAVAPIPE", "LICENSE-DXC"]
-authors = [
-    { name = "Sina Atalay", email = "sina.atalay@academa.ai" },
-    { name = "Abdullah Geduk", email = "geduk@academa.ai" },
-]
+authors = [{ name = "Academa Team", email = "team@academa.ai" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",

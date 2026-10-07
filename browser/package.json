@@ -28,7 +28,7 @@
     "typescript": "7.0.2"
   },
   "license": "MIT",
-  "author": "Academa, Inc.",
+  "author": "Academa Team <team@academa.ai>",
   "contributors": [
     "Sina Atalay <sina.atalay@academa.ai>",
     "Abdullah Geduk <geduk@academa.ai>"
