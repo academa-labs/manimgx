@@ -71,35 +71,35 @@
         <picture class="mx-benchmark-quality__frame">
           <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx.png">
           <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png">
-          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png" alt="Eight linked rings rendered by ManimGX at 2.5 seconds" width="1920" loading="lazy">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgx-light.png" alt="Eight linked rings rendered by ManimGX at 2.5 seconds" width="302" height="524" loading="lazy">
         </picture>
       </td>
       <td>
         <picture class="mx-benchmark-quality__frame">
           <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce.png">
           <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png">
-          <img src="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png" alt="Eight linked rings rendered by ManimCE at 2.5 seconds" width="1920" loading="lazy">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manim_ce-light.png" alt="Eight linked rings rendered by ManimCE at 2.5 seconds" width="302" height="524" loading="lazy">
         </picture>
       </td>
       <td>
         <picture class="mx-benchmark-quality__frame">
           <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl.png">
           <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png">
-          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png" alt="Eight linked rings rendered by ManimGL at 2.5 seconds" width="1920" loading="lazy">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/manimgl-light.png" alt="Eight linked rings rendered by ManimGL at 2.5 seconds" width="302" height="524" loading="lazy">
         </picture>
       </td>
       <td>
         <picture class="mx-benchmark-quality__frame">
           <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench.png">
           <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png">
-          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png" alt="Eight linked rings rendered by Blender Workbench at 2.5 seconds" width="1920" loading="lazy">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_workbench-light.png" alt="Eight linked rings rendered by Blender Workbench at 2.5 seconds" width="302" height="524" loading="lazy">
         </picture>
       </td>
       <td>
         <picture class="mx-benchmark-quality__frame">
           <source media="(prefers-color-scheme: dark)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee.png">
           <source media="(prefers-color-scheme: light)" srcset="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png">
-          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png" alt="Eight linked rings rendered by Blender EEVEE at 2.5 seconds" width="1920" loading="lazy">
+          <img src="https://manimgx.academa.ai/images/benchmark-quality/blender_eevee-light.png" alt="Eight linked rings rendered by Blender EEVEE at 2.5 seconds" width="302" height="524" loading="lazy">
         </picture>
       </td>
     </tr>

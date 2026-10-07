@@ -893,7 +893,7 @@ html {
   font-style: normal;
 }
 
-/* Identical viewports onto original 1080p benchmark frames; no image resampling. */
+/* Identical crops of the original 1080p benchmark frames; no image resampling. */
 .mx-benchmark-quality {
   table-layout: fixed;
   border-collapse: collapse;
@@ -917,19 +917,13 @@ html {
 
 .mx-benchmark-quality__frame {
   display: block;
-  position: relative;
   width: 100%;
   aspect-ratio: 302 / 524;
-  overflow: hidden;
-  border-radius: 0;
 }
 
 .md-typeset .mx-benchmark-quality__frame img {
-  position: absolute;
-  width: 635.761589%;
-  max-width: none;
+  display: block;
+  width: 100%;
   height: auto;
-  left: -268.211921%;
-  top: -62.213740%;
   margin: 0;
 }
