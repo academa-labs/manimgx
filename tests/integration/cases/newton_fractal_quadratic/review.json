@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f360c6369df00e70b8495095c711f0e821b611a4b548e3fc6fa76365ae400121",
-  "manimgx": "sha256:e248c0e092c7f7c6b88b36ad121d337cbfc6b44c35764da22f4254da02ef8df4",
-  "ce": "sha256:6f4fd0b546e4f455692d8498f1d04501a1c22f0b8591b4bdf4c41d61428d97ba",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 44: Inspected two-color basin panel and enlarged boundary label. Sparse yellow glyph changes preserve the basin division, colors and mathematical title.",
+  "facts": "sha256:ef25de2d64f5451e9ae49c40484a7d930fbda3f954d8211b2ebad5e399962243",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:81e2712690d2fe064f81e7dbf959db76be0d04e42d7603ea0812bc7f1e14b767",
-  "manimgx": "sha256:4127578f9df2372199b8263043b7d04a70eb643d443bbb37fa8fa13c96ab7bec",
-  "ce": "sha256:3d0f3846196bbf2a4b8e5189a9955188725ac50677cc5950c6cb4e1c8a8d0230",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 44: Cyan/red partitioned rectangle and conditional-area wedge retain geometry and labels; sparse boundary samples on the red upper edge change.",
+  "facts": "sha256:8382cf3274fe87ea32ef14de46ed07c71d164f8d5b5b5257201d31bfe8578835",
+  "at": "2026-10-06"
 }

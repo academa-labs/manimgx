@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:4afaf9ec387b0d5f65681d8ae583db7996f583d1ecc081c8c33e43357e1f8204",
-  "manimgx": "sha256:b8fae16590182b8c6f6b1393ad5d2780f78c90316b2559bb12a5d80c1acbdf97",
-  "ce": "sha256:8ad9c0b68f031a1daeb497b624ea9fca14671c1002d9fc466de051db6152681a",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 36: Intermediate polar/cartesian grid morph preserves curve endpoints, crossings, axes and heading. The small differences are localized at overlapping cyan curves.",
+  "facts": "sha256:6202ce24489e1a8f8585ed743f2043479ee1cc85234ce881cc58c8b4e18e056d",
+  "at": "2026-10-06"
 }

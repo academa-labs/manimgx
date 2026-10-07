@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:5044efdd7a5bee129f8f400bb2e57e72625f4f67298c1a50050a3439ab7f8225",
-  "manimgx": "sha256:d95092a5c22f967749e22464203f41d188b05c80c1528aa0f5b57e90a5c259ce",
-  "ce": "sha256:9e583452099f1664e38a545635826222d904322cd6f05ec9cff1fb2aca7fdca5",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 40: Inspected all three Pauli matrices and enlarged yellow eigenvalue expression. Small glyph-edge differences preserve matrix values, colors and mathematical notation.",
+  "facts": "sha256:dfec9188f033e547ff9a8fb62f4fa4cdaf49ffcd30cc9dc33552771f68ec4efb",
+  "at": "2026-10-06"
 }

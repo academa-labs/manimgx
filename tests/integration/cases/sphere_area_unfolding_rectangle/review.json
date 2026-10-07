@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:4cb5bda2f0d5e8e2729d3d1c840276b4bf1234a1cbc808a860d73b4828d1921c",
-  "manimgx": "sha256:367651caee8b6993fd59b4696531fa64c94b839a1353369a97eae762b84647c1",
-  "ce": "sha256:9159f4283b6e79e65d2c4767e90a31ab997ea595eca748ff130368f5ffbfaad6",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 39: Cyan disk, surface-area formula and yellow arrow retain geometry; local yellow arrowhead/shaft coverage adjustment.",
+  "facts": "sha256:afbe80c277a75d749e3414bd05e59925a870f2a784d655cce6de2b23be9cdc5b",
+  "at": "2026-10-06"
 }

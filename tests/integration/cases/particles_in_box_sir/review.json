@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:55622af08c3591db4903536d3fe8b62c335f1f6775573cbe1e4b4d4c49f8576b",
-  "manimgx": "sha256:90d3f1ebaf01b0b9497147f93c094e40f3fafbcd764571e7c61dfb8d4819d5dd",
-  "ce": "sha256:ec851015608f988a079dbd396ec1429453758444372e9cfec0c353145918650e",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 72: Inspected the box and red/cyan particles, including the near-wall particle; the isolated one-level boundary change preserves positions, colors and box geometry.",
+  "facts": "sha256:99d290f9df166ec9f52ba3ccc8659eadc14990efe6555680b0b80071d7dd3f1e",
+  "at": "2026-10-06"
 }

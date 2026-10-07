@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:ea17043d77a54ead43abe9584c3d6f94ff9fabd176d1262c4ab8d6d0afd1f591",
-  "manimgx": "sha256:eb669881504793c3be848d7b143a0c48d5ee22917f5a7c68fb44f9e044d168eb",
-  "ce": "sha256:0e5dd129af56e84d5615b19683c214daf6046d4136e41c7256ac360d85ceebcf",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 26: Series-definition title and partially written equation are unchanged; sparse glyph-edge differences near exp(X).",
+  "facts": "sha256:b96a27e44416445c917e309e8685d0bb4ce4da189b8300c0c5d04a7f1063349f",
+  "at": "2026-10-06"
 }

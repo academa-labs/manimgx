@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:55b6961a6f3b16c5e00bd4c3bbfbd93c4c53f5ddf0fe487f644b6df437a4bf55",
-  "manimgx": "sha256:b42b59dff04178d40c3fbc4d38e6e179d623ea00eeac4ea1073bc5ee605e3f38",
-  "ce": "sha256:72c36cf2ce9cbdda585c193840d6fb0c1f043c3cb436188b13840111a859ea3f",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 8: Inspected partial concentric-circles title and enlarged letters; one small glyph-edge change preserves reveal and typography.",
+  "facts": "sha256:f2b48af9730ae8c6d3dc838871d77ef43ac7eace3a1de090aeaf3c974954db2b",
+  "at": "2026-10-06"
 }

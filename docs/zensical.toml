@@ -14,7 +14,7 @@ repo_name = "academa-labs/manimgx"
 docs_dir = "content"
 site_dir = "site"
 watch = ["templates"]
-extra_css = ["stylesheets/manimgx.css"]
+extra_css = ["stylesheets/manimgx.css", "stylesheets/sidebars.css"]
 # manimgx.js loads KaTeX only when a page has mathematics.
 extra_javascript = ["javascripts/manimgx.js"]
 
@@ -48,13 +48,7 @@ features = [
 [project.theme.icon]
 repo = "fontawesome/brands/github"
 
-[[project.theme.palette]]
-media = "(prefers-color-scheme)"
-primary = "custom"
-accent = "custom"
-toggle.icon = "lucide/sun-moon"
-toggle.name = "Switch to light mode"
-
+# Start with the system's preference; the toggle then switches between light and dark.
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"
 scheme = "default"
@@ -69,7 +63,7 @@ scheme = "slate"
 primary = "custom"
 accent = "custom"
 toggle.icon = "lucide/moon"
-toggle.name = "Switch to system preference"
+toggle.name = "Switch to light mode"
 
 # The footer's band (overrides/partials/academa.html): Academa's profiles, as academa.ai's
 # footer lists them, and the door its newsletter's field posts to. javascripts/manimgx.js

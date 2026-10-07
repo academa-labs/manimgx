@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:56975a6f14406bbf958d39cd932c9befe84c5601c63d5b0a4ed185c29159f52a",
-  "manimgx": "sha256:254cd215ca9e027ca311ae2ee8dbf4eafbd0b348448f12db888d0d7d30ba5c5b",
-  "ce": "sha256:547efea34738c12356ead3449b7dc116f30d07e937aa12d546979e3ff4434f97",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 30: Three circles, yellow rotating vectors and green traced path keep their relative placement; four changed samples lie at thin stroke contacts.",
+  "facts": "sha256:1b65ab7effa2de398c827b1e8cfd1f2a19e48b9408912ccd64144767091b8a41",
+  "at": "2026-10-06"
 }

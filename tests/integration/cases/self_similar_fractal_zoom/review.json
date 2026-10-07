@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:91405da63dfbe0d782a2c2399ee886ed161a00263fa37221f5d38e1455566027",
-  "manimgx": "sha256:251e0a7cbeb4acae7d7b074bac241821f23a0eb1f433c29cddd608212915135d",
-  "ce": "sha256:7f7d85db114c1958c69986fceed2ba8abf3c0cef77baec894504d46a485391e5",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 11: Inspected the partially written Cantor-set instruction and enlarged lettering; four one-level glyph-edge changes preserve content and placement.",
+  "facts": "sha256:1d26f75a3c4907a8491540468cbf0686cfce9af638d70c6272a0228a3090f9fb",
+  "at": "2026-10-06"
 }

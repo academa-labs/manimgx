@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:42eb7ae2e95cb8863335c48d815b6557f9aff3e798b66b645ab0d7142766d7bd",
-  "manimgx": "sha256:d93810971bac2d29f86ff01b2812f39321faadf7500e30c3e08bcc04c7aeefab",
-  "ce": "sha256:23b09594eb355f4ffdba0c6bfde469886b1e6748530e5834664962322b6f10d2",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 14: Partially written title preserves layout and writing progress; two isolated text-edge samples differ.",
+  "facts": "sha256:abde52a75546c50bdd57360a3f66cadcdbcf87b09004cd2c71e4a540777d5f38",
+  "at": "2026-10-06"
 }

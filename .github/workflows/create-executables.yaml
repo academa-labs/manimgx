@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: wheel-${{ matrix.platform }}
+          name: release-wheel-${{ matrix.platform }}
           path: dist
 
       # Both the launcher and its Python packages must obey the wheel's Linux ABI floor.

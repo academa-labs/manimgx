@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7e8c441570452f6b9ed01650ed9e0840646d53f4d1aad80aa2587e5f70bf7b27",
-  "manimgx": "sha256:4b1c96d220ac477636f58727c24a4b36c406f3c5ad6d027e396ed6ac7d0ee110",
-  "ce": "sha256:5c8a1ee0f278ec9bfd7acba108293bbe2a77f3e277af26828e6cf757e9568ada",
-  "at": "2026-10-04"
+  "note": "Reviewed final combined-package frames 0, 6, 12, 18 and 24 beside the held area render and the previously accepted StreamLines correction. The flow transitions into complete blue streamlines, retaining the intended restored final scene. The final movie preserves the accepted correction; its remaining eight changed pixel events differ by one channel level and are consistent with the independently reviewed exact-area correction.",
+  "facts": "sha256:7b68ad47fc1b1fdc7a5029ac2808fb40fc5f7ce3dcbea1722cd588100123b3df",
+  "at": "2026-10-06"
 }

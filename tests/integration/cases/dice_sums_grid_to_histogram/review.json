@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:030314b2123760130254352b2417197a72443129b6665585d3a11411e49e61fd",
-  "manimgx": "sha256:71e8fbd615d8e77d6050f746264c9ab32a0382cd93c8b6fd281043a6e976551d",
-  "ce": "sha256:e83d6a0ab7d26bc96515ddc3efe4ee1a35a15cee7f1669ffcf00f3e5d1e90f9a",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 2: Inspected partial outcomes label and enlarged digits/letters. Two tiny glyph-edge differences preserve label and reveal state.",
+  "facts": "sha256:1fd8e93f6a81177294835cf89e63daa4c9a14178cc0cfbc22018913216eac803",
+  "at": "2026-10-06"
 }

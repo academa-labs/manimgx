@@ -110,6 +110,13 @@ jobs:
       - name: Build the pages
         run: just build-docs-pages
 
+      - name: Check sidebar layout in browsers
+        working-directory: docs
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install chromium firefox webkit
+          bun run test
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docs

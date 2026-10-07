@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:8beee4a3b559dd78deeffc70076833198cfcaaeb754d3f291a75d31ef6c1eee9",
-  "manimgx": "sha256:9f819d1f85ad0fba433cb0b07588086ca198bea85c2b79768cd69173c4335d34",
-  "ce": "sha256:c4660e2de8182bff2ed5698c332b06dfd017651e7321d680c05b2fe140c2408e",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 9: Inspected the early Bayesian title and enlarged letters; the single one-level glyph-edge change preserves content and reveal.",
+  "facts": "sha256:4db0f1642fc72bff948c1b3473b9343793bb0a266e525eabe21c870e942963dd",
+  "at": "2026-10-06"
 }

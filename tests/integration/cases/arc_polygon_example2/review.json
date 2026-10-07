@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:79abb2e5c41d3beef1bf1f51b5808885218e91710d6888ceb49a39dca21c5bcb",
-  "manimgx": "sha256:7ec4171145566c9c582d1230e286a40ac4ec8d4e7dac9fcba3557b18a9407d8f",
-  "ce": "sha256:08568b52c510e1b987b760287bb730903b632cb1300ce945c9a301865e6f8f6b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 9: Inspected the curved triangular outline and filled side regions; three one-level boundary changes preserve arc shape, joins and fills.",
+  "facts": "sha256:7c37f0167dbe741d72fa826faed9bc57274821042a839319bd5cba726fa2b740",
+  "at": "2026-10-06"
 }

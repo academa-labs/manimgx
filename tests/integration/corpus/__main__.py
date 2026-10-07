@@ -304,7 +304,7 @@ def main() -> None:
     )
     for action in ("stage", "check", "acquire"):
         p = actions.add_parser(action)
-        p.add_argument("--catalog", type=Path, default=baseline.CATALOG)
+        p.add_argument("--catalog", type=Path, required=True)
         p.add_argument("--cache", type=Path, default=baseline.CACHE)
         if action == "stage":
             p.add_argument("candidate", type=Path)

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:a5a9809b859035cfed2ad3bbbd40bab482652d163eb156949501bb7b63fd815c",
-  "manimgx": "sha256:5936d8a4e55b9a54d4ef7401c227b225b86675bd15d2301db59043ab3e3ea1fe",
-  "ce": "sha256:3e6c3efabcde3d1e88280e5b09edbba8850bccdef398d69a8091e9180b753a19",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 18: Inspected complete title and enlarged varying-angle text. Tiny white letter-edge changes preserve content and positioning.",
+  "facts": "sha256:3423fdadf4671b6ee76e0826d412359c5793d29d9e2fd2eabd2fdf98d7a27b00",
+  "at": "2026-10-06"
 }

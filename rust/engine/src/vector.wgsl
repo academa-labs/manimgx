@@ -1030,13 +1030,6 @@ fn offset_for(n: vec2<f32>, c: f32) -> f32 {
 
 // The area of the unit pixel (centred at 0) inside both half-planes p.n1 >= d1 and p.n2 >= d2.
 fn both_area(n1: vec2<f32>, d1: f32, n2: vec2<f32>, d2: f32) -> f32 {
-    let cosine = dot(n1, n2);
-    if (cosine > 0.995) {
-        return min(side_area(n1, d1), side_area(n2, d2)); // nested
-    }
-    if (cosine < -0.995) {
-        return max(side_area(n1, d1) + side_area(n2, d2) - 1.0, 0.0); // facing: their overlap
-    }
     var poly: array<vec2<f32>, 8>;
     var count = 4u;
     poly[0] = vec2<f32>(-0.5, -0.5);

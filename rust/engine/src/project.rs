@@ -10,7 +10,7 @@
 //! It is the player's (see `player`): in a window and on a page's canvas alike.
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::pack::{self, Kind};
 use crate::render::{Frame, Gpu, Player};
@@ -63,7 +63,7 @@ struct Shot {
 #[derive(Default)]
 struct Pack {
     arrays: HashMap<u64, Coded>,
-    decoded: HashMap<u64, (Rc<Vec<u8>>, u64)>, // and when last used
+    decoded: HashMap<u64, (Arc<Vec<u8>>, u64)>, // immutable bytes and when last used
     held: usize,
     clock: u64,
 }
@@ -100,7 +100,7 @@ impl Pack {
     }
 
     /// An array's bytes (as the take carries it).
-    fn get(&mut self, key: u64) -> Result<Rc<Vec<u8>>, String> {
+    fn get(&mut self, key: u64) -> Result<Arc<Vec<u8>>, String> {
         self.clock += 1;
         if let Some((data, used)) = self.decoded.get_mut(&key) {
             *used = self.clock;
@@ -113,7 +113,7 @@ impl Pack {
             pack::SECOND => Some(self.get(self.arrays.get(&base_key).map_or(0, |b| b.base))?),
             _ => None,
         };
-        let data = Rc::new(pack::decode(kind, mode, &coded, base.as_deref().map(|b| &b[..]), older.as_deref().map(|o| &o[..]))?);
+        let data = Arc::new(pack::decode(kind, mode, &coded, base.as_deref().map(|b| &b[..]), older.as_deref().map(|o| &o[..]))?);
         self.held += data.len();
         self.decoded.insert(key, (data.clone(), self.clock));
         if self.held > DECODED {

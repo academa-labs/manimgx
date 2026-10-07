@@ -1,8 +1,6 @@
 {
   "verdict": "working",
   "note": "Sampled the canonical frames: the camera zooms to the text, holds and restores its original framing.",
-  "source": "sha256:cac26b2d08399ffddad6ec53f5ad68e058690ece99809f2aba8000574c8dec43",
-  "manimgx": "sha256:ab0a00a13620954a221b04f58ecef3f05573f0151a6432ce8fb81402f6d07490",
-  "ce": "sha256:8f916eab4d59f3e2e134062fdfb2894ed6a06fdfceaf69feaeeb904f72265bf4",
+  "facts": "sha256:ed1c200f3cd184a598c137a3634e9eeec6796d74e0cc85d9a0e9d30b659fd9f9",
   "at": "2026-10-05"
 }

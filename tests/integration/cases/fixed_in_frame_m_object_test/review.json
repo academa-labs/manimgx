@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7e54fb13a3ae373080ac24b1414040992265ddcf94b9f043ce2a8833ff8dcdb8",
-  "manimgx": "sha256:f93987daa8bb448d69c60680eda9958c7767015593ade2237db9f1a012d1f1f0",
-  "ce": "sha256:8bbba300cbefbdcd276f52781920296a4a6862597b949f550ced51a813492ca2",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Screen-fixed text and projected axes preserve placement; two axis/tick junction samples differ.",
+  "facts": "sha256:71937dff29279486706efe4fd167a20b1de56396e83b0e1c82b54ca5c35a2608",
+  "at": "2026-10-06"
 }

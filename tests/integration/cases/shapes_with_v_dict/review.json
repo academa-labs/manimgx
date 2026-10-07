@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e43d2e1ce9b7e67921827f549220e256809b0872b879b4b4ad8a01a1223bf96c",
-  "manimgx": "sha256:48503a679fe580f925fb0813f31c44f957929d3c6a1e54f373cd5083bcfd23e2",
-  "ce": "sha256:76b7bea9c38a770aa1926cc15e9aafc529ca06061d00c74b340741e4453cdc78",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 149: White adjoining rectangles, red inscribed circle and numeral list retain geometry; two samples at shared rectangular edge joins change.",
+  "facts": "sha256:c888406bda4363e744ff5b9c8d6581db59af5c89daf49d535119e6a2dad0762d",
+  "at": "2026-10-06"
 }

@@ -32,7 +32,6 @@ from tests.integration.corpus.case import (
 )
 from tests.integration.corpus.frozen import prepare, verify
 
-CATALOG = ROOT / "tests" / "integration" / "baselines.json"
 CACHE = ROOT / ".cache" / "corpus"
 _RESERVED = {
     "case.json",
@@ -307,7 +306,7 @@ class Catalog:
     cases: dict[str, Anchor]
 
     @classmethod
-    def load(cls, path: Path = CATALOG) -> Self:
+    def load(cls, path: Path) -> Self:
         data = _object(json.loads(path.read_text(encoding="utf-8")))
         if data.get("version") != 1:
             raise ValueError("unsupported baseline catalog version")

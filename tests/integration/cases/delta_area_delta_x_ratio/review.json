@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:ae7e4f925b5e6079d752cfbdf312868bebc25befbbce2bb2e0fa991bf45905eb",
-  "manimgx": "sha256:8e6ef28fbfb0c761d2716d84ad95c1adf5e5d629e8be8dc5f4021e5a071083d0",
-  "ce": "sha256:9be49d0b8ed1ec852092d4476c460df2f517be6ff2131f5c8401422606132d9b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 40: Colored area regions under the cyan curve retain boundaries and formula; one sample at the yellow/green split meeting the curve changes.",
+  "facts": "sha256:5b02f1ff0a92e206a7fedabb818533d76a9281a3a5f5b555370e29f2982b738b",
+  "at": "2026-10-06"
 }

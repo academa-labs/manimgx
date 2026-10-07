@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3383af5ab94c76a498331c5ca5ccfa3730ccc0412178000b27d9acd295e46dab",
-  "manimgx": "sha256:b9c140fefc3d8ea4a79b7a756531eb2ef6b2b6cd24a89c0ef68f8cfcd69ad25a",
-  "ce": "sha256:21f8404c90da978c78a8818188c3af32e0fe85abe7b02354d3a5e1fa66874f21",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 5: Inspected the early Ulam title and enlarged letters; the isolated edge change preserves the text and its position.",
+  "facts": "sha256:cd9e213a0931ba3997c70ce8dfe2e95abdd1946289c79bde4fdd7904ab54709e",
+  "at": "2026-10-06"
 }

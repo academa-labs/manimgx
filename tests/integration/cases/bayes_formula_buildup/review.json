@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:4f3b4cdb93a8d18d16e5ed2ea90f844d0b0b40e3c6ff0b53185cd6b59d53e444",
-  "manimgx": "sha256:91132297e6eb4c835ad132a3556fb1b693b67c8d6c16b41907183f35e63a3a56",
-  "ce": "sha256:3158434cf019e653ac18fb959b84e57d0ce502c7a95abe6266ab8d79928abc7c",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 67: Inspected Bayes equation and color-coded definitions with enlarged red expression. One glyph-edge change preserves all notation and layout.",
+  "facts": "sha256:c3cec803e489910e94b8fecf40f33f17c996ae512f4cc13722a5c3ebfa9378d2",
+  "at": "2026-10-06"
 }

@@ -144,7 +144,7 @@ def typeset(
     path = None if _CACHE is None else _CACHE / f"{key:016x}.layout"
     stored = None if path is None else _read(path)
     if stored is None:
-        stored = _typeset(source, fonts, packages)
+        stored = _typeset(source, fonts, packages, int.from_bytes(depends, "little"))
         if path is not None:
             _write(path, stored)
     rows, shapes, labels, _, glyphs = stored
@@ -205,9 +205,13 @@ def _write(path: Path, stored: Stored) -> None:
         pass
 
 
-def _typeset(source: str, fonts: tuple[str, ...], packages: str | None) -> Stored:
+def _typeset(
+    source: str, fonts: tuple[str, ...], packages: str | None, revision: int
+) -> Stored:
     """Typeset with Typst; every glyph's key by content, with its outline and carets along."""
-    raw, shapes, labels, system = _engine.typeset(source, fonts, packages)
+    raw, shapes, labels, system = _engine.typeset(
+        source, fonts, packages, revision=revision
+    )
     rows = np.frombuffer(raw).reshape(-1, ROW).copy()
     glyphs = rows[:, KIND] == GLYPH
     keys = rows[glyphs, KEY].astype(np.int64).tolist()

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:2f972822c1fea8965fa28f0ecc34196ca6b803b7c3fa8d407f4c2a08d669d23c",
-  "manimgx": "sha256:055fb779d9eaaee4e519f7ed189e8a286b28f4686baa9f9b4c42424dd6fa32b2",
-  "ce": "sha256:418a7eb63bb2bb03192d91ccb60a4de91566dead09d9e9bbdd65be12359695de",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: All six matrix arrangements, values, brackets and yellow column highlight remain intact; local difference at the numeral 4/bracket detail.",
+  "facts": "sha256:c561e047596b2988167d620c297f3b72bf5c87aac6272b6f76fb117c508cc54d",
+  "at": "2026-10-06"
 }

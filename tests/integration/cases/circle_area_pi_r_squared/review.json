@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:8e8738e9cf393ccffa85e0ae95fabcd5c4024fc8bd7ecf88250f92878c86b302",
-  "manimgx": "sha256:2a504c40d91bb61272e84e32393e976c7fe272070036bfdfe184269b3c9d0c45",
-  "ce": "sha256:5bd0961a624ba2f8e29ccd1b64317aab0a701f557034477af51db28b83ae5049",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 94: Blue/green sector arrangement and radius/base annotations are unchanged; small top-edge/corner coverage changes in the blue sectors.",
+  "facts": "sha256:fcbbbd3423be214fc477ce8d176f29ba72d552024029a0c763a9d59370a29159",
+  "at": "2026-10-06"
 }

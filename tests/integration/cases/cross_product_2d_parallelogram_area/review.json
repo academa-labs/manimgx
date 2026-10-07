@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:0584971e5da3532f5722a55a8067ffafb2bbbc832aa727b44466aef5e0463e6c",
-  "manimgx": "sha256:3beccfc40e0ba1c55e003684289b56e3be43646ad23d3b683b32613eca6f0052",
-  "ce": "sha256:ec9c3582d77d339883e41e41559eebca8221575c0671a52e813858249319cb8d",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 37: Inspected colored vectors, parallelogram and enlarged cross-product formula. Tiny glyph-edge differences preserve the geometric area construction and notation.",
+  "facts": "sha256:3685bb3b2aba47c7936cb6b5203031fe60afcc4c3c04899bcc7a69ca5fdb1b2b",
+  "at": "2026-10-06"
 }

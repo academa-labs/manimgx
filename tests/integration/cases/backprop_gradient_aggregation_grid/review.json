@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f50555b9323e934c43ee8652bf65905407e4176d627aa4d45d1c76182f74915f",
-  "manimgx": "sha256:3370e99e1e4bcdb32bec64f6d5b9a68736d09d28948f06677ae0e1f9ecb94005",
-  "ce": "sha256:46b633e72f066f79e910676a2fd26af889d308a193beb88e0c892bc53f356dfa",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 48: Translucent cyan gradient arrows and yellow aggregate keep their geometry; local yellow arrowhead/shaft coverage changes.",
+  "facts": "sha256:a810881f4a3a367b7bdf449bde7dc4ccee168ebdc7f6be3e8cff8d7e50374912",
+  "at": "2026-10-06"
 }

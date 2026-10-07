@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:609d565e49cee0ada1a8fb28b2e99ce4d1979eafd4184266059b81881f72a612",
-  "manimgx": "sha256:ce93671081d63ffd0ddc7f965a02fa3215a17cce08c773b3bbbf3b08612e659b",
-  "ce": "sha256:605c516719b8e416754a527eeeeb803507004d90d2db9f12dd6d8166399e264c",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 4: Inspected partial Block title and enlarged lettering. Two tiny lower-serif differences preserve text shape and reveal extent.",
+  "facts": "sha256:8055a8bf42e7aae977ee6b56ed0dffdcac55ab1149cc52d8e4b360995d39ba14",
+  "at": "2026-10-06"
 }

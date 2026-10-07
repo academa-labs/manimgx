@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:ebc9043b889fe003ed6bb852e404395a113d60651d99efcb75cd06a0e0ddeed8",
-  "manimgx": "sha256:78ac6f2fa88d05c7ede9bd372caf86909f72871c084b9a23494b65c7f7c772e7",
-  "ce": "sha256:6e300b4dd9242bc576f3e7a778e7faa750ca54d0eaf986c885d5905416bd99a8",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 15: Inspected all seven creation demonstrations and enlarged Write text. Small baseline changes preserve reveal states, icons, frame borders and labels.",
+  "facts": "sha256:ca0840d327b296b3453c5e89bb99078eced6e8c27e069a9344bcc8f669f939ef",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7d7ddc5b357ab92a75ce77a3ade777146de927f87eaadb97c7c9e7535e6eac73",
-  "manimgx": "sha256:dea361902623bd3adea1dcf8d0cdf6963f16d81d3cba0ae4d8c1c1a0e646a516",
-  "ce": "sha256:e9d6172902b74300d8ef65377243bebeca221b323dbcbe8de7fadbb6448a8aa9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 27: Inspected the temperature strip, formula and empty graph axes; the isolated x-label edge adjustment preserves the diagram and its notation.",
+  "facts": "sha256:76d17f4dafbb06e5c85a41d6ea1796dbf0622550591b86a243da567edf87fa2c",
+  "at": "2026-10-06"
 }

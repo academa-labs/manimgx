@@ -18,7 +18,7 @@
       ["4d4b8ae3c229cda7", 1],
       ["20f3059e629dd4ae", 1],
       ["7fcfff3536b2df66", 1],
-      ["06fb0b91c41d8244", 1],
+      ["3afa92d4cd6101fa", 1],
       ["31e12de39d1393b8", 1],
       ["f2b7e7960c4a59e4", 1],
       ["3a20ea5ee86d0694", 1],
@@ -40,7 +40,7 @@
     "timeline": [
       [0.0, 31]
     ],
-    "id": "sha256:c1c6cbe67c297d1d9b78a2ff55091d5c07250c9e45dad60baf2d7a64d4d9c060"
+    "id": "sha256:c977b5899084c88fbe5e065f326fe416bbff3a02c3ea9dcf48aacc245ec000d9"
   },
   "ce": {
     "manim": "0.21.0",

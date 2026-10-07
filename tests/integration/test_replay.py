@@ -1,11 +1,42 @@
 """Recorded frames use the same decoder and renderer as native playback, in any order."""
 
+import gc
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 
 import manimgx as m
 from manimgx._engine import TAKE_VERSION, Player, Recorder, Replay, adapter_info
 from manimgx.rendering.feed import Feeder
+
+
+@pytest.mark.parametrize("collect", [False, True], ids=["render", "collect"])
+def test_replay_ownership_can_cross_python_threads(collect: bool) -> None:
+    recorder = Recorder(32, 24, 30)
+    view, records, cameras = Feeder(32, 24, recorder).frame(
+        m.Camera(), [m.Square(fill_opacity=1)]
+    )
+    recorder.frame(view, records, 1, cameras)
+    recorder.end()
+    replay = Replay(recorder.drain())
+    expected = replay.render(0)  # Populate the decoded arrays and GPU resources.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        if not collect:
+            assert pool.submit(replay.render, 0).result() == expected
+            return
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            # A traceback or any other Python cycle can retain a Replay until a
+            # different thread triggers collection, without calling it there.
+            cycle: list[object] = [replay]
+            cycle.append(cycle)
+            del replay, cycle
+            assert pool.submit(gc.collect).result() > 0
+        finally:
+            if enabled:
+                gc.enable()
 
 
 def test_recorded_geometry_and_images_replay_exactly_in_any_order() -> None:

@@ -24,6 +24,7 @@ definition of correct.
 import datetime
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -71,20 +72,19 @@ class Settings:
     metric: str
     tolerance: float
 
+    def __post_init__(self) -> None:
+        if self.metric not in METRICS:
+            raise ValueError(f"unknown metric {self.metric!r}; one of {METRICS}")
+        if not math.isfinite(self.tolerance) or not 0 <= self.tolerance <= 255:
+            raise ValueError("tolerance must be finite and between 0 and 255")
+
 
 def settings() -> Settings:
     data = _object(json.loads(SETTINGS.read_text(encoding="utf-8")))
-    metric = _str(data["metric"])
-    if metric not in METRICS:
-        msg = f"unknown metric {metric!r}; one of {METRICS}"
-        raise ValueError(msg)
-    return Settings(metric=metric, tolerance=_number(data["tolerance"]))
+    return Settings(metric=_str(data["metric"]), tolerance=_number(data["tolerance"]))
 
 
 def save_settings(value: Settings) -> None:
-    if value.metric not in METRICS:
-        msg = f"unknown metric {value.metric!r}; one of {METRICS}"
-        raise ValueError(msg)
     SETTINGS.write_text(
         dump({"metric": value.metric, "tolerance": value.tolerance}), encoding="utf-8"
     )
@@ -112,7 +112,7 @@ class Frames:
         return [start + j * dt for start, n in self.timeline for j in range(n)]
 
     def identity(self, size: tuple[int, int], fps: int) -> str:
-        """One hash for the whole render: what a review is pinned to."""
+        """One hash for the render's pixel sequence and resolution."""
         payload = json.dumps([list(size), fps, [list(run) for run in self.runs]])
         return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
@@ -164,6 +164,10 @@ class Facts:
             else render.identity(self.size, self.fps)
         )
 
+    def revision(self) -> str:
+        """The complete facts a reviewer saw, including timing and comparison results."""
+        return source_hash(dump(facts_to_json(self)).encode("utf-8"))
+
     def reasons(self, settings: Settings) -> tuple[str, ...]:
         """Why the renders are not the same under these settings (none: they are)."""
         if isinstance(self.manimgx, Failure):
@@ -189,14 +193,12 @@ class Facts:
 @dataclass(frozen=True, slots=True)
 class Review:
     """A person's word on a case (`review.json`): a verdict that overrides the comparison's,
-    or none (a note alone). The verdict holds only for the source and renders it names.
+    or none (a note alone). The verdict holds only for the complete facts it names.
     """
 
     verdict: Verdict | None
     note: str
-    source: str
-    manimgx: str | None
-    ce: str | None
+    facts: str | None  # None: a legacy review without a complete evidence binding
     at: str
 
 
@@ -287,12 +289,17 @@ class Case:
         path.write_text(text, encoding="utf-8")
         return True
 
-    def write_review(self, verdict: Verdict | None, note: str) -> Review | None:
+    def write_review(
+        self, verdict: Verdict | None, note: str, *, expected: str | None = None
+    ) -> Review | None:
         """Record a verdict (None: the comparison's stands) and a note on exactly the current
         source and renders; with neither, the case has no review."""
         facts = self.facts()
         if facts is None or not self.current(facts):
             msg = f"{self.name}: its renders are missing or stale; render it first"
+            raise ValueError(msg)
+        if expected is not None and facts.revision() != expected:
+            msg = f"{self.name}: its renders changed; inspect them before reviewing"
             raise ValueError(msg)
         if verdict is None and not note.strip():
             self.review_path.unlink(missing_ok=True)
@@ -300,9 +307,7 @@ class Case:
         review = Review(
             verdict=verdict,
             note=note.strip(),
-            source=facts.source,
-            manimgx=facts.identity("manimgx"),
-            ce=facts.identity("ce"),
+            facts=facts.revision(),
             at=datetime.date.today().isoformat(),
         )
         self.review_path.write_text(dump(review_to_json(review)), encoding="utf-8")
@@ -310,12 +315,8 @@ class Case:
 
 
 def pinned(review: Review, facts: Facts) -> bool:
-    """Whether a review speaks for these renders (it names their source and both renders)."""
-    return (review.source, review.manimgx, review.ce) == (
-        facts.source,
-        facts.identity("manimgx"),
-        facts.identity("ce"),
-    )
+    """Whether this review names all the evidence currently shown."""
+    return review.facts == facts.revision()
 
 
 def source_hash(source: bytes) -> str:
@@ -398,9 +399,7 @@ def review_to_json(review: Review) -> Json:
     return {
         "verdict": review.verdict,
         "note": review.note,
-        "source": review.source,
-        "manimgx": review.manimgx,
-        "ce": review.ce,
+        "facts": review.facts,
         "at": review.at,
     }
 
@@ -499,12 +498,10 @@ def review_from_json(value: object) -> Review:
     if verdict is not None and verdict not in VERDICTS:
         msg = f"unknown verdict {verdict!r}; one of {VERDICTS} or null"
         raise ValueError(msg)
-    manimgx, ce = data.get("manimgx"), data.get("ce")
+    facts = data.get("facts")
     return Review(
         verdict=next((v for v in VERDICTS if v == verdict), None),
         note=_str(data.get("note", "")),
-        source=_str(data["source"]),
-        manimgx=None if manimgx is None else _str(manimgx),
-        ce=None if ce is None else _str(ce),
+        facts=None if facts is None else _str(facts),
         at=_str(data.get("at", "")),
     )

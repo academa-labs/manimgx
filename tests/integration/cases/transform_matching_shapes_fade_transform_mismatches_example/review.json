@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:ef776dd72bf04cafe5d30818d7c3485a303c58abe16769346f776edcad8dd683",
-  "manimgx": "sha256:cd17e1d0a6f95e6ee66fa521dbce08c2650967aea0224f28085c59f29459b55b",
-  "ce": "sha256:1de3ac1102541d6ccbec736b071798ce7392019a05d0d22891a6fb01851a9d59",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 2: Inspected the a-plus-b expression and enlarged glyphs; the isolated one-level edge change preserves notation and placement.",
+  "facts": "sha256:af7a60871e444b3fea3316460d967cb8aa25cb161ee9c32a1f83ade02a71d64b",
+  "at": "2026-10-06"
 }

@@ -13,13 +13,18 @@ __all__ = ["ArrowVectorField", "StreamLines", "VectorField"]
 import itertools as it
 import random
 from collections.abc import Callable, Sequence
-from math import ceil, floor
+from math import ceil, floor, isfinite
 from typing import TYPE_CHECKING, Self, Unpack
 
 import numpy as np
 
 from manimgx.animation.easing import ease_out_sine, linear
-from manimgx.animation.motion import Create, ShowPassingFlash, UpdateFromAlphaFunc
+from manimgx.animation.motion import (
+    Create,
+    ShowPassingFlash,
+    UpdateFromAlphaFunc,
+    trimmed,
+)
 from manimgx.animation.timeline import (
     Animation,
     AnimationGroup,
@@ -446,9 +451,8 @@ class ArrowVectorField(VectorField):
 
 
 class StreamLine(VMobject):
-    """One stream line: how long it flows, and its animation while the field flows."""
+    """One stream line and its current phase, in the field's time."""
 
-    duration: float
     anim: Animation
     time: float
 
@@ -594,7 +598,6 @@ class StreamLines(VectorField):
                     break
                 points.append(new_point)
             line = StreamLine()
-            line.duration = max_steps * dt
             line.set_points_smoothly(
                 points[:: max(1, int(len(points) / max_anchors_per_line))]
             )
@@ -671,11 +674,13 @@ class StreamLines(VectorField):
         a cycle every `virtual_time / flow_speed` seconds, each line at a phase of its
         own, drawn with Python's `random`.
         [end_animation][manimgx.StreamLines.end_animation] ends the flow.
+        Starting again replaces the previous flow.
 
         Args:
             warm_up: Whether each line waits, empty, until its own time to begin,
                 rather than all flowing from the start.
-            flow_speed: How fast the lines flow: the field's time per second.
+            flow_speed: How fast the lines flow: the field's time per second, positive
+                and finite.
             time_width: The length of each flash, as a fraction of its line.
             line_animation_class: The animation played along each line: a
                 ShowPassingFlash, or a class of its kind.
@@ -702,11 +707,20 @@ class StreamLines(VectorField):
                     self.wait(stream_lines.virtual_time / stream_lines.flow_speed)
             ```
         """
+        if not isfinite(flow_speed) or flow_speed <= 0:
+            raise ValueError("flow_speed must be positive and finite")
+        run_time = self.virtual_time / flow_speed
+        if not isfinite(run_time) or run_time <= 0:
+            raise ValueError("the flow's cycle duration must be positive and finite")
+        if self.flow_animation is not None:
+            self.remove_updater(self.flow_animation)
+            for line in self.stream_lines:
+                line.anim.finish()
         kwargs.setdefault("rate_func", linear)
         for line in self.stream_lines:
             line.anim = line_animation_class(
                 line,
-                run_time=line.duration / flow_speed,
+                run_time=run_time,
                 time_width=time_width,
                 **kwargs,
             )
@@ -718,12 +732,10 @@ class StreamLines(VectorField):
             for line in mob.stream_lines:
                 line.time += dt * flow_speed
                 if line.time >= mob.virtual_time:
-                    line.time -= mob.virtual_time
-                line.anim.interpolate(
-                    float(np.clip(line.time / line.anim.run_time, 0, 1))
-                )
+                    line.time %= mob.virtual_time
+                line.anim.interpolate(max(line.time, 0) / mob.virtual_time)
 
-        self.add_updater(flow(updater))  # each line at the time it has run
+        self.add_updater(flow(updater), call_updater=True)
         self.flow_animation = updater
         self.flow_speed = flow_speed
         self.time_width = time_width
@@ -736,12 +748,7 @@ class StreamLines(VectorField):
         The flow's updater is removed at once, and a line still waiting to begin stays
         hidden until its time. Called before
         [start_animation][manimgx.StreamLines.start_animation], it raises a
-        ValueError.
-
-        Warning:
-            The lines end hidden, not whole: a finished flash leaves its line trimmed
-            past its end, and the Create that follows draws the line only as it finds
-            it.
+        ValueError. The lines stay in the field, whole and in their original paint.
 
         Returns:
             A new animation group.
@@ -750,17 +757,17 @@ class StreamLines(VectorField):
             raise ValueError("You have to start the animation before fading it out.")
 
         def hide_and_wait(mob: Mobject, alpha: float) -> None:  # unseen until its turn
-            mob.set_stroke(opacity=float(alpha >= 1))
+            trimmed(mob, 0, float(alpha >= 1))
 
         def finish_cycle(start: float) -> Callable[[StreamLine, float], None]:
             """The flow, on to the end of the line's cycle: its time at alpha (linear)."""
 
             def flow(line: StreamLine, alpha: float) -> None:
                 line.time = start + alpha * (self.virtual_time - start)
-                line.anim.interpolate(min(line.time / line.anim.run_time, 1))
+                line.anim.interpolate(line.time / self.virtual_time)
                 if alpha == 1:
-                    self.remove(line.anim.mobject)
                     line.anim.finish()
+                    trimmed(line, 0, 1)
 
             return flow
 
@@ -786,7 +793,6 @@ class StreamLines(VectorField):
                         create,
                     )
                 )
-                self.remove(line.anim.mobject)
                 line.anim.finish()
             else:
                 remaining_time = max_run_time - line.time / self.flow_speed

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:287c6a39d7d63ae7a73a6154351bec7b4c98deeaf6e3043e8ed207c26d00f2af",
-  "manimgx": "sha256:704663fb038c1787d927ea67eab53b2f260e2e9b7688f815bf6a6340f740070b",
-  "ce": "sha256:d85ddc5cbde27bc38bfe276c794211dc836820925392a12e2afa6ba79cb2bbff",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 23: Inspected the midpoint question, partial colored labels and circular arcs; two one-level glyph-edge changes preserve the diagram reveal and labels.",
+  "facts": "sha256:18b2dc5c4091b7bc278bc768b8575013cd2985d7794a47eb4803bf9a5e2e0fc1",
+  "at": "2026-10-06"
 }

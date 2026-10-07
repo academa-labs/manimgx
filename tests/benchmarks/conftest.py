@@ -8,7 +8,17 @@ import pytest
 from tests.benchmarks.harness import Row, Tree, checkout, here
 
 LABELS = pytest.StashKey[tuple[str, str]]()
-HEADER = ("workload", "base", "head", "change", "rounds", "wall", "memory", "work")
+HEADER = (
+    "workload",
+    "unit",
+    "base",
+    "head",
+    "change",
+    "rounds",
+    "wall",
+    "memory",
+    "work",
+)
 
 
 @pytest.fixture(scope="session")
@@ -18,7 +28,8 @@ def trees(pytestconfig: pytest.Config) -> tuple[Tree, Tree] | None:
     ref = pytestconfig.getoption("bench")
     if ref is None:
         return None
-    base = checkout(str(ref), pytestconfig.cache.mkdir("manimgx-trees"))
+    # The previous cache could contain another revision's native engine.
+    base = checkout(str(ref), pytestconfig.cache.mkdir("manimgx-trees-v2"))
     head = here()
     pytestconfig.stash[LABELS] = (base.label, head.label)
     return base, head
@@ -48,14 +59,13 @@ def pytest_terminal_summary(
     if not rows:
         return
     base, head = config.stash.get(LABELS, ("REF", "this checkout"))
-    rounds = config.getoption("bench_rounds")
-    title = f"{head} against {base}: {rows[0].unit}, the median of {rounds} rounds"
-    table = [HEADER, *(row.cells for row in rows)]
+    title = f"{head} against {base}: median paired ratios"
+    table = [HEADER, *((row.cells[0], row.unit, *row.cells[1:]) for row in rows)]
     widths = [max(len(row[k]) for row in table) for k in range(len(HEADER))]
     terminalreporter.section(f"benchmarks: {title}")
     for row in table:
         cells = [
-            cell.ljust(width) if k in (0, len(row) - 1) else cell.rjust(width)
+            cell.ljust(width) if k in (0, 1, len(row) - 1) else cell.rjust(width)
             for k, (cell, width) in enumerate(zip(row, widths, strict=True))
         ]
         terminalreporter.write_line("  ".join(cells).rstrip())

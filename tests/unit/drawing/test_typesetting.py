@@ -23,6 +23,7 @@ import os
 import pickle
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import weakref
@@ -45,6 +46,111 @@ from manimgx.mobjects.text import TypstGlyph, _cut
 
 type Document = m.Typst | m.Paragraph
 type Answer = tuple[bytes, list[bytes], list[tuple[str, list[int]]], bool]
+
+
+@pytest.mark.parametrize("coordinate", [None, -123, 456])
+def test_optional_font_caret_coordinate_is_checked(
+    tmp_path: Path, coordinate: int | None
+) -> None:
+    font = next(
+        p for p in Path(tc.FONTS[0]).glob("*.ttf") if p.name.startswith("NotoSans[")
+    )
+    source = '#set text(font: "Noto Sans")\nA'
+    rows, _, _, _ = _engine.typeset(source, [str(font.parent)])
+    glyph = int(np.frombuffer(rows).reshape(-1, tc.ROW)[0, tc.KEY]) % 65536
+    # A complete font with one optional format-1 caret. Only its coordinate is
+    # truncated; the font still loads and shapes normally through the real engine.
+    table = struct.pack(">15H", 1, 0, 0, 0, 12, 0, 6, 1, 12, 1, 1, glyph, 1, 4, 1)
+    if coordinate is not None:
+        table += struct.pack(">h", coordinate)
+    data = bytearray(font.read_bytes())
+    count = struct.unpack_from(">H", data, 4)[0]
+    slot = next(
+        12 + 16 * i for i in range(count) if data[12 + 16 * i : 16 + 16 * i] == b"GDEF"
+    )
+    data.extend(bytes(-len(data) % 4))
+    struct.pack_into(">II", data, slot + 8, len(data), len(table))
+    data.extend(table)
+    (tmp_path / "font.ttf").write_bytes(data)
+    rows, _, _, _ = _engine.typeset(source, [str(tmp_path)])
+    key = int(np.frombuffer(rows).reshape(-1, tc.ROW)[0, tc.KEY])
+    assert _engine.ligature_carets(key) == ([] if coordinate is None else [coordinate])
+
+
+def test_font_revision_keeps_native_and_persistent_layouts_in_agreement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = next(
+        p for p in Path(tc.FONTS[0]).glob("*.ttf") if p.name.startswith("NotoSans[")
+    )
+    fonts = tmp_path / "fonts"
+    fonts.mkdir()
+    font = fonts / "font.ttf"
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(tc, "_CACHE", cache / "layouts")
+
+    def layout() -> tc.Layout:
+        return tc.typeset("AB", '#set text(font: "Noto Sans")', font_paths=[fonts])
+
+    before = layout()
+    advance = before.rows[0, tc.ADVANCE]
+    data = bytearray(source.read_bytes())
+    count = struct.unpack_from(">H", data, 4)[0]
+    slot = next(
+        12 + 16 * i for i in range(count) if data[12 + 16 * i : 16 + 16 * i] == b"hmtx"
+    )
+    # Install an overriding face after the directory was scanned. The first layout's
+    # bundled font stays mapped and immutable, including on Windows.
+    # Noto Sans's A is glyph36; change only its advance, keeping family/style.
+    at = struct.unpack_from(">I", data, slot + 8)[0] + 36 * 4
+    width = struct.unpack_from(">H", data, at)[0]
+    struct.pack_into(">H", data, at, width + 500)
+    font.write_bytes(data)
+    caches.clear()
+    after = layout()
+    assert after.rows[0, tc.ADVANCE] == advance + 500
+    assert before.rows[0, tc.ADVANCE] == advance
+    # A new process must read the updated layout from the same cache, not inherit a
+    # layout made with old font bytes but published under the new dependency identity.
+    program = """
+import sys
+from manimgx.drawing import typesetting as t
+result = t.typeset('AB', '#set text(font: "Noto Sans")', font_paths=[sys.argv[1]])
+print(result.rows[0, t.ADVANCE])
+"""
+    answer = subprocess.check_output(
+        [sys.executable, "-c", program, str(fonts)],
+        env=dict(
+            os.environ,
+            MANIMGX_CACHE_DIR=str(cache),
+            PYTHONPATH=str(Path(m.__file__).resolve().parent.parent),
+        ),
+        text=True,
+        timeout=30,
+    )
+    assert float(answer) == advance + 500
+
+
+def test_package_revision_replaces_cached_native_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    packages = tmp_path / "packages"
+    package = packages / "preview" / "revision" / "0.1.0"
+    package.mkdir(parents=True)
+    (package / "typst.toml").write_text(
+        '[package]\nname = "revision"\nversion = "0.1.0"\nentrypoint = "lib.typ"\n',
+        encoding="utf-8",
+    )
+    source = package / "lib.typ"
+    source.write_text('#let value = "A"', encoding="utf-8")
+    monkeypatch.setattr(tc, "_CACHE", tmp_path / "layouts")
+    body = '#import "@preview/revision:0.1.0": value\n#value'
+    first = tc.typeset(body, package_path=packages)
+    source.write_text('#let value = "BB"', encoding="utf-8")
+    caches.clear()
+    second = tc.typeset(body, package_path=packages)
+    assert len(first.rows) == 1
+    assert len(second.rows) == 2
 
 
 def test_shared_temporary_cache_cannot_replace_fonts_or_layouts(tmp_path: Path) -> None:
@@ -173,10 +279,18 @@ class Engine:
         real = _engine.typeset
 
         def typeset(
-            source: str, fonts: Sequence[str], packages: str | None = None
+            source: str,
+            fonts: Sequence[str],
+            packages: str | None = None,
+            *,
+            revision: int = 0,
         ) -> Answer:
             self.asked += 1
-            return self.made_up(source) if made_up else real(source, fonts, packages)
+            return (
+                self.made_up(source)
+                if made_up
+                else real(source, fonts, packages, revision=revision)
+            )
 
         monkeypatch.setattr(_engine, "typeset", typeset)
         if made_up:
@@ -384,7 +498,11 @@ def test_a_glyph_without_an_outline_is_no_part_and_labels_lose_it(
     calls = 0
 
     def typeset(
-        source: str, fonts: Sequence[str], packages: str | None = None
+        source: str,
+        fonts: Sequence[str],
+        packages: str | None = None,
+        *,
+        revision: int = 0,
     ) -> Answer:
         nonlocal calls
         calls += 1

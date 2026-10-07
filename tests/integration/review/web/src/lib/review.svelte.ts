@@ -41,6 +41,7 @@ function summary(detail: CaseDetail): CaseSummary {
 }
 
 export class Review {
+  #view = 0
   cases = $state.raw<CaseSummary[]>([])
   sources = $state.raw<Record<string, string>>({})
   settings = $state.raw<Settings | null>(null)
@@ -186,20 +187,22 @@ export class Review {
   }
 
   /** Show a case at the step chosen (the address's, on a reload or back and forward). */
-  async open(name: string | null): Promise<void> {
+  async open(name: string | null, refresh = false): Promise<void> {
+    const view = ++this.#view
     this.selected = name
     if (name === null) {
       this.detail = null
       return
     }
-    if (name === this.detail?.name) {
+    if (!refresh && name === this.detail?.name) {
       this.#show(this.detail) // only the step may have moved
       return
     }
+    this.detail = null
     await this.#attempt(async () => {
       const detail = await api.detail(name)
-      if (this.selected === name) this.#show(detail)
-    })
+      if (this.#view === view) this.#show(detail)
+    }, view)
   }
 
   /** Go to a case, from its first step: as a new history entry (`push`: back returns to the
@@ -224,17 +227,23 @@ export class Review {
   }
 
   async setVerdict(verdict: Verdict | 'auto', note: string): Promise<void> {
-    const name = this.selected
-    if (name === null) return
-    await this.#attempt(async () => this.#update(await api.review(name, verdict, note)))
+    const detail = this.detail
+    if (!detail || detail.name !== this.selected || detail.revision === null) return
+    const { name, revision } = detail
+    const view = this.#view
+    await this.#attempt(
+      async () => this.#update(await api.review(name, revision, verdict, note), view),
+      view,
+    )
   }
 
   async render(engine: Engine | 'both'): Promise<void> {
     const name = this.selected
     if (name === null) return
+    const view = this.#view
     this.busy = `rendering ${engine === 'both' ? 'both engines' : engine}`
     try {
-      await this.#attempt(async () => this.#update(await api.render(name, engine)))
+      await this.#attempt(async () => this.#update(await api.render(name, engine), view), view)
     } finally {
       this.busy = null
     }
@@ -244,7 +253,7 @@ export class Review {
     await this.#attempt(async () => {
       this.settings = await api.saveSettings(metric, tolerance)
       this.cases = await api.cases() // every verdict may have moved
-      if (this.selected !== null) this.#show(await api.detail(this.selected))
+      if (this.selected !== null) await this.open(this.selected, true)
     })
   }
 
@@ -253,17 +262,17 @@ export class Review {
     this.detail = detail
   }
 
-  #update(detail: CaseDetail): void {
-    if (this.selected === detail.name) this.#show(detail)
+  #update(detail: CaseDetail, view: number): void {
+    if (this.#view === view && this.selected === detail.name) this.#show(detail)
     this.cases = this.cases.map((c) => (c.name === detail.name ? summary(detail) : c))
   }
 
-  async #attempt(work: () => Promise<void>): Promise<void> {
+  async #attempt(work: () => Promise<void>, view = this.#view): Promise<void> {
     this.error = null
     try {
       await work()
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error)
+      if (this.#view === view) this.error = error instanceof Error ? error.message : String(error)
     }
   }
 }

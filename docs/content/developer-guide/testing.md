@@ -3,7 +3,7 @@
 A test is code that checks that other code does what it should. Written once, it runs
 again after every change, and says whether the change broke something.
 
-manimgx's Python and integration tests are in
+ManimGX's Python and integration tests are in
 [`tests/`](https://github.com/academa-labs/manimgx/tree/main/tests).
 Most of them render scenes, so the suite needs what rendering needs: a GPU the engine can
 draw with (see [Setup](index.md#a-gpu)). Rendering the corpus's Manim references again
@@ -36,6 +36,9 @@ the path, so the tests import their own tools as `tests.integration.corpus`.
 The Test workflow runs the suite on every push to `main` and every pull request, on Linux,
 macOS and Windows, with Python 3.13 and 3.14 (see
 [GitHub workflows](github-workflows.md#1-testyaml-the-checks-and-the-tests)).
+The nine benchmark films run on Linux and macOS. Windows still runs the functional
+corpus, native rendering tests, packaging checks and laws of work; its software GPU's
+cost on these long films is outside the performance gate.
 
 ## What the tests are
 
@@ -85,7 +88,7 @@ runs the narrated examples with no voice's key, as the site is built (see
 keeps the API reference, written by hand, whole: every name the package documents is on a
 page, once, and no name it hides is (see [Documentation](documentation.md#the-api-reference)).
 [`tests/docs/test_hidden.py`](https://github.com/academa-labs/manimgx/blob/main/tests/docs/test_hidden.py)
-type-checks every example the docs show, and fails on a name manimgx hides (`@deprecated`).
+type-checks every example the docs show, and fails on a name ManimGX hides (`@deprecated`).
 The unit tests are in `tests/unit/`, the benchmarks in `tests/benchmarks/` (see
 [Benchmarks](#benchmarks)), and the rest of the suite is in `tests/integration/`.
 
@@ -118,7 +121,7 @@ simplest one that still does. The properties that do the work:
 - state machines checked against a plain model, over any history of public calls: a family's
   edits, transforms, updaters and their clocks, a scene's membership, a graph's edits, the
   feeder's books, what a paint remembers;
-- remembered work is invisible: anything made with manimgx's memories warm is what it is made
+- remembered work is invisible: anything made with ManimGX's memories warm is what it is made
   cold (a test marked `cold` starts and ends with nothing remembered);
 - for time, random stories told on a headless scene
   ([`tests/scenes.py`](https://github.com/academa-labs/manimgx/blob/main/tests/scenes.py)):
@@ -146,7 +149,7 @@ A test that passes proves little unless it would fail were the code wrong.
 `<` for a `<=`, a `+` for a `-`), one mutant at a time, and runs the tests against each. A
 mutant that no test fails is a change the tests let through. `just mutate` runs it on the
 modules `[tool.mutmut]` in `pyproject.toml` lists, under the `mutation` profile and with
-everything manimgx remembers forgotten between tests (`manimgx.caches.clear`), so that a
+everything ManimGX remembers forgotten between tests (`manimgx.caches.clear`), so that a
 cache cannot hide a mutant. It is slow, so it runs by hand, not on CI.
 
 ### Stories
@@ -174,14 +177,14 @@ or a new corpus case (see [Working with the corpus](#working-with-the-corpus)).
 
 ### The problem
 
-manimgx implements Manim Community Edition's API. Scenes written for Manim must work, and
+ManimGX implements Manim Community Edition's API. Scenes written for Manim must work, and
 keep working as the engine changes. A test of one function does not see a wrong frame, and
 reference images are too many to check by hand. And "the same as Manim" is not "correct":
-Manim has bugs of its own, and manimgx differs from it on purpose (the exact clock, for
+Manim has bugs of its own, and ManimGX differs from it on purpose (the exact clock, for
 one).
 
 So the corpus renders real scenes in both engines, compares them, lets a person decide
-what is right, and holds manimgx to every stored render so a change cannot pass unnoticed.
+what is right, and holds ManimGX to every stored render so a change cannot pass unnoticed.
 
 ### A case
 
@@ -197,14 +200,14 @@ A case is a folder in
   renders they were shown.
 
 The cases are the examples of Manim's documentation and docstrings (the first line of
-`scene.py` names its source), scenes written to cover manimgx's API, regressions, and
+`scene.py` names its source), scenes written to cover ManimGX's API, regressions, and
 scenes written in answer to a question (the question is their docstring). The corpus is
-the specification: what its working cases show is what manimgx does.
+the specification: what its working cases show is what ManimGX does.
 
 ### Two engines, one source
 
-Both engines run the same bytes. manimgx runs `scene.py` as it is. Manim runs it with
-`manimgx` resolved to `manim`, and the run fails if the real manimgx is ever imported
+Both engines run the same bytes. ManimGX runs `scene.py` as it is. Manim runs it with
+`manimgx` resolved to `manim`, and the run fails if the real ManimGX is ever imported
 ([`run_ce.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integration/corpus/run_ce.py)).
 Each render runs in a process of its own, with a fixed hash seed.
 
@@ -212,9 +215,9 @@ A frame is identified by the hash of its pixels, and locally stored in lossless 
 
 ### Comparing at the same scene time
 
-Frames are paired by scene time, never by index. manimgx's frame _k_ shows the scene at
+Frames are paired by scene time, never by index. ManimGX's frame _k_ shows the scene at
 exactly _k_/fps. Manim rounds each play to whole frames and never shows a scene's last
-animation landing; none of that may count against manimgx. So each manimgx frame is
+animation landing; none of that may count against ManimGX. So each ManimGX frame is
 compared with the frame Manim has on screen at the same scene time.
 
 Each pair is measured in four metrics, from 0 to 255: `local_max`, `mae`, `rmse` and `max`.
@@ -231,14 +234,14 @@ A case is in one of these states:
 
 | State | Meaning |
 | --- | --- |
-| `working` | At every manimgx frame, Manim's frame is within tolerance, and the scenes last as long. |
+| `working` | At every ManimGX frame, Manim's frame is within tolerance, and the scenes last as long. |
 | `not_matching` | Otherwise, or Manim could not render the scene. |
-| `not_working` | manimgx could not render the scene. |
+| `not_working` | ManimGX could not render the scene. |
 | `stale`, `unrendered` | The case has no current renders to judge. |
 
 The comparison gives a verdict; a person's verdict on exactly these renders overrides it.
 Manim is a reference to look at, not a definition of correct, so "Manim does it this way"
-is a reason to look closely, not a reason to change manimgx. A case is trusted when it is
+is a reason to look closely, not a reason to change ManimGX. A case is trusted when it is
 working.
 
 See [`case.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integration/corpus/case.py).
@@ -249,58 +252,29 @@ See [`case.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integrat
 checks every case three ways:
 
 1. `test_same_source`: both references were rendered from this exact `scene.py`, which
-   imports manimgx, never Manim. So the two engines ran the same program.
+   imports ManimGX, never Manim. So the two engines ran the same program.
 2. `test_types`: the scene type-checks as written: ty with every rule, no way around the
-   checker (suppression comments, `Any`, `cast`, …), and no value that manimgx leaves
+   checker (suppression comments, `Any`, `cast`, …), and no value that ManimGX leaves
    `Any` or `Unknown`
    ([`typecheck.py`](https://github.com/academa-labs/manimgx/blob/main/tests/integration/corpus/typecheck.py)).
-3. `test_regression`: a frozen manimgx package and today's package render the scene in
-   separate fresh processes on the same host and adapter. Every RGB pixel, exact duration,
-   timeline and frame count must agree, and the exported MP4 must contain every frame.
-   This check covers every case, including those that differ from Manim or await review.
+3. `test_regression`: the latest stable ManimGX release and today's package render the scene in separate fresh processes on the same host and adapter, using the same installed dependencies and fonts. Every RGB pixel, exact duration, timeline and frame count must agree, and the exported MP4 must contain every frame. This covers every case, including those that differ from Manim or await review. Before the first stable release, every scene is still rendered and its exported frame count is checked.
 
-The committed `tests/integration/baselines.json` binds each case's inputs, canonical movie
-and review to an immutable package generation. A generation names the complete Python and
-native wheels for the CI platforms, their SHA-256 identities, the locked runtime
-dependencies, font payload and the shared execution contract (launching, seeding,
-authoring and reading frames). Changing that contract requires canonical validation, so
-a runner change cannot silently change both sides together. The wheels are downloaded and verified once per local
-cache; a test worker extracts each generation once. The baseline never follows `main`.
+CI resolves the latest stable GitHub release before testing and records its version and wheel SHA-256 identities in a manifest shared by the test workers. Downloads are verified before use. A published release without a compatible wheel, an invalid checksum or a failed download is an error; only the absence of a stable release enables the first-release bootstrap. Locally, the test fixture resolves the latest release, or reads the manifest named by `MANIMGX_CORPUS_RELEASE`.
 
-Promotion first proves that the frozen package reproduces the actual canonical movie
-pixel for pixel. Subsequent tests compare the two packages on their shared host, so
-Metal, Vulkan and Direct3D may rasterize differently without weakening regression detection
-within any one backend. SHA-256 protects artifact identity; RGB bytes decide image equality.
-No image tolerance is used for regression acceptance.
-
-Failures keep the baseline movie, both process logs and the first differing frame pairs
-in `tests/integration/_diffs/<case>/`, and report the full stream's mismatch counts and
-largest channel difference. They use the original comparison; no diagnostic rerender is
-needed. Successful comparisons remove their transient films. A fresh clone needs the
-verified package downloads, not the canonical movies, to run these tests.
+Failures keep the release identity, reference movie, process logs and first differing frame pairs in `tests/integration/_diffs/<case>/`. Successful comparisons remove their transient films. No image tolerance is used for regression acceptance. A fresh clone needs the released package download, not archived corpus movies, to run these tests.
 
 ### Working with the corpus
 
 `test_corpus.py` only checks; `just corpus` renders and reviews. A reference changes only
 when a change means it to, and after someone has looked at the new frames.
 
-The review panel and `just corpus diff CASE` need the canonical movies identified by the
-committed sidecars. Restore those movies to inspect an existing review; rendering with a
-new engine is a proposal to change the reference, not a way to restore it. The initial
-[fixture release](https://github.com/academa-labs/manimgx/releases/tag/corpus-reference-377a0df)
-preserves both engines' canonical movies, their checksums and review records. Verify a
-restored movie against its committed sidecar before using it.
+The review panel and `just corpus diff CASE` use local movies identified by the committed sidecars. Verify restored movies against those sidecars. To create new review movies, use `just corpus render CASE`; changed pixels update the local facts and require a new review before committing them.
 
 - **A new case** is a folder in `cases/` holding its `scene.py`. Render it with `just corpus render CASE`, which renders it in both engines and compares them; look at it (`just review`); and record your verdict with `just corpus review CASE working` (or `not_matching`, or `not_working`; `--note` says why). Commit the scene, facts, review and video hash sidecars; Git ignores the videos.
 - **A change that is meant to change how cases look** renders their references again with
   `just corpus render CASE…`. A case's review is pinned to the renders it was given for,
   so it no longer speaks for the new ones: look at the new frames before you commit them,
   and renew the verdict (in the review panel, or with `just corpus review`).
-- **A baseline promotion** freezes the wheels of an explicit commit with
-  `just corpus baseline freeze`, then verifies selected cases against their canonical
-  movies with `just corpus baseline stage`. Review the staged catalog and its evidence
-  before replacing `tests/integration/baselines.json`. Missing mappings, stale reviews,
-  changed dependencies and changed inputs fail closed; they never update a baseline.
 - `just corpus status` says where every case stands, and `just corpus --help` lists the
   rest.
 
@@ -316,7 +290,7 @@ restored movie against its committed sidecar before using it.
 | `status [--list STATE…]` | Where every case stands |
 | `review CASE VERDICT [--note TEXT]` | Record a verdict (`auto`: the comparison's) |
 | `settings [--metric M] [--tolerance T]` | The comparison's metric and tolerance |
-| `diff CASE [--frames N]` | Write the most different pairs of Manim's and manimgx's frames as images |
+| `diff CASE [--frames N]` | Write the most different pairs of Manim's and ManimGX's frames as images |
 | `types` | The type report for every scene |
 | `leaks` | Scenes that render differently after others, in one process |
 
@@ -337,7 +311,7 @@ See [`tests/integration/review/`](https://github.com/academa-labs/manimgx/tree/m
 
 ## Coverage
 
-Coverage says which lines of manimgx the tests run, and so which lines no test checks.
+Coverage says which lines of ManimGX the tests run, and so which lines no test checks.
 `just test-coverage` runs the suite with [pytest-cov](https://pytest-cov.readthedocs.io):
 a summary in the terminal, and every line in `htmlcov/index.html`.
 
@@ -355,7 +329,7 @@ status.
 
 ## Benchmarks
 
-Speed is a feature, and a change that slows manimgx down is a regression like any other.
+Speed is a feature, and a change that slows ManimGX down is a regression like any other.
 The benchmarks, in
 [`tests/benchmarks/`](https://github.com/academa-labs/manimgx/tree/main/tests/benchmarks),
 look for one in two ways: laws of cost, which run with the rest of the suite, and timed
@@ -370,13 +344,13 @@ by a few percent. So no benchmark compares a measurement with a number written d
 compares two measurements taken side by side.
 
 - **Work**, what a render does, is the same on every machine, and can be counted exactly:
-  the Python functions manimgx runs and its loops' iterations (counted with
+  the Python functions ManimGX runs and its loops' iterations (counted with
   [`sys.monitoring`](https://docs.python.org/3/library/sys.monitoring.html)), the points
   computed from a geometry's pieces, the bytes hashed, the bytes handed to the engine
   ([`work.py`](https://github.com/academa-labs/manimgx/blob/main/tests/benchmarks/work.py)).
   The laws compare the work of two sizes of one thing.
 - **Time** can only be compared with time measured on the same machine at the same time.
-  The timed benchmarks run this checkout and another commit's manimgx in turns, and
+  The timed benchmarks run this checkout and another commit's ManimGX in turns, and
   compare them round by round.
 
 ### Laws of cost
@@ -393,7 +367,7 @@ states how work may grow, and Hypothesis checks it:
   run is counted. Hypothesis draws the size, and
   [`target`](https://hypothesis.readthedocs.io/en/latest/reference/api.html#hypothesis.target)
   climbs toward the worst ratio; the largest size always runs. A law that counts nothing of
-  manimgx's fails.
+  ManimGX's fails.
 - **Sharing.** Copies of any mobject, moved, turned and scaled, upload what one does: a
   shape is uploaded once, and its copies and moves are placements of it. Hypothesis draws the
   class from the registry of every public mobject class, and the copies and the moves.
@@ -420,7 +394,7 @@ are the README's three scenes as the README times them, at 1920 × 1080 and 60 f
 second ([`scenes/`](https://github.com/academa-labs/manimgx/tree/main/tests/benchmarks/scenes):
 a surface the camera circles, a surface rebuilt every frame, and a 2D explainer), and six
 example films at 480 × 270 and 10 frames per second. In the suite, each is rendered once,
-tiny: it still renders. `just bench` times them against another manimgx:
+tiny: it still renders. `just bench` times them against another ManimGX:
 
 ```sh
 just bench                # this checkout against main
@@ -430,18 +404,21 @@ just bench ../manimgx-2   # against another checkout, as it is on disk
 just bench main -k orbit  # some of the workloads (arguments go to pytest)
 ```
 
-- REF's manimgx is made in pytest's cache (`.pytest_cache/`), from git: with this checkout's
+- REF's ManimGX is made in pytest's cache (`.pytest_cache/`), from git: with this checkout's
   engine when REF's engine sources (`rust/`) are this checkout's, else built (the first time
-  takes a few minutes).
+  takes a few minutes). A different engine owns its build directory, so compiled output
+  cannot cross between the two source trees.
 - Each run is a fresh process, with a fixed hash seed and an empty temporary directory, so no
   run finds another's Typst layouts. It is measured from launch to exit: what the README
   times, the imports, the GPU coming up, the storyboard and the encoder included.
-- What is judged is the steadiest measure the system gives. macOS counts the instructions a
-  process retires, and they do not change with the cores that ran it, or with what else the
-  machine does. On a Mac whose GPU another program kept 90% busy, identical trees agreed to
+- What is judged is the steadiest measure the host exposes. When every sample has a positive
+  instruction count, the comparison uses the instructions a process retires, which do not
+  change with the cores that ran it, or with what else the machine does. On a Mac whose GPU
+  another program kept 90% busy, identical trees agreed to
   within 1.7% in every round; their CPU time differed by up to 36% and their wall time by 57%.
-  Elsewhere it is CPU time, every thread's. Wall time and peak memory are shown beside it, not
-  judged: on a shared machine they measure the other programs too.
+  If any counter is unavailable, as on hosted macOS VMs, every sample and retry uses CPU time,
+  every thread's. Each workload's row names its measure. Wall time includes contention and
+  waits; it and the process's peak memory are reported but not judged.
 - A round runs both, in a random order. The first round is not kept: it reads each tree's
   files into the disk's cache (a tree made a minute before ran 12% slower until then). Then
   five rounds (`--bench-rounds`).
@@ -461,21 +438,25 @@ nothing changed. Measured on that busy Mac, commit `289730bd`:
 | Unchanged | none: every round within 1.7% | no count changed |
 | A path read whole to append a curve (`eef74e37` reverted) | neural_untangle, of the 3 tried | +60%: 7,328 times the points |
 | 0.5 ms of Python in every frame | 5 of 9 | +9% (explainer): loops ×6.2 |
-| 150 ms of work as manimgx is imported | 4 of 9 | +13% (taylor_poles) |
+| 150 ms of work as ManimGX is imported | 4 of 9 | +13% (taylor_poles) |
 | A surface refined twice | morph | +50% |
 
 Timing each scene's frames inside one process, as the benchmarks did before, saw none of the
-work done as manimgx is imported; judging CPU time on that Mac, an identical tree came out
+work done as ManimGX is imported; judging CPU time on that Mac, an identical tree came out
 12% faster, and a change to code a film never runs made it "5% slower", in every round. What
 instructions cannot see, a wait (a process that sleeps until its GPU is done) or work done on
 the GPU, shows in the wall-time column: read it on a quiet machine.
 
 The [Benchmark workflow](github-workflows.md#2-benchmarkyaml-the-timed-benchmarks) runs them
-on Linux for every pull request that changes the package, against its base, and for every
-push to `main`, against the commit before it; its table is in the run's summary. There the
-measure is CPU time, and the GPU is Mesa's lavapipe, which draws on the CPU, so a workload's
-time includes its drawing. A change that is meant to cost time (a feature) says so in its pull
-request, with the table.
+on macOS for every pull request that changes the package, against its base, and for every
+push to `main`, against the commit before it; its table is in the run's summary. The measure
+is retired CPU instructions when available, otherwise CPU time, and Metal draws on the GPU.
+This gates host work,
+including geometry, typesetting and encoding; it does not gate GPU execution or waits.
+For changes to shaders or GPU scheduling, review the paired wall times on a quiet machine;
+`just bench` on Linux with lavapipe also includes software drawing in its CPU measure.
+The nine workloads, their resolutions and their rounds are the same on either system.
+A change that is meant to cost time (a feature) says so in its pull request, with the table.
 
 ## Learn more
 

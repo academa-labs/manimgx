@@ -60,6 +60,8 @@ export interface Review {
 }
 
 export interface CaseDetail extends CaseSummary {
+  /** The exact facts shown; a save fails if they changed while being reviewed. */
+  revision: string | null
   source: string
   /** The type report's findings, one per line. */
   problems: string[]
@@ -95,10 +97,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ metric, tolerance }),
     }),
-  review: (name: string, verdict: Verdict | 'auto', note: string) =>
+  review: (name: string, revision: string, verdict: Verdict | 'auto', note: string) =>
     request<CaseDetail>(`/api/cases/${encodeURIComponent(name)}/review`, {
       method: 'PUT',
-      body: JSON.stringify({ verdict, note }),
+      body: JSON.stringify({ revision, verdict, note }),
     }),
   render: (name: string, engine: Engine | 'both') =>
     request<CaseDetail>(`/api/cases/${encodeURIComponent(name)}/render`, {

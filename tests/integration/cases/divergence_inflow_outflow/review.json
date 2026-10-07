@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e64194fc1ed1b5de1bfba135c9a924f0039ac26097553f81c91bfdf62a867f62",
-  "manimgx": "sha256:16cc94874cb8a51cae83f65f47f0b4cd90a91d90cc5973ab30f6d4ec413a7582",
-  "ce": "sha256:eeac698aa77ffe2e0a1b05840d82bc544148afae743cd6e021b47bed94a07c85",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 4: Inspected the early title frame and enlarged Divergence lettering; the one-pixel edge adjustment preserves the title and layout.",
+  "facts": "sha256:fb1309147d63daa1e641d73f93e3bbea0d4711a6b6d14b1ad597e58379e3c0b8",
+  "at": "2026-10-06"
 }

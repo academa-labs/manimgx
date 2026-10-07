@@ -71,7 +71,7 @@ class Workload:
 class Cost:
     """What a render cost, from launch to exit: CPU seconds (every thread's), wall seconds,
     peak memory (MB), and the instructions it retired, where the system counts them for a
-    process (macOS; elsewhere None)."""
+    process when the host exposes its counters (otherwise None)."""
 
     cpu: float
     wall: float
@@ -182,8 +182,7 @@ def _extract(sha: str, home: Path, sources: tuple[str, ...]) -> None:
 
 def _build(sha: str, home: Path, sources: tuple[str, ...]) -> None:
     """Give the tree in `home` its engine: this checkout's, if `sha` has the same engine
-    sources, or else one built from its own (reusing this checkout's compiled
-    dependencies)."""
+    sources, or else one built in its own directory."""
     ours = _engine(ROOT / LAYOUTS[0][0])
     same = subprocess.run(["git", "diff", "--quiet", sha, "--", *ENGINE], cwd=ROOT)
     if sources == LAYOUTS[0][1] and same.returncode == 0 and ours is not None:
@@ -192,7 +191,7 @@ def _build(sha: str, home: Path, sources: tuple[str, ...]) -> None:
     # a workspace's root is no project: its package is built as a member of it
     project = tomllib.loads((home / "pyproject.toml").read_text(encoding="utf-8"))
     package = [] if "project" in project else ["--package", "manimgx"]
-    env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "rust" / "target"))
+    env = dict(os.environ, CARGO_TARGET_DIR=str(home / "rust" / "target"))
     subprocess.run(
         ["uv", "sync", "--frozen", "--no-default-groups", "--project", str(home)]
         + package,
@@ -292,7 +291,7 @@ def render(tree: Tree, workload: Workload, *options: str) -> None:
 
 def _instructions(pid: int) -> int | None:
     """The instructions process `pid` retired, read once it has exited and before it is reaped
-    (macOS counts them for each process; elsewhere None)."""
+    (on macOS hosts exposing the counter; otherwise None)."""
     os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
     if sys.platform != "darwin":
         return None
@@ -301,7 +300,8 @@ def _instructions(pid: int) -> int | None:
     usage = (ctypes.c_uint64 * 37)()
     if ctypes.CDLL(None).proc_pid_rusage(pid, 4, usage):
         return None
-    return usage[2 + 29]
+    # A successful query can return zero when hardware counters are unavailable in a VM.
+    return usage[2 + 29] or None
 
 
 def run(tree: Tree, workload: Workload) -> Cost:

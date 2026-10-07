@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e1b29a81c30113ec94ea5e8500b233960b31342e6b321df4acd10f605a3abce7",
-  "manimgx": "sha256:9ea16c44b17ce421e89501191792f01da4c838538574394206d8c1d09ea7245a",
-  "ce": "sha256:99596207cbdebda0115afb99e558d8e5773603b9b3c5c6c22544d84a306471b4",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 11: Inspected partial title and enlarged target lettering. Tiny glyph-edge changes preserve text shape and reveal; no unexpected added content.",
+  "facts": "sha256:4431b4acbb8617b06bbe4ee8bd644899f66df133da8a789fb9c869d2429a0e06",
+  "at": "2026-10-06"
 }

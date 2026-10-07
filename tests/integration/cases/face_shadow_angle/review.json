@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f9693b25321074892014665d53cfb86343745dc898e1c72f12dd88d015b3330a",
-  "manimgx": "sha256:112360055c26e40f1acc7a2b86677bbcd742b26cad7c7ebb18b61dcf8306d377",
-  "ce": "sha256:9b65708a77a176e3045bbf6040e043c5be6fec21aae6180d21ffb5aa01cd16d0",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 8: Inspected partial title and enlarged shadow lettering. Small glyph-baseline changes preserve the title reveal and letter shapes.",
+  "facts": "sha256:ba944d1d3bf8fd87d9939ef7a59365bbadaa0e04d2af42996983f3290730edce",
+  "at": "2026-10-06"
 }

@@ -199,7 +199,7 @@ impl Player {
 
 /// A complete recorded take, drawn headlessly by the same decoder and player as a window.
 #[cfg(feature = "player")]
-#[pyclass(module = "manimgx._engine", unsendable)]
+#[pyclass(module = "manimgx._engine")]
 struct Replay {
     take: crate::project::Take,
 }
@@ -408,9 +408,9 @@ mod typesetting {
     /// items (one row of `ROW` floats each, in document order), its shapes' cubic points and its
     /// labelled groups (a label and the items inside, nested ones too).
     #[pyfunction]
-    #[pyo3(signature = (source, font_paths, packages=None))]
-    pub(super) fn typeset(py: Python<'_>, source: String, font_paths: Vec<String>, packages: Option<String>) -> PyResult<Layout> {
-        let (rows, shapes, labels, system) = py.detach(|| core::typeset(source, &font_paths, packages.as_deref())).map_err(TypstError::new_err)?;
+    #[pyo3(signature = (source, font_paths, packages=None, *, revision=0))]
+    pub(super) fn typeset(py: Python<'_>, source: String, font_paths: Vec<String>, packages: Option<String>, revision: u64) -> PyResult<Layout> {
+        let (rows, shapes, labels, system) = py.detach(|| core::typeset(source, &font_paths, packages.as_deref(), revision)).map_err(TypstError::new_err)?;
         let rows = PyBytes::new(py, bytemuck::cast_slice(&rows)).unbind();
         let shapes = shapes.iter().map(|s| PyBytes::new(py, bytemuck::cast_slice(s)).unbind()).collect();
         Ok((rows, shapes, labels, system))

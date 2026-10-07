@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:2d27d69ae17f1d23f9a9ffa8bd74668a43649240695551f26c32d6bee32e1960",
-  "manimgx": "sha256:8f45a3ec4bcc5ba074b9437727a20b07b8be88cf1ae0827b3cdf2e50317d0a10",
-  "ce": "sha256:a5e0ec8051856859d8551e5c7018be7c912084caeaefebe61ff1b1316c44ec36",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 5: Inspected the early isomorphism title and enlarged lettering; the single one-level edge change preserves text content and placement.",
+  "facts": "sha256:61ded7872cf332e5d4b54548bc4eaf0e3a5b571cb3d6d06b2b5b65b906579fb5",
+  "at": "2026-10-06"
 }

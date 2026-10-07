@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:33aeade373571fd93564289bfc9e813b86b8b1c2f99f642807e2a65cce0cebf7",
-  "manimgx": "sha256:47bd0ea3fd671343ef505301df175ccf48e1bd93a86bac14893019d1087ef8df",
-  "ce": "sha256:ac4dc22cb8c90330b8c521018cf110ceb6f5524f5b43262f9650776eeba05232",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 84: Inspected the product formula, convergent points and pi-over-two marker; sparse one-level overlap changes preserve the limit position, points and notation.",
+  "facts": "sha256:75722a983e0254479b1d273f525976610a63d8a98ef4fd9ce588a9063c4177d3",
+  "at": "2026-10-06"
 }

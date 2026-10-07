@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:41dfb190a433230cf56b90ef2c05c5f0237fb78a3f392d6604e4a3f571007980",
-  "manimgx": "sha256:763f979fff6e65464a5902191d465e906f74ad47bc703df5269d71f31d337c44",
-  "ce": "sha256:c5e2852e7ec1609d17b7a0e66a93948509f39997f897ff4ed582f5326989cd99",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 9: Inspected the early Hilbert curve title and enlarged letters; the isolated one-level change preserves text and placement.",
+  "facts": "sha256:35eee35b1b2bc56dffb0276e8f8963c2601f2b5c66fe520045f3bd117d46e38d",
+  "at": "2026-10-06"
 }

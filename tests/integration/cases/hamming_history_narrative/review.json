@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:c84eb15197ed5dea124706fc7c78416c17e3674425b891be86e19efddbce8917",
-  "manimgx": "sha256:68f982ce159f075775d312b9ced71bb04176d5e5730f15fd594984762a06cf32",
-  "ce": "sha256:41d677b6f3d8c1db580a7be00e5d28a4b084b62b19b168e4c2ab40be8f5488ed",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 19: Inspected historical title and enlarged year. Two small digit-edge changes preserve the text, year and placement.",
+  "facts": "sha256:a58681d6e64b9bd21117d7a4ea36d2984428b13b1b28376ffa8455bc66a4fdc1",
+  "at": "2026-10-06"
 }

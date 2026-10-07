@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:29135104bbb28b7e63babc1090a4408d40acd3edb86377d1ee561f05bcf8959c",
-  "manimgx": "sha256:cbe857be94bf67146fcd9f30d149c0bec5306f076eeca18de3b42d19f613e364",
-  "ce": "sha256:cdd871b47a2d84348563276a39a21812d03af8afe8bff4d7d4a4d8caa9246113",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 34: Transformed grid, colored vectors, matrix label and point retain geometry, opacity and placement. Local arrow/grid contacts change without shifting endpoints.",
+  "facts": "sha256:71813386cceda4f1154a524605cd7613a073b2034712a7e6fe8ee8e1cb386b04",
+  "at": "2026-10-06"
 }

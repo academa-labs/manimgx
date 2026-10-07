@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:49f807e5b916ba8b5cb199314869e84d352b7967080ec701533fe5dc1989311f",
-  "manimgx": "sha256:37a76d91b17d5f5d3a12442d795d33ae7000e9a86ce795197ada35103bc62ece",
-  "ce": "sha256:12e1c3937bd5b1c8786369e39973aab9129e7fc9cb832380e4cd82ec669209d3",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 101: Inspected geometric chord construction and enlarged probability expression. Two tiny glyph-edge changes preserve circle radii, triangle/chord positions and formula content.",
+  "facts": "sha256:c9a3266d6ad847c0b4dde66c2d156964129bd45a95505b630c9e5239e0ab527e",
+  "at": "2026-10-06"
 }

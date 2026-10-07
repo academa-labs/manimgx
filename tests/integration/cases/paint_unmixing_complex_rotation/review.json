@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:d7fe17bbce384db849a4144bd4a55c3038c205721d0f57c573893ead2fb4c9ee",
-  "manimgx": "sha256:4c0f23fa5aec336d2f22e14c669708cfe41865175c30457cf7962021f1b1c220",
-  "ce": "sha256:cf7786e8c087818e079a5abef84e3d2e000b92024e680f5738f06c93521ea981",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 23: Red sector and caption preserve geometry and color; local change at the short yellow/green boundary transition on the straight edge.",
+  "facts": "sha256:40b8eb2e447c95cda9ba2cf45b4f8a377db1d8f1ed6478e47d0d9affebc80673",
+  "at": "2026-10-06"
 }

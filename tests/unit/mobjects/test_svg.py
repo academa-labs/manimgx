@@ -192,3 +192,103 @@ def test_a_remembered_drawing_is_the_drawing_made_afresh(
 ) -> None:
     make = ROWS[row](drawing)
     _assert_same(make(True), make(False))
+
+
+@pytest.mark.parametrize(
+    "transform", ["translate(7 3)", "scale(2 3)", "rotate(35)", "matrix(1 2 3 4 5 6)"]
+)
+def test_a_root_transform_has_the_same_effect_as_a_group_transform(
+    tmp_path: Path, transform: str
+) -> None:
+    shape = '<rect x="1" y="2" width="3" height="4"/>'
+    drawings = []
+    for name, body in (
+        ("root", f'<svg transform="{transform}">{shape}</svg>'),
+        ("group", f'<svg><g transform="{transform}">{shape}</g></svg>'),
+    ):
+        path = tmp_path / f"{name}.svg"
+        path.write_text(body, encoding="utf-8")
+        drawings.append(m.SVGMobject(path, height=None, should_center=False))
+    np.testing.assert_allclose(drawings[0][0].points, drawings[1][0].points, atol=1e-14)
+
+
+@pytest.mark.parametrize(
+    ("aspect", "size", "center"),
+    [
+        ("none", (20, 40), (10, 20, 0)),
+        ("xMidYMid meet", (20, 20), (10, 20, 0)),
+        ("xMinYMin meet", (20, 20), (10, 10, 0)),
+        ("xMidYMid slice", (40, 40), (10, 20, 0)),
+    ],
+)
+def test_the_viewbox_maps_user_coordinates_into_the_viewport(
+    tmp_path: Path,
+    aspect: str,
+    size: tuple[float, float],
+    center: tuple[float, float, float],
+) -> None:
+    path = tmp_path / "viewport.svg"
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="40" '
+        f'viewBox="5 10 10 10" preserveAspectRatio="{aspect}">'
+        '<rect x="5" y="10" width="10" height="10"/></svg>',
+        encoding="utf-8",
+    )
+    drawing = m.SVGMobject(path, height=None, should_center=False)
+    np.testing.assert_allclose([drawing.width, drawing.height], size)
+    # SVGMobject turns SVG's y axis around the drawing's center; that center is kept.
+    np.testing.assert_allclose(drawing.get_center(), center, atol=1e-14)
+
+
+@pytest.mark.parametrize(
+    ("root", "child", "expected"),
+    [
+        ("", "", "#FF0000"),
+        ('fill="#0000FF"', "", "#0000FF"),
+        ('style="fill:#0000FF"', "", "#0000FF"),
+        ('fill="#0000FF"', 'fill="#00FF00"', "#00FF00"),
+    ],
+)
+def test_svg_defaults_fill_only_what_the_document_leaves_unpainted(
+    tmp_path: Path, root: str, child: str, expected: str
+) -> None:
+    path = tmp_path / "paint.svg"
+    path.write_text(
+        f'<svg {root}><rect width="1" height="1" {child}/></svg>', encoding="utf-8"
+    )
+    drawing = m.SVGMobject(path, svg_default={"fill_color": "#FF0000"})
+    assert drawing[0].get_fill_color().to_hex() == expected
+
+
+def test_the_document_root_keeps_its_group_identity(tmp_path: Path) -> None:
+    path = tmp_path / "identified.svg"
+    path.write_text(
+        '<svg id="drawing"><g id="shapes"><rect width="1" height="1"/></g></svg>',
+        encoding="utf-8",
+    )
+    drawing = m.SVGMobject(path)
+    for name in ("root", "drawing", "shapes"):
+        assert list(drawing.id_to_vgroup_dict[name]) == list(drawing)
+
+
+@pytest.mark.parametrize("scale", [1e-8, 1e-5, 1e-3, 1, 1e5])
+def test_closing_a_path_is_independent_of_its_scale(scale: float) -> None:
+    path = se.Path(f"M0 0 L{scale} 0 L{scale} {scale} L0 {scale} Z")
+    drawing = m.VMobjectFromSVGPath(path)
+    assert drawing.get_num_curves() == 4
+    np.testing.assert_array_equal(drawing.get_start(), drawing.get_end())
+    normalized = m.VMobjectFromSVGPath(se.Path("M0 0 L1 0 L1 1 L0 1 Z"))
+    np.testing.assert_allclose(drawing.points / scale, normalized.points, atol=1e-14)
+
+
+def test_converting_arcs_does_not_edit_the_supplied_path() -> None:
+    path = se.Path("M0 0 A1 1 0 0 1 2 0 L2 2 Z")
+    segments = [repr(segment) for segment in path]
+    identities = [id(segment) for segment in path]
+    drawing = m.VMobjectFromSVGPath(path)
+    assert [repr(segment) for segment in path] == segments
+    assert [id(segment) for segment in path] == identities
+    points = drawing.points.copy()
+    path *= se.Matrix.scale(2)
+    drawing.generate_points()
+    np.testing.assert_array_equal(drawing.points, points)

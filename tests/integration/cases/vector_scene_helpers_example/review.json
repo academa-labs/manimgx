@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "Sampled the canonical frames: basis labels, the (2, -1) vector and its coordinate column are present.",
-  "source": "sha256:09f6e45ec94e4c91ad7a927a4ddffae4c6d6a8b753c8f01b72ccadc99006de26",
-  "manimgx": "sha256:8de00b7fdf74be66c564506a40de82b7d2ab370f16fb9a566b8ad78c9086d9be",
-  "ce": "sha256:9ca45f0435b1af42ae4fd23bff1fa0c7d41263c258707524558de71d3c069ea7",
-  "at": "2026-10-05"
+  "note": "Sampled the canonical frames: basis labels, the (2, -1) vector and its coordinate column are present.\n\nReviewed the exact-area raster correction at frame 6: Inspected vector/grid construction and enlarged arrowhead. Two small edge changes preserve vector endpoint, axes, ticks and labels.",
+  "facts": "sha256:50332cbd0f23a6a367119e73191add69f573ccc3cbc100e8a3553b6a21be0938",
+  "at": "2026-10-06"
 }

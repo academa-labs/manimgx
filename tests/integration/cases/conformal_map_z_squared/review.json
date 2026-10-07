@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:be3e1ad19ec58952b49b709bf70d9a72858599d0c7c1a7d97e72dcff4f7f5a60",
-  "manimgx": "sha256:6cec9d34b60a6fabcb86823a64d36cc254762aa6ec697e4f6e776f3723e32308",
-  "ce": "sha256:9160f736818182c53e15d1c6636810208ec6aab46702beeeda155a78a2272448",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 51: The z-to-z-squared mapping diagram, yellow curved grid and cyan reference grid retain topology and placement. Changes occur at thin-line intersections, with no lost segments.",
+  "facts": "sha256:25176721a9eab79ef4168943eabf84d688de8127458fcf6ccbfb37405e97b6e6",
+  "at": "2026-10-06"
 }

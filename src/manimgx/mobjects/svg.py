@@ -12,6 +12,7 @@ import io
 import logging
 import os
 from collections.abc import Sequence
+from copy import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, Unpack
 from warnings import deprecated
@@ -213,8 +214,8 @@ class SVGMobject(VMobject):
     def modify_xml_tree(
         self, element_tree: ET.ElementTree[ET.Element]
     ) -> ET.ElementTree[ET.Element]:
-        """Wrap the file's drawing in groups that carry `svg_default` and the style of
-        the file's root, so that its shapes inherit them.
+        """Give the file's root the defaults its attributes leave unspecified, keeping
+        its viewport, transforms, styles and document structure.
 
         Args:
             element_tree: The file, parsed.
@@ -222,19 +223,9 @@ class SVGMobject(VMobject):
         Returns:
             A new tree.
         """
-        style_keys = (
-            "fill",
-            "fill-opacity",
-            "stroke",
-            "stroke-opacity",
-            "stroke-width",
-            "style",
-        )
         root = element_tree.getroot()
-        root_style = {k: v for k, v in root.attrib.items() if k in style_keys}
-        new_root = ET.Element("svg", {})
-        config_style = ET.SubElement(new_root, "g", self.generate_config_style_dict())
-        ET.SubElement(config_style, "g", root_style).extend(root)
+        new_root = ET.Element(root.tag, self.generate_config_style_dict() | root.attrib)
+        new_root.extend(root)
         return ET.ElementTree(new_root)
 
     @deprecated("Manim CE's machinery: the constructor calls it", category=None)
@@ -552,6 +543,7 @@ class VMobjectFromSVGPath(VMobject):
     ) -> None:
         import svgelements as se
 
+        path_obj = copy(path_obj)
         path_obj.approximate_arcs_with_quads()
         points: list[np.ndarray] = []
         pen = start = np.zeros(3)
@@ -560,7 +552,7 @@ class VMobjectFromSVGPath(VMobject):
             if kind is se.Move:
                 pen = start = _point(segment.end)
             elif kind is se.Line or (
-                kind is se.Close and np.linalg.norm(pen - start) > 0.0001
+                kind is se.Close and not np.array_equal(pen, start)
             ):
                 end = start if kind is se.Close else _point(segment.end)
                 points += [pen, (2 * pen + end) / 3, (pen + 2 * end) / 3, end]

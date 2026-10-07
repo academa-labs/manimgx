@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:81647fe029c99d9b228f011c473076986732a8db59178a4badbb392fc21537f6",
-  "manimgx": "sha256:95acddc8112beaead681078a4db26969fccfffe4a97a00aa3a370952b5f25775",
-  "ce": "sha256:71ecf509a80d0c513dfafff758bf58c00871e897ac9c7ec134340336fae9b308",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 30: Dense yellow interval markers and numbered baseline remain unchanged; two near-baseline coverage samples differ.",
+  "facts": "sha256:efe06d6b8091bd8908f8b74e9de33d34d517dfd3a0df5b15e094712445794f2f",
+  "at": "2026-10-06"
 }

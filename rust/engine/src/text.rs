@@ -233,7 +233,7 @@ mod tests {
     fn typst(text: &str, family: Family, bold: bool, tabular: bool) -> Glyphs {
         let style = format!("font: \"{}\", size: 13pt, weight: \"{}\", number-width: {}", family.name(), if bold { "bold" } else { "regular" }, if tabular { "\"tabular\"" } else { "auto" });
         let source = format!("#set page(width: auto, height: auto, margin: 0pt)\n#set text({style})\n#\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
-        let (rows, ..) = crate::typeset::typeset(source, &[FONTS.into()], None).expect("Typst sets it");
+        let (rows, ..) = crate::typeset::typeset(source, &[FONTS.into()], None, 0).expect("Typst sets it");
         placed(rows.chunks_exact(23).filter(|r| r[0] == 0.0).map(|r| ((r[1] as u64 % 65536) as u16, r[6] as f32, r[7] as f32, r[2] as f32)).collect())
     }
 

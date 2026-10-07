@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:a4c8a8db2810b1d3f3880b821720b33a2186ea9972519cff592c2cc0f37cdb6e",
-  "manimgx": "sha256:f9492eed9864817b63df623768a159e889bf02b6394c6f8d22685ad6ec10a997",
-  "ce": "sha256:bac6a935b61a2f3e3ae8fa495ccfbc608d3cee19c4b229b44f0c8d147680f7d9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 8: Inspected the early space-filling curve title and enlarged lettering; two one-level changes preserve text and its reveal.",
+  "facts": "sha256:73e8f5abd6f6d73145efcce575227196e68641fb5014b6b11db0ecddf59ef676",
+  "at": "2026-10-06"
 }

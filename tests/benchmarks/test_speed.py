@@ -2,12 +2,14 @@
 
 A workload is a scene rendered as a user renders it, `manimgx render`, in a process of its own
 from launch to exit: the README's three scenes as the README times them, and six example films,
-small. In the suite, each is rendered once, tiny: it still renders.
+small. On Linux and macOS, the suite renders each once, tiny. Windows keeps the
+functional corpus and cost laws; these long benchmark films depend on its software GPU.
 
 `just bench REF` renders each workload with this checkout and with REF's manimgx, in turns, round
 after round on one machine, and compares what the runs cost: the instructions they retired where
-the system counts them (macOS), which stay put however busy the machine is, else their CPU
-seconds. A round's two runs make a ratio. A workload has become slower when the median ratio is
+the host exposes positive counts for every sample, else their CPU seconds. The same measure
+is used for every pair and retry. A round's two runs make a ratio. A workload has become slower
+when the median ratio is
 more than 5% above 1 and the rounds agree: its 95% confidence bound (exact, and free of any
 assumption about the noise) is above 1, which five rounds give only if every one is slower. A
 workload that looks slower is timed as many rounds again, and judged on them all. Wall time and
@@ -16,7 +18,8 @@ exactly, says what changed.
 """
 
 import math
-from dataclasses import dataclass, fields
+import sys
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from statistics import median
 
@@ -35,7 +38,13 @@ from tests.benchmarks.harness import (
 )
 from tests.benchmarks.work import Work
 
-pytestmark = pytest.mark.timed
+pytestmark = [
+    pytest.mark.timed,
+    pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="benchmark films run on Linux and macOS; Windows runs the functional corpus",
+    ),
+]
 
 SCENES = Path(__file__).resolve().parent / "scenes"
 EXAMPLES = ROOT / "examples"
@@ -90,6 +99,20 @@ class Change:
 
     @staticmethod
     def of(samples: list[tuple[Cost, Cost]]) -> "Change":
+        if not all(
+            c.instructions is not None and c.instructions > 0
+            for pair in samples
+            for c in pair
+        ):
+            if any(
+                not math.isfinite(c.cpu) or c.cpu <= 0 for pair in samples for c in pair
+            ):
+                raise ValueError("benchmark CPU seconds must be finite and positive")
+            samples = [
+                (replace(b, instructions=None), replace(h, instructions=None))
+                for b, h in samples
+            ]
+
         def middle(costs: list[Cost]) -> Cost:
             counted = [c.instructions for c in costs if c.instructions is not None]
             return Cost(
@@ -163,7 +186,7 @@ def test_speed(
         shown(change.base),
         shown(change.head),
         f"{change.ratio - 1:+.1%}",
-        f"{low:+.1%} … {high:+.1%}",
+        f"{len(change.ratios)}: {low:+.1%} … {high:+.1%}",
         f"{change.head.wall / change.base.wall - 1:+.1%}",
         f"{change.head.memory / change.base.memory - 1:+.1%}",
         worked,

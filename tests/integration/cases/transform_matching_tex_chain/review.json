@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:429d82621d63b45f8a512caa10bbb5297595c90936869c8099140ec2394fa96f",
-  "manimgx": "sha256:2e5a530e2053f4f52b36169408d11edbd211b190c27c72a767eb458fabde6d72",
-  "ce": "sha256:cb700795ea333a2cb321ac33e149947da22456f3295d848360f784f7bf3358c4",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 6: Inspected the partially written polynomial and enlarged ax-squared; the isolated glyph-edge adjustment preserves the expression and reveal.",
+  "facts": "sha256:390bdc6965f00f690068c09c31b8ccb805c8c6a51f80dd5c5fab1948ab2cb65a",
+  "at": "2026-10-06"
 }

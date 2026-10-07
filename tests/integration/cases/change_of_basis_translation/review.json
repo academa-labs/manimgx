@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:94b8fd45eb4cd1b367297efb6cc69fe94a0ce96d4386915a019730d4f6dff4d5",
-  "manimgx": "sha256:1fe1a42892a7e6c184c3332b2087c6baeac60c4205d6561fb29e94a1d78e8f0c",
-  "ce": "sha256:379a119ed2933065fc2ba669604c4e84a453d828041dd4eb9489cc1f2ae0831b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 66: Three basis/vector arrows and labels remain aligned. The enlarged footer text is unchanged in shape; only a few boundary samples differ.",
+  "facts": "sha256:1c81c030cdc2b22b15c90f3a40cfc6106b74174e65f9ceef95b5131490651f43",
+  "at": "2026-10-06"
 }

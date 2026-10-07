@@ -6,9 +6,9 @@
     "duration": 1.0,
     "frames": [
       ["47a80fce033f3db9", 1],
-      ["7d3408c5e5a62870", 1],
+      ["e3fcec3904734897", 1],
       ["09c4804c3561fd2c", 1],
-      ["9a4d6cf9bbafbf8e", 1],
+      ["79ca3b0d6b380ff5", 1],
       ["edf73dd2a774ce8b", 1],
       ["7df425a3ad7c4e93", 1],
       ["72870c055db1fa65", 1],
@@ -20,7 +20,7 @@
     "timeline": [
       [0.0, 11]
     ],
-    "id": "sha256:72e765554566d2b3e5b7af2f6cf00a4fedd34b36f785f5f703218f0023070376"
+    "id": "sha256:3e3a359b8861fb33e4cba163c24737eed285a1b4d4db239cd95624cc5b4dd833"
   },
   "ce": {
     "manim": "0.21.0",

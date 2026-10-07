@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f10104576eb9962b25ed43cd5af35f978bffe65e13801bbbd1981daa614d0be8",
-  "manimgx": "sha256:11fe183256b6df83fc1fff5448a28fb6b79144835d108c782bf1ccb89bbe319e",
-  "ce": "sha256:75ef5fc6e5f18039d0d426fd916f19e087f3a80bce8ae2916efaa088583e47a3",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 62: Inscribed circles, square outlines, ratios and explanatory text retain geometry; two red text-edge samples differ.",
+  "facts": "sha256:270b1a753768f75f93466a2609fe6a059f7d1098f79e4de17d28483a5e504ec0",
+  "at": "2026-10-06"
 }

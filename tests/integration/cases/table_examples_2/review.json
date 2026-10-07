@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:342a89317b99c93e6b4c7dfe26b2c18ddb3a58f6d4768a14abf5f4e4ca2f04cb",
-  "manimgx": "sha256:6746690b9df403065190251bab22052f5a7b2ebb990313fc6be499bedda4d785",
-  "ce": "sha256:85f1cc816aec5b3f77c430d217f354564ce42cfeb7d38de293ef9547dc22ddd9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected all four tables and enlarged red cell/white rule intersection; the isolated one-level corner change preserves cell boundaries, labels and styling.",
+  "facts": "sha256:380afa1657f0c956d1b05eecec135aef13bd2c946f9f3ef9e6d90eeb11b8387e",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:6d5c5da4207f7c488777dafdb071732042d5121f62a813bd1a70a5739dc38a32",
-  "manimgx": "sha256:dd9614413e6fdce22eb4a5953bea6da55eb2d9c821befe28abac354c3f34eddd",
-  "ce": "sha256:2d4ed4a3e6d060ab8c71b0e6fe86d7aa0c66c33026407844f8b8118c676f7f59",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 5: Partially written title preserves its glyphs and layout; two tiny character-edge samples differ.",
+  "facts": "sha256:96fa14c2f37d5f93bc8f650773a07c86317b6f31ef3fe45918a4e17d449fd57b",
+  "at": "2026-10-06"
 }

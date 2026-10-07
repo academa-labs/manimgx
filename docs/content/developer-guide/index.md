@@ -1,17 +1,17 @@
 # Setup
 
-This guide is for working on manimgx itself: its Python package, its Rust engine, its
+This guide is for working on ManimGX itself: its Python package, its Rust engine, its
 TypeScript browser package, its tests and these docs. It explains how the project works and
 how to work on it. How to propose a
 change (issues, pull requests, the use of AI) is in the
 [contributing guide](https://github.com/academa-labs/manimgx/blob/main/.github/CONTRIBUTING.md).
 
-This page takes a machine to a clone of manimgx that builds, checks, tests and serves the
+This page takes a machine to a clone of ManimGX that builds, checks, tests and serves the
 docs.
 
 ## Prerequisites
 
-manimgx is a Python package with an engine written in Rust. You need four tools; building
+ManimGX is a Python package with an engine written in Rust. You need four tools; building
 and testing it needs nothing else from your system: the engine builds x264 (with NASM, the
 assembler x264's x86-64 code is written for), FFmpeg's audio decoders and libopus from their
 sources, which its build fetches the first time (with `curl` and `tar`, which macOS, Linux and
@@ -19,7 +19,7 @@ Windows have), and the tests read and write video with PyAV, which brings FFmpeg
 its wheels.
 
 - **[`uv`](https://docs.astral.sh/uv/getting-started/installation/)**: the project
-  manager. It installs Python (3.13 or 3.14), every dependency, and manimgx itself,
+  manager. It installs Python (3.13 or 3.14), every dependency, and ManimGX itself,
   compiling its engine.
 - **[`just`](https://just.systems/man/en/packages.html)**: the command runner. The
   development tasks are recipes in the
@@ -54,15 +54,7 @@ sudo apt-get install libvulkan1 mesa-vulkan-drivers
 
 ### Manim Community Edition
 
-The integration corpus retains reviewed Manim Community Edition renders for comparison. The
-regular tests compare the frozen and current manimgx packages on the same host and do not need
-CE. Restore canonical movies from the [fixture
-release](https://github.com/academa-labs/manimgx/releases/tag/corpus-reference-377a0df) to
-inspect them; rerendering proposes a reference change. Rendering a new or changed scene with
-CE needs its dependency group: `uv sync --group ce` (`just sync` leaves it out again). Its
-bindings to Cairo and Pango build from source where they have no wheels (pycairo on macOS and
-Linux, ManimPango on Linux), so that needs those libraries: `brew install cairo pkg-config` on
-macOS, `apt-get install libcairo2-dev libpango1.0-dev pkg-config` on Debian or Ubuntu.
+The integration corpus retains reviewed Manim Community Edition renders for comparison. Regular tests compare the latest stable release and current ManimGX on the same host and do not need CE; before the first release, they check rendering and export. Local review movies can be restored from a backup and verified against their committed checksums, or regenerated with `just corpus render`. Changed pixels require a new review. Rendering a new or changed scene with CE needs its dependency group: `uv sync --group ce` (`just sync` leaves it out again). Its bindings to Cairo and Pango build from source where they have no wheels (pycairo on macOS and Linux, ManimPango on Linux), so that needs those libraries: `brew install cairo pkg-config` on macOS, `apt-get install libcairo2-dev libpango1.0-dev pkg-config` on Debian or Ubuntu.
 
 ## Setting up the development environment
 
@@ -123,7 +115,7 @@ lockfile as it is. Run anything else the same way (`uv run --frozen python …`)
   allow.
 - `just licenses`: write the wheels' third-party notice
   (`LICENSE-THIRD-PARTY`) after `Cargo.lock` changes, checking that
-  manimgx's `license` covers it.
+  ManimGX's `license` covers it.
 - `just format`: apply ruff's fixes and format the Python with ruff (the Python in the
   Markdown too), and the browser package with Prettier.
 - `just format-file <path>`: apply ruff's fixes and format with ruff, in one file or folder.
@@ -144,7 +136,7 @@ lockfile as it is. Run anything else the same way (`uv run --frozen python …`)
   [Testing](testing.md#coverage)).
 - `just combine-coverage <folder>`: one report from the coverage of several runs, as CI
   makes it.
-- `just bench [REF] [args]`: the timed benchmarks, this checkout against REF's manimgx, main
+- `just bench [REF] [args]`: the timed benchmarks, this checkout against REF's ManimGX, main
   unless named (see [Testing](testing.md#benchmarks)).
 - `just corpus <command>`: render, compare and review the integration corpus.
 - `just review`: the corpus's review panel, at <http://127.0.0.1:8000>.

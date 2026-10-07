@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:4a2e4d488d50a386cf6aeb62cff02a99c5a4564ea5208558588158170964193d",
-  "manimgx": "sha256:7c0279a8bf7e27e2679f90a0fe3fa43e88353cf054ab1ccde5bff795c012852e",
-  "ce": "sha256:5c4f83d5da4076566e43f98d92d9e289a9a70cfce7d92d7e557a49ceb28b6325",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 58: Inspected the key strip, semitone arcs, brace and tuning formula; one-level arc-end changes preserve spacing and the highlighted interval.",
+  "facts": "sha256:4ea2580b5255e2d32c8a3a21f44f2ec0b2ce2e18a9a8795e524ce22d37b9c2c5",
+  "at": "2026-10-06"
 }

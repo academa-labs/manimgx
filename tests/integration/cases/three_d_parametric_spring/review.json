@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:018c400adb4f3e5bddf1793181caae086e6de92d3a59c8c9e5b44e89deb816e8",
-  "manimgx": "sha256:99191bb50f68267138b0110b1e06b275bbc53cf686f34f51bbf4b82bf4c3c066",
-  "ce": "sha256:019d906e22a3f15f709908c9336e0a39b75b21d6a38e52aa5ab02c19676dce30",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected spring and axes with enlarged crossings. Two tiny overlap-coverage differences preserve coil spacing, shape and axis placement.",
+  "facts": "sha256:bba14465ba8da955fa7a27cc4bfc30b58b64ffc921fb20c913ad81298a08a911",
+  "at": "2026-10-06"
 }

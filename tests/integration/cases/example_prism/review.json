@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:4a6e718463605110ad7e1fd2d93368ed36ccd129fc71aa326843c7eda115217f",
-  "manimgx": "sha256:5120b6e9147d7a767470e6552de530dd0e593c60b8f9e80de86d204687f575c1",
-  "ce": "sha256:3482b6b42e8bae1a2055ed50ce5cc5d9df24acbd45d656ed3e3b19ea0461947b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected both intersecting transparent prisms and enlarged top edge; one-level boundary changes preserve dimensions, face overlap and colors.",
+  "facts": "sha256:0da1defa3b6f274af6ac1633c07dbf1e1fac110afbc2b4202ddc40f0dd13fefe",
+  "at": "2026-10-06"
 }

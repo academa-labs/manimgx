@@ -7,19 +7,19 @@
     "frames": [
       ["55525e01d06bf5c4", 1],
       ["d3486140cd770c31", 1],
-      ["41d8de2088d58633", 1],
+      ["657e736fc72578a2", 1],
       ["43890d46bc262123", 1],
       ["d8b89a20cd281558", 1],
-      ["26eee52cbcefad7a", 1],
+      ["40e38f9aab52127a", 1],
       ["f5eea2903b2d5f0c", 1],
-      ["d048ec9c303d2134", 1],
+      ["82afbdc1df7a4fef", 1],
       ["a8a988f1259e77c2", 1],
       ["0e10feaae4ba0707", 1],
       ["cb7ca1eefe077b34", 1],
       ["a752acde5f6a8892", 1],
-      ["f3d23f76bf0eeabb", 1],
+      ["81b2a2b010e73ce4", 1],
       ["59a9a6f76a83a9e4", 1],
-      ["3ec5dfae6af24683", 1],
+      ["a7dbd8547a955c3f", 1],
       ["90abe6b96872f00d", 1],
       ["1f4d65f71f109693", 1],
       ["46d15a3c5bd80002", 1],
@@ -30,7 +30,7 @@
     "timeline": [
       [0.0, 21]
     ],
-    "id": "sha256:876d5b6b06ff0ee7fac09fbeb2a619cd14145c49409aa86441a52a548b62a947"
+    "id": "sha256:216cbf5ce9e02ac304eb0f9b31ebb52db0bbfc3bbd2ff3d519dafd80e02e37af"
   },
   "ce": {
     "manim": "0.21.0",

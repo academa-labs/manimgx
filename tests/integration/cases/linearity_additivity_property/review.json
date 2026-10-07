@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:54b591e3cceb1e187801265db97e73cdde840ab329cdee9500160d89000afe7b",
-  "manimgx": "sha256:4ac1ec6640f18d8c916f6165c7b8d111e4c08c396960dd36d7e0e30e690f7b2e",
-  "ce": "sha256:7b5759a8cb050fc41236af4be08743f3046988d34eef2ca574c67146827ee749",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 30: The yellow-plus-cyan vector chain still ends at the green resultant on the same grid. Two samples change at the yellow tip junction.",
+  "facts": "sha256:f189f3f762418615a7b3d086f29650523ef073364e340f27a2cf9ba59524f30b",
+  "at": "2026-10-06"
 }

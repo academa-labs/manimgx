@@ -15,14 +15,14 @@
       ["67e27a0b2596e8ad", 1],
       ["a6eb45f4bdd7e6c3", 1],
       ["fdc6cb43214d0eef", 1],
-      ["5d6e16ed771115d1", 1],
+      ["3802e7c7f30e79a4", 1],
       ["5274affa1096a557", 1],
       ["3168c1aeb0ba07ea", 5]
     ],
     "timeline": [
       [0.0, 17]
     ],
-    "id": "sha256:a548ed42234c5f0a5cf208456195beaa3d100e5084d10623a80916bc5fc70694"
+    "id": "sha256:72da3b3d2fe57485bbbe7e7ea612c1e42fd9e035866a1c1c0cd40d18869e0990"
   },
   "ce": {
     "manim": "0.21.0",

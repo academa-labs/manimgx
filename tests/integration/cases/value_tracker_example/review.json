@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:9f555b7b11ea80a3ddf1209c2617a3f4f9e580b3b04289208616b7ebf572c7d4",
-  "manimgx": "sha256:a95ff6140b3562177eb88114259c596e8c87b4149056d7c945967e3336f2bb63",
-  "ce": "sha256:2b200fbf7d39c8c83ec39b7eeef0e91a8f03f219fbf488082b37358ef63e87d1",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 16: Number-line ticks and downward x marker preserve layout; two white arrowhead/shaft samples change.",
+  "facts": "sha256:2e99ef5c4d2f6f0c5732e09f71bf1e1c747f49beeb16bde0c21ad20dab66e46d",
+  "at": "2026-10-06"
 }

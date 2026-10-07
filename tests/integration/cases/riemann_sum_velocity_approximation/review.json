@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:989aea46ec68f91bb4f3c419023da846c1d309cfac08305b17430d5a2f58780a",
-  "manimgx": "sha256:11a17c688cb7af24092381a3b0c26904c8e1fe8dbb19233f379983f1dddf4c35",
-  "ce": "sha256:c47d2edda2955b2260b7deb35f0c27ae2cbccc7dcf36c3c3caa43ed11b418bdb",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 79: Inspected full Riemann rectangles and enlarged curve/rectangle tops. Tiny coverage changes at the common boundary preserve rectangle heights, curve continuity, axes and formula.",
+  "facts": "sha256:716cea792aa7e3e8da0c3989f90d6484989591b52fd85d65a36c39456df3ad24",
+  "at": "2026-10-06"
 }

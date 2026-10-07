@@ -26,8 +26,10 @@ JOBS = yaml.safe_load(
 )["jobs"]
 
 
+@pytest.mark.parametrize("autocrlf", ["false", "true", "input"])
 def test_complete_source_exports_the_committed_project_without_checkout_artifacts(
     tmp_path: Path,
+    autocrlf: str,
 ) -> None:
     checkout, output = tmp_path / "checkout", tmp_path / "source with spaces"
     checkout.mkdir()
@@ -36,14 +38,16 @@ def test_complete_source_exports_the_committed_project_without_checkout_artifact
         "-C",
         str(checkout),
         "-c",
-        "core.autocrlf=false",
-        "-c",
         "user.name=Source test",
         "-c",
         "user.email=source@example.invalid",
     ]
     subprocess.run([*git, "init", "--quiet"], check=True, capture_output=True)
+    subprocess.run(
+        [*git, "config", "core.autocrlf", autocrlf], check=True, capture_output=True
+    )
     inputs = {
+        ".gitattributes": (ROOT / ".gitattributes").read_bytes(),
         "scripts/release/build_lavapipe.sh": b"#!/bin/sh\nexit 0\n",
         "scripts/release/llvm/regression.ll": b"; compiler regression\n",
         "browser/src/index.ts": b"export {}\n",
@@ -59,6 +63,15 @@ def test_complete_source_exports_the_committed_project_without_checkout_artifact
         [*git, "commit", "--quiet", "-m", "Source"], check=True, capture_output=True
     )
     revision = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+    committed = {
+        name: subprocess.check_output([*git, "show", f"HEAD:{name}"]) for name in inputs
+    }
+    assert committed == inputs
+    # The same clean source may have different newline bytes in its working copy.
+    recipe = checkout / "scripts/release/build_lavapipe.sh"
+    recipe.write_bytes(
+        inputs["scripts/release/build_lavapipe.sh"].replace(b"\n", b"\r\n")
+    )
     (checkout / "untracked-binary").write_bytes(b"not source")
     command = [
         "just",
@@ -76,7 +89,7 @@ def test_complete_source_exports_the_committed_project_without_checkout_artifact
         *inputs,
         "SOURCE_COMMIT",
     }
-    assert {name: (output / name).read_bytes() for name in inputs} == inputs
+    assert {name: (output / name).read_bytes() for name in inputs} == committed
     assert (output / "SOURCE_COMMIT").read_text(encoding="utf-8").strip() == revision
     (checkout / "justfile").write_bytes(b"uncommitted recipe\n")
     failed = subprocess.run(command, check=False, capture_output=True, text=True)
@@ -118,28 +131,6 @@ def test_native_and_embedded_browser_builds_require_the_committed_cargo_lock() -
     assert '.args(["build", "--locked",' in build
 
 
-def test_windows_diagnostic_pairs_the_wheel_with_its_original_source() -> None:
-    job = yaml.safe_load(
-        (ROOT / ".github/workflows/windows-diagnostic.yaml").read_text(encoding="utf-8")
-    )["jobs"]["diagnose"]
-    steps = job["steps"]
-    source = next(step for step in steps if step.get("id") == "source")
-    checkout = next(
-        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
-    )
-    download = next(
-        step
-        for step in steps
-        if step.get("uses", "").startswith("actions/download-artifact@")
-    )
-    assert source["env"]["WHEEL_RUN"] == download["with"]["run-id"]
-    assert checkout["with"]["ref"] == "${{ steps.source.outputs.revision }}"
-    assert ".head_sha" in source["run"]
-    run = next(step for step in steps if "TEST_ARGS" in step.get("env", {}))
-    assert 'shlex.split(os.environ["TEST_ARGS"])' in run["run"]
-    assert "${{ inputs.testargs }}" not in run["run"]
-
-
 @pytest.mark.parametrize("package", ["manimgx-fonts", "manimgx-fonts-cjk"])
 def test_font_artifacts_contain_only_their_own_package(
     package: str, tmp_path: Path
@@ -173,33 +164,98 @@ def test_font_artifacts_contain_only_their_own_package(
     assert download["name"] == "${{ matrix.package }}"
 
 
-def test_engine_publisher_excludes_fonts_and_github_only_artifacts() -> None:
-    download = next(
+def _wheel_artifacts(workflow: str, dimension: str) -> dict[str, str]:
+    job = yaml.safe_load(
+        (ROOT / f".github/workflows/{workflow}.yaml").read_text(encoding="utf-8")
+    )["jobs"]["wheel"]
+    upload = next(
         step["with"]
-        for step in JOBS["pypi"]["steps"]
-        if step.get("uses", "").startswith("actions/download-artifact@")
+        for step in job["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+        and step["with"]["path"] == "dist/*.whl"
     )
-    # The download action's brace alternatives select artifact names, not filenames.
-    patterns = download["pattern"].strip("{}").split(",")
-    wheels = {
-        f"wheel-{entry['platform']}"
-        for entry in yaml.safe_load(
-            (ROOT / ".github/workflows/create-wheels.yaml").read_text(encoding="utf-8")
-        )["jobs"]["wheel"]["strategy"]["matrix"]["include"]
+    matrix = job["strategy"]["matrix"]
+    values = (
+        [entry[dimension] for entry in matrix["include"]]
+        if "include" in matrix
+        else matrix[dimension]
+    )
+    return {
+        value: upload["name"].replace(f"${{{{ matrix.{dimension} }}}}", value)
+        for value in values
     }
-    artifacts = wheels | {
-        "sdist",
-        "source",
-        "manimgx-fonts",
-        "manimgx-fonts-cjk",
-        "executable-linux-x86_64",
-    }
-    selected = {
+
+
+def _selected_artifacts(pattern: str, artifacts: set[str]) -> set[str]:
+    # These action selectors use brace alternatives over artifact names, not filenames.
+    return {
         artifact
         for artifact in artifacts
-        if any(fnmatchcase(artifact, pattern) for pattern in patterns)
+        if any(
+            fnmatchcase(artifact, choice) for choice in pattern.strip("{}").split(",")
+        )
     }
-    assert selected == wheels | {"sdist"}
+
+
+@pytest.mark.parametrize(
+    ("job", "other"),
+    [
+        ("pypi", {"sdist"}),
+        ("draft-release", {"sdist", "source", "executable-linux-x86_64", "npm"}),
+    ],
+)
+def test_release_publishers_exclude_test_wheels(job: str, other: set[str]) -> None:
+    download = next(
+        step["with"]
+        for step in JOBS[job]["steps"]
+        if step.get("uses", "").startswith("actions/download-artifact@")
+    )
+    wheels = set(_wheel_artifacts("create-wheels", "platform").values())
+    test_wheels = set(_wheel_artifacts("test", "os").values())
+    assert wheels.isdisjoint(test_wheels)
+    # A tag calls both producers in one run. Manual release dry runs omit Test.
+    artifacts = (
+        wheels
+        | test_wheels
+        | {
+            "sdist",
+            "source",
+            "manimgx-fonts",
+            "manimgx-fonts-cjk",
+            "executable-linux-x86_64",
+            "npm",
+        }
+    )
+    assert _selected_artifacts(download["pattern"], artifacts) == wheels | other
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job", "dimension"),
+    [
+        ("create-executables", "executable", "platform"),
+        ("release", "docker-build", "wheel"),
+    ],
+)
+def test_platform_consumers_use_their_release_wheel(
+    workflow: str, job: str, dimension: str
+) -> None:
+    consumer = yaml.safe_load(
+        (ROOT / f".github/workflows/{workflow}.yaml").read_text(encoding="utf-8")
+    )["jobs"][job]
+    download = next(
+        step["with"]
+        for step in consumer["steps"]
+        if step.get("uses", "").startswith("actions/download-artifact@")
+    )
+    wheels = _wheel_artifacts("create-wheels", "platform")
+    artifacts = set(wheels.values()) | set(_wheel_artifacts("test", "os").values())
+    for entry in consumer["strategy"]["matrix"]["include"]:
+        value = entry[dimension]
+        selector = download.get("name", download.get("pattern")).replace(
+            f"${{{{ matrix.{dimension} }}}}", value
+        )
+        platform = f"linux-{value}" if job == "docker-build" else value
+        assert _selected_artifacts(selector, artifacts) == {wheels[platform]}
 
 
 def test_consumers_wait_for_the_font_packages() -> None:

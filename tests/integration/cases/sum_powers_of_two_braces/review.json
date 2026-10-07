@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:69ce07291682a2f95c8ec06194b67abbcead046d4e4d6a9570da773de9d568d4",
-  "manimgx": "sha256:c3a1c700b9565448a9485bc27009407a683513c1854a16609df3bd0bc265f096",
-  "ce": "sha256:d25687a0c6f079fbb7fe38757b4cb22e3de878aa71828c8c9a440ab850109740",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 6: Inspected the early sum expression and enlarged numerals and operators; the one-pixel edge adjustment preserves the expression and spacing.",
+  "facts": "sha256:61173abf80b7a7e647ff87dd78850438dca7e213d652b3a5803db69cd3c019c3",
+  "at": "2026-10-06"
 }

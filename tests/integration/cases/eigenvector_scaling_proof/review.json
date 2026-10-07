@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3bc27d71979108380275f32253fdc2c04a30087ddc5367c2e004bf2c8067543c",
-  "manimgx": "sha256:ce42d46b53f02a34341c3789b76c8f795418cfcf871c4b346010fed4283a3e8c",
-  "ce": "sha256:845ba5f1b92868d76fdf0881171411a9f16ce20f650b32dab85b481cff92eb41",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 45: Yellow eigenline, green vector and grid remain collinear; local changes at the green arrowhead/shaft contact.",
+  "facts": "sha256:2bfbef7914d630ef026ad9bbaa4e9af9fa3a4761c74fbd059540fad37b0454b0",
+  "at": "2026-10-06"
 }

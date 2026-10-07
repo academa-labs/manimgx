@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:802998bd9407fc6d9ed257fb2bbdbc334657b3fe9cac3e3abbb98b2b90f7c8ee",
-  "manimgx": "sha256:58c1b9451ddf9195317c68d930e5a5fcb6600a0fed46b557defd4cb3dfe966ff",
-  "ce": "sha256:834a3cb37c1c7d1247da549e096f5835d0cba95b777042c4a4cfdc0e41aedb0c",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 62: Inspected both full frames and enlarged yellow sin expression. One edge pixel changes at the glyph baseline; equation structure, colors and placement remain intact.",
+  "facts": "sha256:d13226820240e5149ec489d2c469ec4cece25db90a849514ade10f705a0cfdc4",
+  "at": "2026-10-06"
 }

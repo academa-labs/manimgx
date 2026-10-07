@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:6fc4c06cfffbf392abd46acb07010a6c5baf9a7850e39d7ee8bedfe06463ee0a",
-  "manimgx": "sha256:169a3c233d47f756845f143c88213d904f88a0a2d0d3717d6e82ef4cf7df148d",
-  "ce": "sha256:251fe12e38ea2e5827a816bd29622423bdadfb463f7929a3259bfd7572b3af91",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 19: Inspected labeled triangle and enlarged lower vertex. Two corner-edge differences preserve triangle geometry and x/y/z labels.",
+  "facts": "sha256:67535715ba3471c4f12bc5fcc4c4baec06ce6fbe38c86c9efb4d45f689a1537c",
+  "at": "2026-10-06"
 }

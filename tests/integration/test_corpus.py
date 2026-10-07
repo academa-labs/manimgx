@@ -2,23 +2,25 @@
 
 1. `test_same_source`: both references were rendered from this exact `scene.py`, which is the
    case's only code and reaches the engine only through `manimgx`'s top level (and its types,
-   `manimgx.typing`) — so CE and manimgx ran the same program.
-2. `test_types`: the scene is type safe as written for manimgx — `ty` with every rule, no
-   escape from the checker, and no value manimgx leaves `Any` or `Unknown`.
-3. `test_regression`: the scene renders and the product exports it; today's manimgx holds
-   exactly to its frozen authoring package on this host, including every pixel, frame and
-   time, regardless of CE's result or the case's review status.
+   `manimgx.typing`) — so CE and ManimGX ran the same program.
+2. `test_types`: the scene is type safe as written for ManimGX — `ty` with every rule, no
+   escape from the checker, and no value ManimGX leaves `Any` or `Unknown`.
+3. `test_regression`: the scene renders and the product exports it; today's ManimGX holds
+   exactly to the latest stable release on this host, including every pixel, frame and
+   time, regardless of CE's result or the case's review status. Before the first release,
+   rendering and export are checked without a release comparison.
 
 This module only checks. `python -m tests.integration.corpus` renders and reviews.
 """
 
 import ast
+import os
 import re
 import shutil
 from pathlib import Path
 
 import pytest
-from tests.integration.corpus import baseline, typecheck
+from tests.integration.corpus import release, typecheck
 from tests.integration.corpus.case import (
     FPS,
     SIZE,
@@ -94,15 +96,17 @@ def test_types(case: Case, type_report: typecheck.TypeReport) -> None:
 
 
 @pytest.fixture(scope="session")
-def references(tmp_path_factory: pytest.TempPathFactory) -> baseline.References:
-    return baseline.References(
-        baseline.Catalog.load(), tmp_path_factory.mktemp("reference-packages")
+def references(tmp_path_factory: pytest.TempPathFactory) -> release.References:
+    manifest = os.environ.get("MANIMGX_CORPUS_RELEASE")
+    reference = (
+        release.Release.read(Path(manifest)) if manifest else release.Release.latest()
     )
+    return release.References(reference, tmp_path_factory.mktemp("reference-packages"))
 
 
 @pytest.mark.parametrize("case", CASES, ids=IDS)
 @pytest.mark.timeout(0)  # engines.run owns each child's deadline and kills/reaps it.
-def test_regression(case: Case, references: baseline.References) -> None:
+def test_regression(case: Case, references: release.References) -> None:
     output = DIFFS / case.name
     try:
         result = references.compare(case, output)
@@ -117,7 +121,7 @@ def test_regression(case: Case, references: baseline.References) -> None:
         changed = sum(d.repeat for d in changes)
         worst = max(changes, key=lambda d: d.max_channel_difference)
         pytest.fail(
-            f"{case.name}: {changed} frames differ from the frozen package on this host; "
+            f"{case.name}: {changed} frames differ from the released package on this host; "
             f"first {changes[0].first}, last {changes[-1].first + changes[-1].repeat - 1}; "
             f"maximum RGB difference {worst.max_channel_difference} at frame {worst.first}; "
             f"evidence: {output}",

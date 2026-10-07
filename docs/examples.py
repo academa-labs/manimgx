@@ -32,7 +32,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import cache, cached_property
-from pathlib import Path
+from pathlib import Path, PurePath
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, cast
 
@@ -182,9 +182,9 @@ def _name(node: ast.expr) -> str:
     return node.id if isinstance(node, ast.Name) else ""
 
 
-def blocks(text: str, path: Path, line: int = 1) -> list[Example]:
+def blocks(text: str, path: PurePath, line: int = 1) -> list[Example]:
     """The Python blocks of a text written in a file (from a given line of it)."""
-    where = path.relative_to(DOCS.parent)
+    where = path.relative_to(DOCS.parent).as_posix()
     return [
         Example(
             textwrap.dedent(match["code"]),

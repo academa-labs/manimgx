@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:2839722c1e5d1af4119ed319806d8c84ae0dfd9bf0b0ffebf8d83cc47b4aa5f6",
-  "manimgx": "sha256:74796623b493a207736f33eb4d3c8766f75a68f0ae884373543c7b1b5d065ee9",
-  "ce": "sha256:47691ac88b0ae02e1e6e466ee297c127bc853e8de1cfe6aa3a1c03c469c31796",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Both sine-shaped strokes preserve shape, width and gradient. Enlarged red stroke has less visible periodic dark seam modulation after correction; the difference follows its edge rather than moving the curve.",
+  "facts": "sha256:84b47782831f5dfecf808cf2feb99f6977807a2bdb6f7df9ff16204879da8920",
+  "at": "2026-10-06"
 }

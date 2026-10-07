@@ -1,8 +1,6 @@
 {
   "verdict": "working",
   "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels.",
-  "source": "sha256:16f0cdf806ffb6870467ff929efc84af816b8f6b096465eecd056e22079d2914",
-  "manimgx": "sha256:9132b6ccada2d8c51977b1526c5f018e4f6635752004b0d139386ecd90521fc1",
-  "ce": "sha256:feed887bc26ebc02493e4967aaa814fd7a4c01dc46d910d3a9de0778746e3f89",
+  "facts": "sha256:0f39e18fd79660f8db80b8924202ea8f6ed79d5af6553206af74542e58a0ef68",
   "at": "2026-10-06"
 }

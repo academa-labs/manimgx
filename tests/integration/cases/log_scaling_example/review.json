@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:16bef128739ee4249d587666c38a6cc1e747e576e819f408274e14de67dd06b9",
-  "manimgx": "sha256:1ef87be56bd09531f28607d784cb7ea6d4608203dabfa66c4ca7dd6ccaa8d1b3",
-  "ce": "sha256:fc02a894221512eda2ad90cdbd43a7ae6f7e0ca71889d156f6d55186e010ccc7",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected the logarithmic-axis plot and enlarged lower crossing; two one-level overlap changes preserve tick values, curve and axes.",
+  "facts": "sha256:1dbc8113a5188130a06293fb277c014ac0ec428275590cdb32273ffa33fe89b0",
+  "at": "2026-10-06"
 }

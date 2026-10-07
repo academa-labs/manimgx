@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:afc0acf1948f3ea659f66b47018c37869370d8f6d0c9688b2287827f1a47623e",
-  "manimgx": "sha256:fe5cd3ff6092ae78fdb21d39a97c37935cd666ef44f7c04adb7f8e0c076286dd",
-  "ce": "sha256:fe8b9a4da0ecc3c871cda31d60cef5660dbba3a64a97acc2ebcda86363666dc7",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: Inspected the early pendulum title and enlarged letters; the isolated white edge pixel preserves title shape and placement.",
+  "facts": "sha256:6526887b254f83d0f670f917b9fed5a8ca4921850ae6cdd9e4a318f999089dc1",
+  "at": "2026-10-06"
 }

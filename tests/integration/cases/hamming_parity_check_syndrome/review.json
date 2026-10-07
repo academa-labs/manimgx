@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:df4f83ff325ef9ff42bcf0b421372151fa0bbcdc616aa3adae13d00a2252e67b",
-  "manimgx": "sha256:2751a7b7e5fe8f0499f2588b5ed4a7d9a8f9e8dca5a06e79b0b86b1b39bf7a6f",
-  "ce": "sha256:4705581e8d5b9c6bff8d9dde65fe1395c3de63e69c4fd7d06b2f01de9e84d879",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 29: Inspected the title, seven bit circles and parity indices; the single red-index pixel adjustment preserves all labels and diagram positions.",
+  "facts": "sha256:d07675529ff7fea76503431dd50b604492e19811c0e0ff207a9621daeab72541",
+  "at": "2026-10-06"
 }

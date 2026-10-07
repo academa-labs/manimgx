@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f9a3e6e0f516df0e1603c39e2d339902eb99f9fdc493170010e971a681688ccd",
-  "manimgx": "sha256:fbdcda4c6d97aef7b7197d87e1bc9984efbda71ea2e06bbcc3e328fae1a72ed2",
-  "ce": "sha256:271c293c02cac702df68b5d03e81220a83ceeae693808474615d8dacd4a28197",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 57: Inspected ellipse on grid and enlarged top tangent region. Four small overlap-coverage changes preserve ellipse dimensions, continuous outline, axes and title.",
+  "facts": "sha256:78d9be1012cc3df2e22946f565d584bdf00bc5720573f5862e6ac45dc0c54a75",
+  "at": "2026-10-06"
 }

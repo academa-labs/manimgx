@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:38b7af5d7c728a84e89220af11b584ef1571bae94acae92e10365bb829cc5df3",
-  "manimgx": "sha256:75ed4400aaf4a5a8e03dc2b001ad9b38e15393c2a2eaf881fc3cb7aa5fbf3954",
-  "ce": "sha256:cdab70262d686f5950bbe4164087c059327388d4cbe2d681562dba0b4110a6b4",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 6: Inspected office fish and enlarged colored ffi strokes; the isolated one-level boundary change preserves ligature shape, individual colors and spacing.",
+  "facts": "sha256:ea86ff15193a537eee27ebc96d3060289de4e8fb11b6c2c50a769a0d1532918a",
+  "at": "2026-10-06"
 }

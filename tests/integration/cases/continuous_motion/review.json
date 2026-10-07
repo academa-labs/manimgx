@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:15a64dd9dc11f7798d19d19edbae9a7a5d29688819b3886148cce4ec27da2bf2",
-  "manimgx": "sha256:ec42f0d1f904e52aee7dd8a1acb263fd3b59036cc3ea41d1c4cc4c9fde2b24eb",
-  "ce": "sha256:e1f2437180e350891f9261cfe2a30b9a357ec6109dff8dba18d147fe3df24abf",
-  "at": "2026-10-04"
+  "note": "Reviewed final combined-package frames 0, 5, 10, 15 and 20 beside the held area render and the previously accepted StreamLines correction. The intended phase produces evenly flowing colored segments and the loop returns to its starting arrangement. The final movie preserves the accepted correction; its remaining 56 changed pixel events differ by one channel level and are consistent with the independently reviewed exact-area correction.",
+  "facts": "sha256:5ad428979bd66607e672fc90a7c1fd60969e0f2cd8c59bbd3fb18da000dd7fc1",
+  "at": "2026-10-06"
 }

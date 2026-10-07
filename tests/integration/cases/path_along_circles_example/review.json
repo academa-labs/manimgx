@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:6af5afa5776af8b817746d1a793b77e8f54e6c60d5fd7013bfb8f0398227b3a4",
-  "manimgx": "sha256:c96ccfdc92a8c03d8132ca43225deb8c705a2f38585e408a591b9e97ff9c6431",
-  "ce": "sha256:b881dc59377019ffa69648f630cc9f58af2583f4f0aa3934783f4f6795373b73",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 33: Inspected colored circular paths and tracking dots, including enlarged near-overlapping arcs. Tiny coverage changes preserve arc trajectories, separation and dot positions.",
+  "facts": "sha256:fdf9b656be8e2f5b9ada446f5e8e0f86b4ab57d95786c6999c8aaa304ce5bbcc",
+  "at": "2026-10-06"
 }

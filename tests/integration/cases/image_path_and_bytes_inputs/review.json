@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:ab0d1f6c80102829f9c6ddaffa8a272d313ef843d4b2b77353db365f6af3d28c",
-  "manimgx": "sha256:a548ed42234c5f0a5cf208456195beaa3d100e5084d10623a80916bc5fc70694",
-  "ce": "sha256:3ee1972baffabd613b9d3664ca69b2626581f150a90af26995afc0b6810ee1d1",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: Inspected both tilted gradient images, borders and labels; the isolated one-level border-label overlap preserves gradients, framing and layout.",
+  "facts": "sha256:f3582ce4383433640fc0489c40a5fd154659ba880cb17d538e21d95485df626c",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
   "note": "",
-  "source": "sha256:3af189b8e4da482f484d8e445e73437ff31a07aaf6dce2eac779e4f6d6a9ecec",
-  "manimgx": "sha256:611cc9f1ec540c77468c5d01e685e4d268a85d0aa7dfdbdcb9d744c4d664c527",
-  "ce": "sha256:a1d7d1c2c241256564165950edc64d9f255ab73c8bb9822e10796186153bde44",
+  "facts": "sha256:3d776e7c7a820ec91b6bbecd5e6e52bbafd27f048b14b12b485d1bd93c7cf0a8",
   "at": "2026-10-04"
 }

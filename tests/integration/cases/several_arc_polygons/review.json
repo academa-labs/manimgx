@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:2e53b5f409a7bc5303674ac4ddff34fd3411323208fd1af3b60379bb838a9dd5",
-  "manimgx": "sha256:1587c77d0294edbc6e7a59494ef4ef5e36c4244dd4ae6efb766dfa55612a4a5b",
-  "ce": "sha256:bd02f245dcde2b7c87189301a9385fc348bb3dbdb773084375af3501991d4588",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: All four curved polygon silhouettes, corners and colored fill boundaries are preserved. The enlarged white corner remains continuous with only coverage-level edge differences.",
+  "facts": "sha256:eb92f756a0f2a378b8a5ae40cc923da9756983937a8d7adf200c56b5eddd738f",
+  "at": "2026-10-06"
 }

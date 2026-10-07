@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:dc0b245c3cb8b253759eb70f7ecffa9e1ff5de8cddc2143946fb2ea142d1bf63",
-  "manimgx": "sha256:fdecd1783d0210d036becc07afd3bd367abbc5917ac42b9cbed0bcf9bfedab24",
-  "ce": "sha256:96c418b4f55573bd6f7e6b5b29e725a5b2db818281b5cdc36655c6c5e72f4d2b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 56: Inspected colored square rearrangement and enlarged central junction. Small boundary differences preserve component geometry, transparent fills and shared vertex alignment.",
+  "facts": "sha256:d27e9e6e310842cf25e81f388a9da763c2e9caa9fed9df8035a1fa03179818b9",
+  "at": "2026-10-06"
 }

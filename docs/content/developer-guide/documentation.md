@@ -104,6 +104,28 @@ A section's own page (`index.md`) is a page like the others, listed first in its
 Welcome, this guide's Setup, a reference level's Overview. `navigation.indexes`, which would
 make it the section's title instead and leave it out of the sidebar, is off.
 
+The desktop sidebars use native sticky containment, in
+[`stylesheets/sidebars.css`](https://github.com/academa-labs/manimgx/blob/main/docs/content/stylesheets/sidebars.css).
+Their boxes have real height and their contents scroll within the viewport, so the browser
+keeps them above the footer even if JavaScript stops. Zensical otherwise gives each parent
+zero height and sizes its child with JavaScript: a failed link preview clears that height,
+and a short viewport can leave it stale. The stylesheet deliberately overrides those inline
+height writes. The theme still owns navigation, previews, and mobile controls.
+
+This is a layout fix; it does not recover Zensical's other components after a preview error.
+Its only theme geometry assumptions are the modern theme's desktop breakpoints, 2.4rem
+header, and 1.1rem sidebar padding. Revisit these if enabling sticky tabs or changing the
+header. `docs/tests/sidebars.spec.js` checks the built site in Chromium, Firefox, and WebKit,
+including failed previews, unavailable JavaScript, resizing, instant navigation, and mobile
+controls. CI runs it before publishing. Locally, after `just build-docs-pages`:
+
+```sh
+cd docs
+bun install --frozen-lockfile
+bunx playwright install chromium firefox webkit
+bun run test
+```
+
 ## Welcome: the home page
 
 [`docs/content/index.md`](https://github.com/academa-labs/manimgx/blob/main/docs/content/index.md),

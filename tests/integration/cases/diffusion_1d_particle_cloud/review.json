@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:d71a59a6016c697cf4a758acca230975bc0832a7d454f51490bb44c149589b31",
-  "manimgx": "sha256:ef45120e874c245ca35658e9dc5e3129ef89c5bfb4f5779ce4f7ca41c6aec4e5",
-  "ce": "sha256:f69ec8d33df9890035a2c3275908dc237ae6a9bed7873c37cafd3f53b91ccdb8",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 24: Yellow particle positions and numbered axis are unchanged; two local dot-edge/contact coverage samples differ.",
+  "facts": "sha256:8681e4800ac20188cd921c09936b09bee4277918c1b7d43c71b91e42bf38af61",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:5e8e94b36fe0f72a546eba4e06ee59d11cdd71cb1333856c76aa27836a187b33",
-  "manimgx": "sha256:19d39f1070195a56138764f46279d1789f6b00d40492ab4f25af536f73fd5e7d",
-  "ce": "sha256:a2f710554657a8632cdc3a7d08f69290a20e1978b7439efdd841a5c62fc793d9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 7: Inspected partial Windmill title and enlarged letters. Small serif/baseline coverage changes preserve letter shapes and position; no other pictured content changes.",
+  "facts": "sha256:d0f061ec92a3dec1a00a5ac735df3536f678c74111b889a40d034d5e59eee333",
+  "at": "2026-10-06"
 }

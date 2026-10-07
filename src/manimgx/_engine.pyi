@@ -238,12 +238,17 @@ def cache_directory() -> Path | None:
     """The current user's cache root, or the browser's private filesystem; None disables it."""
 
 def typeset(
-    source: str, font_paths: Sequence[str], packages: str | None = None
+    source: str,
+    font_paths: Sequence[str],
+    packages: str | None = None,
+    *,
+    revision: int = 0,
 ) -> tuple[bytes, list[bytes], list[tuple[str, list[int]]], bool]:
     """Typeset `source` (Typst): its items as float64 rows of 23 (kind, key, placement a b c d e f,
     fill rgba, stroke rgba, stroke width, advance, node start, end, drawn start, end, node kind),
     its shapes' cubic points (float64 x y z), its labelled groups (a label and the items inside
-    it) and whether it needed the system's fonts."""
+    it) and whether it needed the system's fonts. `revision` identifies the caller's font and
+    package dependencies; a changed revision replaces the setup remembered for those paths."""
 
 def glyph_outlines(keys: Sequence[int]) -> list[bytes]:
     """Each key's outline as cubic points (float64 x y z, font units, y up); empty: blank."""

@@ -177,7 +177,8 @@ filterwarnings = ["error"]
 # the shared `tests.strategies`); test modules are imported by path, so unit/ may repeat a name
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = ["-ra", "--import-mode=importlib"]
+# Workers finishing short tests can take queued renders from a busy worker.
+addopts = ["-ra", "--import-mode=importlib", "--dist=worksteal"]
 # a hung test fails with its traceback (Hypothesis explores degenerate geometry)
 timeout = "300"
 

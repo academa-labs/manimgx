@@ -12,7 +12,7 @@
       ["900fc7cc005c6669", 1],
       ["3c678a2f88e278c4", 1],
       ["fd179346d01d2c4a", 1],
-      ["0c85ed1e771bde57", 1],
+      ["a05db6a8fc43626b", 1],
       ["69d98cd02ae494d3", 1],
       ["ad181becf8600a5c", 1],
       ["2e842802bccef91c", 1]
@@ -20,7 +20,7 @@
     "timeline": [
       [0.0, 11]
     ],
-    "id": "sha256:1b95adff739b0a09a70f6bc1b765ff1353c890630babeb6bcaa7b68aa449924c"
+    "id": "sha256:9210ab2bca479806e2385b89183dcd8fdbf61617ce13933ec554b674bca714a6"
   },
   "ce": {
     "manim": "0.21.0",

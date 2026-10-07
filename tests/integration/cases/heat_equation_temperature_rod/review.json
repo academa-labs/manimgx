@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3a4186f16b415d563f16ebdcf7605c2c9eacad7421d4f67fa347071ba906b6cc",
-  "manimgx": "sha256:fbada5b79ea8191ff22ccbbd8ba5ae9f8d5c99e32dd02d3b08376525c701cb87",
-  "ce": "sha256:da0b184df26a0fc0adcc7d892c865219a48a86340a828c88ce1fdc14e75afbd8",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 20: Inspected temperature curve and enlarged near-axis tail. Sparse coverage changes at curve/axis overlaps preserve Gaussian shape, axes and title.",
+  "facts": "sha256:2676f176327b9026070c3ce5a52265041381c08fecc36284d2b6eb88d73d08e9",
+  "at": "2026-10-06"
 }

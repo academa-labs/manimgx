@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:a51d512bedad743a4db4619fc99dde18d3f611ccd78a8cd67fb51318c79a4765",
-  "manimgx": "sha256:23b5fdf1b520b6660dd6e5844634a833d50e1040c32189ef617a412299f1588b",
-  "ce": "sha256:581bedda22cc33917b19cd91569e7888ad162c223bc309c8e32ad1c73e385da3",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 25: Inspected the title, early axes and enlarged cyan derivative formula; the isolated glyph-edge adjustment preserves notation and positions.",
+  "facts": "sha256:d0b14e578037801e198c08b9c9bf4e42b64c012661481273d46ce169db15194b",
+  "at": "2026-10-06"
 }

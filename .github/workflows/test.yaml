@@ -1,5 +1,5 @@
 # The checks every change must pass: the pre-commit checks, and the tests on each OS and Python
-# manimgx supports. Their coverage is combined into one report on Cloudflare: main's at
+# ManimGX supports. Their coverage is combined into one report on Cloudflare: main's at
 # https://coverage.manimgx.academa.ai, a pull request's on its preview URL, and each commit's
 # linked from its "coverage" status. A tagged release requires these checks before publication.
 
@@ -147,7 +147,8 @@ jobs:
         os: [ubuntu-24.04, macos-26, windows-2025]
         python-version: ["3.13", "3.14"]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    # Leave room for software GPU throughput; individual tests have their own watchdog.
+    timeout-minutes: 180
     permissions:
       contents: read
     defaults:
@@ -192,12 +193,16 @@ jobs:
         id: runtime
         run: uv run --frozen --no-sync python -m scripts.release.smoke_test
 
-      - name: Acquire the verified corpus baseline
-        run: uv run --frozen --no-sync python -m tests.integration.corpus baseline acquire
+      - name: Acquire the latest stable release for corpus comparison
+        run: uv run --frozen --no-sync python -m tests.integration.corpus.release .cache/corpus/release.json
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Test
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
-        run: just test-coverage
+        run: just test-coverage -v
+        env:
+          MANIMGX_CORPUS_RELEASE: .cache/corpus/release.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -212,7 +217,10 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: rendering-${{ matrix.os }}-python${{ matrix.python-version }}
-          path: tests/integration/_diffs/
+          path: |
+            tests/integration/_diffs/
+            .cache/corpus/release.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -270,7 +278,7 @@ jobs:
           UV_NO_SYNC: "1"
 
       - name: Report unavailable coverage
-        if: ${{ hashFiles('coverage/.coverage.*') == '' }}
+        if: steps.combine.outcome == 'skipped'
         run: echo "Coverage unavailable because no test job produced data." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

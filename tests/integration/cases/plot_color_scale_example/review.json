@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:62317482e0c0105dcd45c23f6c304e2970bf46ddf1988ed4a6e613058185a63d",
-  "manimgx": "sha256:0b18c1d997d03999d2e257a15200366bb9013d39f761218f0471ef1588ad896f",
-  "ce": "sha256:1a52c865761ea2bc40e9164cfef5cab5a433963f12bfe47ea938ca0659d12cc1",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: All three colored plots and tick marks remain aligned; tiny changes occur where the steep curve crosses horizontal ticks.",
+  "facts": "sha256:34793daae7553f24ab377bee935df8e7d5e1be1f645033d87aedadc2df6d2cd0",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f53185b8aa0886f6d54e880541e1a261395a8c77f7fdefccfc96651fb9848b9d",
-  "manimgx": "sha256:a070e8da1ae8dd43e96f30ef3f29ffc0d6611f6f0baf4c26ed7940ab417d468a",
-  "ce": "sha256:b12475e4ca860f4aa8f5093a4caa1eecb399f88ce13019afb4ab40371cf9ac1f",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: Inspected partial compound-interest title and enlarged letters. Sparse glyph-edge changes preserve typography, position and reveal state.",
+  "facts": "sha256:6bafdf4aa8e62c9e95505351180075ca9ff2d024e733cc89ab9af69be74c8532",
+  "at": "2026-10-06"
 }

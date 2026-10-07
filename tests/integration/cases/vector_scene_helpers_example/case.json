@@ -11,10 +11,10 @@
       ["f197dd63214d92b9", 1],
       ["4f8496f50fcee0cf", 1],
       ["51eccb10f958b447", 1],
-      ["7205449baebbbbc1", 1],
+      ["ae857741bf22e5ce", 1],
       ["80de041b57e16cc1", 1],
       ["9a9d81c1d7f05aee", 1],
-      ["1444c2a1c7d5a5b6", 1],
+      ["96bcd5bf6611b459", 1],
       ["a8050b29d6b2534c", 1],
       ["f387ca7995ef5a55", 1],
       ["e8d1da61ed956692", 1],
@@ -30,7 +30,7 @@
     "timeline": [
       [0.0, 26]
     ],
-    "id": "sha256:8de00b7fdf74be66c564506a40de82b7d2ab370f16fb9a566b8ad78c9086d9be"
+    "id": "sha256:99dffb190e7efae18bdeca549abb1e71329b6ad6573106ab60ab47fa7e3f2282"
   },
   "ce": {
     "manim": "0.21.0",

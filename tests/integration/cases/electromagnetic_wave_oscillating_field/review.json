@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3554fc870b1cbbf3f42ff2bea34fcb4ddc575b986aa24797d5052c176127f60c",
-  "manimgx": "sha256:e31a418575b545f7ea385d1231677dff3cc94ea1612866b93d349bd3761892f0",
-  "ce": "sha256:6e9eff3e2dddfd85461800c9f6f34311c78ce6bc64d7f5666a83b9e2677ccbca",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Yellow and cyan perpendicular field marks, white axes and caption are intact; difference is a sparse axis/tick contact.",
+  "facts": "sha256:84ad57df1cb3b1174c0bdd90062abf3f14d72bbcf4cda28943eab5428fb004e9",
+  "at": "2026-10-06"
 }

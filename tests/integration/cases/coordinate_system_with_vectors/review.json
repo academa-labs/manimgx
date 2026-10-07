@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:df5ce0cf70c5f93282a1c4485fbf466c9de7e1c3d0a0e150f9c026b7ed1259d5",
-  "manimgx": "sha256:b88ece89426be7648393e085e8fed958bbf4506533b09701aeaf5d600da5b8be",
-  "ce": "sha256:52fc33d08472b88322e75d1fbc810ac47007d6d77d42858e55e5c8b1b492f6f4",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 43: Inspected vector coordinates and enlarged arrowhead/grid crossing. Sparse overlap-edge changes preserve endpoint (3,2), guides, labels and arrow direction.",
+  "facts": "sha256:f2bb45d3b9f97db4fe69d64816c74b2eb90278a2747729a98277b1aad5948f7b",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:cd42b60ef04311838a40383003b687585e00e25bcfb345c59353f7c4ae7503ee",
-  "manimgx": "sha256:db3bba5a2ca35aa4dc36f4ab60ce36a1d1f6f8a0a98fa41fd89af92d74ba60cd",
-  "ce": "sha256:b7b69ab86e20990c56443e9255aaff6f016ae1bda5a621deb59d679b2ed7c781",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 68: Inspected complex-plane construction and enlarged angle, radius and baseline. Small boundary-coverage changes occur along the baseline and angle label; the geometric construction and text are preserved.",
+  "facts": "sha256:b7a2b064f81a907a5482f18c9e00b0b3d3b4cea88aa06a11300d46575e767ed6",
+  "at": "2026-10-06"
 }

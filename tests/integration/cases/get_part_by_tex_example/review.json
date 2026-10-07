@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:eebe34209e82db37b4a40298cc2b609e5c45b476e658bffbc66bb62c8ab67438",
-  "manimgx": "sha256:5d769aaca2f58c7c2771ca2c64fc23ec8bc1aa54ae6abc8c4bc131c7027fd69e",
-  "ce": "sha256:3f809f54f1a5886471dbb818ec20cb6edee1e4a9ef0cbc61e28ed93a6bf604f5",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 7: Inspected the Pythagorean expression and enlarged red b-squared; the single glyph-edge change preserves the selected term, color and equation spacing.",
+  "facts": "sha256:284045afee7b98ca8d0dba41f77f6a3a8564241ed3f300ba443831ed20b3f637",
+  "at": "2026-10-06"
 }

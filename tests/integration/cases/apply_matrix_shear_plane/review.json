@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "Sampled the canonical frames: the grid and arrow undergo the same shear; the arrow ends at (2, 1).",
-  "source": "sha256:9536ab0b9a5f940c7e35fdb03233cd894457b19ad8de78be2d8598e5265c81d9",
-  "manimgx": "sha256:ea96b1771745380d6bee0042649687d84704ac7e22f19edf091a3cca3d07c89a",
-  "ce": "sha256:9bd3993db8101738873aab104bde42031831b35166e0f2062fa07b7b3e24441f",
-  "at": "2026-10-05"
+  "note": "Sampled the canonical frames: the grid and arrow undergo the same shear; the arrow ends at (2, 1).\n\nReviewed the exact-area raster correction at frame 30: Sheared grid and diagonal yellow vector remain aligned with unchanged endpoints; one boundary pixel changes near its arrowhead.",
+  "facts": "sha256:7e0d4348a4f84eb381741b3256f9421db04bc65b058aa0065d4c04dc1b15e6e0",
+  "at": "2026-10-06"
 }

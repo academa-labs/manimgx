@@ -34,7 +34,9 @@ def test_the_video_shows_the_frames_drawn(tmp_path: Path) -> None:
         pixels = np.frombuffer(frame.pixels(), np.uint8).reshape(SIZE[1], SIZE[0], 4)
         drawn.append(pixels[:, :, :3].astype(int))
 
-    Filled().render(tmp_path / "filled.mp4", frames=sink)
+    # Minimize compression loss: this bounds color conversion, independently of the
+    # size/quality tradeoff chosen by the default encoder policy in test_encoding.
+    Filled().render(tmp_path / "filled.mp4", frames=sink, preset="ultrafast", crf=1)
     shown = [frame.astype(int) for frame in decode(tmp_path / "filled.mp4", SIZE)]
     assert len(shown) == len(drawn)  # a held frame is one picture that lasts
     for picture, frame in zip(shown, drawn, strict=True):

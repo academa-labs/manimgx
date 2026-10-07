@@ -1493,3 +1493,91 @@ pub(crate) enum Out<'a> {
     /// at each pixel, where nearer, the depth of the nearest opaque layer of the plan that covers it.
     Opaque(&'a wgpu::TextureView),
 }
+#[cfg(test)]
+mod area_contract {
+    use super::*;
+
+    fn expected(first: [f32; 4], second: [f32; 4]) -> f64 {
+        let mut points = vec![[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
+        for [x, y, d, _] in [first, second] {
+            let signed = |p: [f64; 2]| p[0] * x as f64 + p[1] * y as f64 - d as f64;
+            let mut clipped = Vec::new();
+            for i in 0..points.len() {
+                let (p, q) = (points[i], points[(i + 1) % points.len()]);
+                let (a, b) = (signed(p), signed(q));
+                if a >= 0.0 { clipped.push(p); }
+                if (a >= 0.0) != (b >= 0.0) {
+                    clipped.push([0, 1].map(|j| p[j] + (q[j] - p[j]) * a / (a - b)));
+                }
+            }
+            points = clipped;
+        }
+        (0..points.len()).map(|i| {
+            let (p, q) = (points[i], points[(i + 1) % points.len()]);
+            p[0] * q[1] - p[1] * q[0]
+        }).sum::<f64>().abs() * 0.5
+    }
+
+    #[test]
+    fn half_plane_intersection_matches_independent_polygon_clipping() {
+        let mut normals = vec![[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0], [0.6, 0.8], [-0.6, 0.8], [0.6, -0.8], [-0.6, -0.8]];
+        for angle in [1e-7f32, 0.01, 0.099, std::f32::consts::PI - 0.099] { normals.push([angle.cos(), angle.sin()]); }
+        let offsets = [-1.0, -0.5, -0.49999997, -0.25, 0.0, 0.25, 0.49999997, 0.5, 1.0];
+        // x >= 0 intersected with ±16x + y >= 0 removes or retains a triangle
+        // of area (1/2) * (1/2) * (1/32) = 1/128. These closed-form witnesses
+        // independently catch treating nearly parallel lines as parallel.
+        let x = 16.0f32 / 257.0f32.sqrt();
+        let axis = [1.0, 0.0, 0.0, 0.0];
+        let mut inputs = vec![axis, [x, x / 16.0, 0.0, 0.0], axis, [-x, x / 16.0, 0.0, 0.0]];
+        let mut areas = vec![63.0 / 128.0, 1.0 / 128.0];
+        for &n in &normals { for &m in &normals { for a in offsets { for b in offsets {
+            let first = [n[0], n[1], a, 0.0];
+            let second = [m[0], m[1], b, 0.0];
+            inputs.extend([first, second]);
+            areas.push(expected(first, second));
+        }}}}
+        super::super::with_gpu(|gpu| {
+            let text = include_str!("vector.wgsl");
+            let begin = text.find("fn side_area(").unwrap();
+            let end = text.find("// What covers a pixel").unwrap();
+            let source = format!("{}\n{}", &text[begin..end], r#"
+                @group(0) @binding(0) var<storage, read> cases: array<vec4<f32>>;
+                @group(0) @binding(1) var<storage, read_write> areas: array<f32>;
+                @compute @workgroup_size(64)
+                fn area_test(@builtin(global_invocation_id) gid: vec3<u32>) {
+                    if (gid.x >= arrayLength(&areas)) { return; }
+                    let a = cases[2u * gid.x];
+                    let b = cases[2u * gid.x + 1u];
+                    areas[gid.x] = both_area(a.xy, a.z, b.xy, b.z);
+                }
+            "#);
+            let device = &gpu.device;
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("area law"), source: wgpu::ShaderSource::Wgsl(source.into()) });
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some("area law"), layout: None, module: &module, entry_point: Some("area_test"), compilation_options: Default::default(), cache: None });
+            let input = buffer(device, "area inputs", (inputs.len() * 16) as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+            gpu.queue.write_buffer(&input, 0, bytemuck::cast_slice(&inputs));
+            let size = (areas.len() * 4) as u64;
+            let output = buffer(device, "areas", size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
+            let read = buffer(device, "area read", size, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+            let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor { label: None, layout: &pipeline.get_bind_group_layout(0), entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: output.as_entire_binding() },
+            ] });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &bindings, &[]);
+                pass.dispatch_workgroups((areas.len() as u32).div_ceil(64), 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&output, 0, &read, 0, size);
+            gpu.queue.submit([encoder.finish()]);
+            read.slice(..).map_async(wgpu::MapMode::Read, |result| result.unwrap());
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            let data = read.slice(..).get_mapped_range().unwrap();
+            for (i, (actual, expected)) in bytemuck::cast_slice::<_, f32>(&data).iter().zip(areas).enumerate() {
+                assert!(actual.is_finite() && (*actual as f64 - expected).abs() < 2e-6, "case {:?}: {actual} != {expected}", &inputs[2*i..2*i+2]);
+            }
+        }).unwrap();
+    }
+}

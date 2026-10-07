@@ -19,12 +19,12 @@
       ["d0a1dfca8c4428fc", 1],
       ["ada7ccec15bb720c", 1],
       ["9925611743c9c20e", 1],
-      ["b8d0bf651d130434", 1],
-      ["7cf16b1d4f0f7f26", 1],
+      ["f60b45e006097100", 1],
+      ["b650b60c35fb5e05", 1],
       ["8a0fcf5a65ffa85a", 1],
       ["d56d786111fe54d1", 1],
-      ["cc269912cbbd71bb", 1],
-      ["75955d91d77bb22c", 1],
+      ["d6aea5e12d7f049d", 1],
+      ["bac10f7b4e76f7ce", 1],
       ["0eda1c3df1bf6af6", 1],
       ["62e1f5ecdad3f14a", 1],
       ["8bf1cdd4c662dd8c", 1],
@@ -90,7 +90,7 @@
     "timeline": [
       [0.0, 96]
     ],
-    "id": "sha256:dd9c066d135e2cadc3c8c86014e168f7f8f9b25af1c79c5134fabbe715a35b1b"
+    "id": "sha256:19b9645744146794664e2fddd53a9d278df91b16211f670886c6cf32b685f776"
   },
   "ce": {
     "manim": "0.21.0",

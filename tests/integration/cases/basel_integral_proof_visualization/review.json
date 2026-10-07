@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:dab49e260ea485789f979b9b2f84b35d6f9f8ad2bb98e11b7f2fbe9970f26ca6",
-  "manimgx": "sha256:9a910d6401a081e574c258d453fbb154f19875e6fb8ccb0fbdaf2b18a1a2ac9f",
-  "ce": "sha256:f5aaad7c13cc24900443d216fe3b52a135024434dad52a47f674e12ce2083a41",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 19: Inspected the Basel sum identity and decimal value; the isolated one-level numeric edge change preserves notation and alignment.",
+  "facts": "sha256:58e2add90f757db920994fec61de1bcef720ffbd9dd2db35ca254361ed2f8526",
+  "at": "2026-10-06"
 }

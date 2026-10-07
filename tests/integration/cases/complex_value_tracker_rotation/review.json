@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:b62d6b3f7db12a5b6911ef6a2e8cf85beba64200bb2f4dba62876f4779df45dd",
-  "manimgx": "sha256:1b619c590fdd38907ab1c85269090979ca5a2fc3ee55049948552322b27e42e3",
-  "ce": "sha256:801086e1a2abeb54d4854a30bd2c91c0531a8a6d7b7aec6787604cf963bd642f",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 20: Inspected coordinate grid and enlarged z-times-i notation. Tiny glyph-edge changes preserve the visible expression and grid geometry.",
+  "facts": "sha256:6f1210dd97f6321abccc3440c3ae1481c80688d591fb0c7f569ebd5896f34103",
+  "at": "2026-10-06"
 }

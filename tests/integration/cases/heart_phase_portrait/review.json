@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:0f0f6ab56f780c42a5a53907dca0d5000bb336d362e65c955ceb184808c2ebbc",
-  "manimgx": "sha256:74f6b3a5b34f0f9cca3c3544adbb243ec3c49c64cc44171cb94159e70791fbf3",
-  "ce": "sha256:5653a812082ef9880f08a594f8629548e396ee65e7c3b2bde00794b85c24f668",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 9: Inspected the early heart phase title and enlarged lettering; three one-level glyph-edge changes preserve content and placement.",
+  "facts": "sha256:ae0fe040c4d72b1c8b5b60d095032ededa17391d31b6450b188c329873a19286",
+  "at": "2026-10-06"
 }

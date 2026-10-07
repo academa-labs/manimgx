@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:956bcadf867675408c03f23d6b4c3241f3bc4aa9497b2c635e081c81af00426a",
-  "manimgx": "sha256:31e09a7ea5e1f24f042cb3f21d215c7fbab18bdec0928b17ec0ff2d5a63eae13",
-  "ce": "sha256:8c127681516d8742b3a26bfcb1854d366480923308153a66265448e11a8eb0d2",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 29: Number grid and transitional glyph shapes are preserved; isolated grid-corner/glyph-boundary adjustments in the enlarged crop.",
+  "facts": "sha256:140f55e6ba295cf7f41c82ea69486b9711fe7604cc19046502e5b8afed15a09c",
+  "at": "2026-10-06"
 }

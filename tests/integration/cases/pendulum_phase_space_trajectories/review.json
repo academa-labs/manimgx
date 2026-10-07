@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:531b699799273b317d9386c211364606ff7b8dfc163f40976ee346d1933982a5",
-  "manimgx": "sha256:af26c50546f1408dfee632da714cb2e2c0d7db7ead12cda41958319f53954f97",
-  "ce": "sha256:022a59004e6b4263611cc14a4e516897af9211f5e1317b600752036ecf7bb26b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: Inspected the early pendulum phase-space title and enlarged glyphs; two one-level edge changes preserve content and reveal.",
+  "facts": "sha256:a8a01f22fad3f25cb20a31d062444c0ea434fe69baa0c6aadcdc2b434cb56757",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:877249662f362705b9e08394d8e76edc5c0ccdca1461e33531babf8b7719136b",
-  "manimgx": "sha256:7102a521b2d220fff1b4e04f0a39f60c0c2353e8ef5d986467d50260a38d03da",
-  "ce": "sha256:3ff44844341547e497ca00f9aa87f4f4f363b04060984b8c75243825fe7b6fc9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 39: Inspected the nested rotating circles, colored vectors and green trace; the isolated one-level overlap change preserves vector joins and path geometry.",
+  "facts": "sha256:67e0e57b8ba1840f0fb5c2ab9d513a5e27c7d76939e75547478ffc069b4c97da",
+  "at": "2026-10-06"
 }

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:d007a28743b263f50d77c900cd6365ea257d487d2531d037547b6d6d49320f0d",
-  "manimgx": "sha256:306cfb4712d0d40e8f7106721fb85d76f1d1f230825608af4e05c6f390a39ad1",
-  "ce": "sha256:496efee731c6796ce461a8284fe1f3ab4df2f1f9979fd94063ad91c52e23e48b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 22: Overlapping equation glyphs in this transition preserve their shapes and positions; two small white glyph-edge samples change.",
+  "facts": "sha256:a7263e04a7bde033d501c8b9f37f389344ce3367174b96e3c6ec272c168b248c",
+  "at": "2026-10-06"
 }

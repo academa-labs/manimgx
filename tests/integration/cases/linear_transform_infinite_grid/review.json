@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7a5c6cf720f245a1acbae5675ddd30ff1b7ce77a7af23153b11957b5e273043a",
-  "manimgx": "sha256:580405769bb891cbb302e783b882d9d70fd395f67bf5ff271c1341bfc1ca5d1c",
-  "ce": "sha256:0efab63682aef1f09bd2603b2331e72179926e695e76fbfda8554e3576c6fb33",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 56: Inspected the sheared grid, axes and title overlap; the one-pixel intersection change preserves every line direction and the title shape.",
+  "facts": "sha256:3da8dfaa13ac7d1e5592e3d842f96084de4d582a4cc89ed5403fedfbd5d23d1e",
+  "at": "2026-10-06"
 }

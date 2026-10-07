@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:716aaff62a3013f3652392c33259544e1036da3eccd999f66ffb746250a1d032",
-  "manimgx": "sha256:b97dcd9cb4a61b7191df2ff71803daaee1090229a1294b1866329e306441c22d",
-  "ce": "sha256:77a92d56f27c61e53790834a415206aa37a3cb82ec0b91bfbd1f93f0e648e6a9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 34: Yellow arrows preserve lengths and directions over the cyan grid. Tiny tip/shaft intersection changes leave the field and title unchanged.",
+  "facts": "sha256:cab62aff9ea93bab23dfb3072c89928318e021d707d45f1c739099317528297e",
+  "at": "2026-10-06"
 }

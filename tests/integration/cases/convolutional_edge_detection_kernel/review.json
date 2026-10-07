@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:fb778441358670ffa52df2d2a42119791ea33c3b2a290e7f9f69f5c93cc2f823",
-  "manimgx": "sha256:2b51f996c6639a0c7aa9df01233f8421018e027d0e39169ae09a889f68381480",
-  "ce": "sha256:8375298f89a5fb026e424b6a851cedfd4c6ee7cd8e4e01248d4daf69d9310c98",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 8: Inspected the grayscale input grid and enlarged cell intersections; one-level seam changes preserve cell values, grid alignment and label.",
+  "facts": "sha256:37f910abf59dfad0f3176b6873423e345f75f0e246cdbb9368dc18e808705b70",
+  "at": "2026-10-06"
 }

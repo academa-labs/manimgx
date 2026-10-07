@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:fd7ee3c6ac718f50099076bf178b1fc1af32a0aede8ceb2c8dd342ead69924bd",
-  "manimgx": "sha256:001f867825d1cc45285f367f9ff171aea4061058fd043578565d474e085a5078",
-  "ce": "sha256:d8e44cd4c4cc26b345b15d14a1f8c47925c1f745332aeb5a96f4844a2ca53d4c",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected dense power-curve family, labels and enlarged upper-left axis intersection. Sparse edge changes do not alter the curve envelope, labels or endpoint alignment.",
+  "facts": "sha256:1ddd55f8d436e7922b9c1a513ec660c7e8ee9448ac416b99f6a62a2d9becaa9b",
+  "at": "2026-10-06"
 }

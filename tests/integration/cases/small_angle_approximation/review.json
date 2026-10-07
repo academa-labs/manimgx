@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:37d31f4c16e8de822c666342460257428f9a23dbf449dbc7d0ce92ee0e5a66e4",
-  "manimgx": "sha256:053ab4899e047f8f40605ea65a96c645a9bb2f8c6fd448f00cf089cb40ed91de",
-  "ce": "sha256:52c500952bd24c8f071ff3701d04a5b1e7941e25052eedd3e42b95c1ff3cae8a",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 73: Inspected unit-circle geometry and enlarged small-angle endpoint. Two overlap-edge changes preserve radius, sine/cosine construction, point and labels.",
+  "facts": "sha256:7ab97d3da9a33a4e805dd1bcf47662d84aca8e32e93ff1fc359d33b0c146acf8",
+  "at": "2026-10-06"
 }

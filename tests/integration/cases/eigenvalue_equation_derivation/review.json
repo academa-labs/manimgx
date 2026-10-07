@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f22bae96b557916bffef3500fa122618915f77985d0af29406108ec5b099a51e",
-  "manimgx": "sha256:657a5c0ba4498c24227c998dbdbd9eb73ba3fb1ea715fb38180ef216470147c2",
-  "ce": "sha256:90e629c6df73a6c47633cd3b042e793f56ee1c9e5fabb899c166a3d3a01c6c6e",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 60: Inspected the complete colored equation stack and enlarged determinant line; the single glyph-edge change preserves each equation and alignment.",
+  "facts": "sha256:2c9fe39686b79e2b6566b881fb441511ed8e3f9e40fddb31eca8a0c062b05691",
+  "at": "2026-10-06"
 }

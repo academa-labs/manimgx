@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels.",
-  "source": "sha256:9c163775dcf3991eb336fdd324dc45c190de005c8cd94f837f6beee0719d9e18",
-  "manimgx": "sha256:9a5e39eaa6749468196a128747bdedbde15b60b540231552e2738609c660d801",
-  "ce": "sha256:91e2c92c3261ec9b56aa53fa1b2d54a77f3e729cb01327d5705cbc5ae77ed249",
+  "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels.\n\nReviewed the exact-area raster correction at frame 0: Sphere-rotation caption and initial axes preserve alignment; small coverage differences at axis origin/ticks.",
+  "facts": "sha256:0908183db4ec6225b9e91234db41618d0c6a6e6366c094f60e0f6feab9708f6a",
   "at": "2026-10-06"
 }

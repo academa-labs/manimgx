@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels.",
-  "source": "sha256:a295d5af94bdce2ef64a46dae3293ba4ea86b451541c840e183715d6ccffbe19",
-  "manimgx": "sha256:c37215ccb0c79f367a5956d96f9bd90e873da1535d176dc4d372311a40c63e7c",
-  "ce": "sha256:ee8b6f04ca619b33814efc8b90daf737fd0a6d848be97e36c50edf5f9ef8e660",
+  "note": "Reviewed the before/after frames: accept corrected depth-tested surface strokes and projective plane derivatives (80a7b06, 25f40ad), preserving the scene geometry, materials and labels.\n\nReviewed the exact-area raster correction at frame 0: Quaternion formula and three axes preserve geometry; four samples at the shared origin change coverage.",
+  "facts": "sha256:cc8b58af6b34cc7d6c99082456a47fb02fffbb442b6d113181f29ff6d2897643",
   "at": "2026-10-06"
 }

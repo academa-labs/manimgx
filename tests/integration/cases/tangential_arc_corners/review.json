@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:87352368a618e9109e93390737748ba6a2d8e3226d9904d1563420e59c628184",
-  "manimgx": "sha256:52f8cb105163a7ffd8c7949060b402c3593d74c0b5f0768fdaf94da28b3e4663",
-  "ce": "sha256:23ea0766aabfcc98c24e08c54b4e0d8deea0a3824a01aab1c953345e6e9a9e52",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected the four colored arcs, dashed axes and coordinate labels; the isolated one-level shared tangent change preserves corner geometry and symmetry.",
+  "facts": "sha256:a73aae08c31c386eb94d4cd7003ab33eb944a97d18e0e170e8a402ce88b45016",
+  "at": "2026-10-06"
 }

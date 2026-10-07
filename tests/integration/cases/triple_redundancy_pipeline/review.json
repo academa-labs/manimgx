@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7d2649cc8d1b28fdf17062bf653101b5e455a802379d1cd2bc1dfa4612d84413",
-  "manimgx": "sha256:7817bbc6638af867596cc4fce5f096cff963152d0767db954063acba5aae72f1",
-  "ce": "sha256:e387d998b38193937c6a5361b5114a1b8ae7e0e8cc048313842acddc539e4307",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 78: Encoding/recovery diagram retains digits, arrow positions and colors; localized white arrowhead/shaft join changes.",
+  "facts": "sha256:08f507b34a660858639f2cab40270d310ea688af7f540ef4a9da07407de6cd10",
+  "at": "2026-10-06"
 }

@@ -9,6 +9,7 @@ import io
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -16,7 +17,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from tests.integration.corpus import references, typecheck
 from tests.integration.corpus.case import (
     FPS,
@@ -81,6 +82,7 @@ class Review(BaseModel):
 
 
 class CaseDetail(CaseSummary):
+    revision: str | None  # the exact facts shown, required when saving a review
     source: str
     problems: list[str]
     manimgx: Render
@@ -92,6 +94,7 @@ class CaseDetail(CaseSummary):
 
 
 class ReviewIn(BaseModel):
+    revision: str
     verdict: Verdict | Literal["auto"]
     note: str = ""
 
@@ -100,12 +103,8 @@ class RenderIn(BaseModel):
     engine: Literal["manimgx", "ce", "both"] = "both"
 
 
-class SettingsIn(BaseModel):
-    metric: str
-    tolerance: float = Field(ge=0, le=255, allow_inf_nan=False)
-
-
-class SettingsOut(SettingsIn):
+@dataclass(frozen=True, slots=True)
+class SettingsOut(Settings):
     metrics: list[str]
 
 
@@ -202,6 +201,7 @@ def _detail(case: Case) -> CaseDetail:
     )
     return CaseDetail(
         **summary.model_dump(),
+        revision=None if facts is None else facts.revision(),
         source=case.scene.read_text(encoding="utf-8"),
         problems=report.problems(case),
         manimgx=_render(manimgx, ""),
@@ -253,7 +253,7 @@ def review_case(name: str, body: ReviewIn) -> CaseDetail:
     case = _case(name)
     verdict = None if body.verdict == "auto" else body.verdict
     try:
-        case.write_review(verdict, body.note)
+        case.write_review(verdict, body.note, expected=body.revision)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return _detail(case)
@@ -280,10 +280,8 @@ def read_settings() -> SettingsOut:
 
 
 @app.put("/api/settings")
-def write_settings(body: SettingsIn) -> SettingsOut:
-    if body.metric not in METRICS:
-        raise HTTPException(status_code=422, detail=f"metric is one of {METRICS}")
-    save_settings(Settings(metric=body.metric, tolerance=body.tolerance))
+def write_settings(body: Settings) -> SettingsOut:
+    save_settings(body)
     return read_settings()
 
 

@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:846f427ffadcee279e287a8109e39c6cbbf0c33924a8a0b96f0e17045cbc7a53",
-  "manimgx": "sha256:7ff1ce73d7da5c5a02d5ca49c08e7819aea2760317d1f1c6bca67ee6313beac3",
-  "ce": "sha256:0ac58e8ad16c94fa509b7207e9040541a6782186ed9f8aece0ff8d236774e301",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 0: Inspected table and highlighted cell with enlarged upper-left corner. Two small shared-border differences preserve row/column layout, text and red cell selection.",
+  "facts": "sha256:6ce17c51d93c7d0bb632a5def554a8b32d9038bfdf7dc9c30f2c9817712a1902",
+  "at": "2026-10-06"
 }

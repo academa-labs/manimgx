@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:5bf017e7fc30e7cb28f49e192baa86a57dce4f271a21f237e871b1c581d3c27b",
-  "manimgx": "sha256:f7b3605b553bc5ebdf1f8850311ba86e6befede520127f936b9640abc2702664",
-  "ce": "sha256:0700d765144cc59fc44794b9ea3b7d01566cf40440ee8774fc89c84e5e544190",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 47: Inspected logo lettering and colored shapes with enlarged n shoulder. Tiny glyph-boundary differences preserve contours, fills, overlaps and placement.",
+  "facts": "sha256:c0ed94f2677114c92071ab2e1dbbc84ed3e43f934864481039b5deb90f09a1e3",
+  "at": "2026-10-06"
 }

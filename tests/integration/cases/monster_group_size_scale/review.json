@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:de2526905771f3d3286dd975f3a49bfa14e4d74a126f6836c2df455c8e765d9d",
-  "manimgx": "sha256:ee82c7e124c0a70b46c6e20a9bc87c7ba97e307b5d15e3c2bbfa0c737ce244af",
-  "ce": "sha256:6ed5e89ae189cc6d0ded0d1b0f56faca2b0137ca6e1ebba57155d886fb73780c",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 6: Inspected the initial Monster title and enlarged lettering; the isolated text-edge adjustment preserves letter shape and placement.",
+  "facts": "sha256:7da3a89779a654549b110e7e8041269223ddd9e997793610db4efa07cbab338d",
+  "at": "2026-10-06"
 }

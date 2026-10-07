@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:92f16b9e98050f24a54e37cbdb8448aaaee28c05538b66b3f7ecae73a07c8759",
-  "manimgx": "sha256:eb767a5019ad5143e2f5e09de3682e85d52f242742ba9972d4b4c062a1f08b3e",
-  "ce": "sha256:d576e21ce5ebe004ec4e225e2f032ac4803ef3a49c74e2f5cc72dcc9cbc8346d",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 49: Circle, yellow triangle and dense cyan/white chord construction remain intact; localized line-contact coverage changes near the perimeter.",
+  "facts": "sha256:b45bc7cb3afa62fe93b558e7c2c314d19d81b20fd4b0daa166659252a82f38fa",
+  "at": "2026-10-06"
 }

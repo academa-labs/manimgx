@@ -1,14 +1,14 @@
 """The corpus's tools hold to their rules.
 
-- A stored manimgx film is a baseline whatever CE did and however the case was reviewed:
+- A stored ManimGX film is a baseline whatever CE did and however the case was reviewed:
   `test_regression` fails when its frozen package and today's film differ on the same host,
   and never skips; the first comparison supplies the diagnostics without another render.
-- A type report's imprecision is manimgx's: an untyped value from another package is not
-  manimgx's output, but manimgx's outputs stay imprecise however untyped their inputs, each
+- A type report's imprecision is ManimGX's: an untyped value from another package is not
+  ManimGX's output, but ManimGX's outputs stay imprecise however untyped their inputs, each
   named by the call or attribute it comes from (a generic class's inherited methods too).
 - A type report's escapes are the scene's: every suppression is one, but for a method of the
-  scene's own class called through `.animate` or `.always`, which manimgx's types can't name
-  (nor is its type manimgx's imprecision).
+  scene's own class called through `.animate` or `.always`, which ManimGX's types can't name
+  (nor is its type ManimGX's imprecision).
 """
 
 import hashlib
@@ -24,7 +24,14 @@ from pathlib import Path
 
 import pytest
 from tests.integration import test_corpus as corpus
-from tests.integration.corpus import baseline, case, engines, references, typecheck
+from tests.integration.corpus import (
+    baseline,
+    case,
+    engines,
+    references,
+    release,
+    typecheck,
+)
 from tests.integration.corpus.__main__ import leaks
 from tests.integration.corpus.case import (
     FPS,
@@ -301,7 +308,7 @@ def test_a_stored_film_holds_whatever_ce_did(
     calls = []
 
     def compare(
-        _self: baseline.References, selected: Case, directory: Path
+        _self: release.References, selected: Case, directory: Path
     ) -> engines.Result:
         assert selected == example
         calls.append(selected)
@@ -319,8 +326,8 @@ def test_a_stored_film_holds_whatever_ce_did(
             frames = Failure(f"the candidate changed the reference {change}")
         return engines.Result(example.source_hash(), frames, differences=differences)
 
-    monkeypatch.setattr(baseline.References, "compare", compare)
-    references = baseline.References(baseline.Catalog({}, {}), tmp_path / "packages")
+    monkeypatch.setattr(release.References, "compare", compare)
+    references = release.References(None, tmp_path / "packages")
     if change == "same":
         corpus.test_regression(example, references)
         assert not (output / example.name).exists()

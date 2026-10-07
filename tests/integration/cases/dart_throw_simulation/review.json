@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:f6c266b9e64726d2893249ab50725f6920f4cc9878255f237601f9655ca31594",
-  "manimgx": "sha256:354d9df1a76f264e74e2c950816bf822422f7ae366beecf7c3a97129f859d4a2",
-  "ce": "sha256:f28686172e8b723436d00b8724b2429adf5a3880c7f7196b21ab75343c0244c9",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 11: Inspected partial dart-throw title and enlarged lettering; one tiny glyph-edge difference preserves text and reveal extent.",
+  "facts": "sha256:dc3752320e82b6e749b1f8454210fec575db795be3660aa6abcc132a94de5efb",
+  "at": "2026-10-06"
 }

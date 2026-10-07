@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:413b70e4810c2309650490a8f6565b3467c45c1cac1b8f244ffbdfe7d66101ba",
-  "manimgx": "sha256:b86ea72924ed0fc8b7a999a17d3ed71f6e1b52f955e450f9d24a3701b2c0ea2d",
-  "ce": "sha256:c05f68f7918bc06ff1f95d83e87989d9a400202a115badeef51ea883e77cbe31",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 19: Inspected the full circle and chord-midpoint title; two one-level text-edge changes preserve circular geometry and the correspondence label.",
+  "facts": "sha256:5c2fdd78963acf44e981d3a2a85d4de706f9a310dcf0b22c464430fff0435b02",
+  "at": "2026-10-06"
 }

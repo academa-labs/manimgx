@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3c467aadedc27b1576cc1737f1f5915a50484d9852a7c13796002c52d2d4570c",
-  "manimgx": "sha256:07ec38bb59df1b36d6ae22f395e5571a17249af41be00463caf67b7fb2b88aab",
-  "ce": "sha256:302b6addf57485489daf289a60655350102be4210035ce6682b46e32fb9eb1af",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 10: Transparent cyan cube, yellow top outline, axes and volume equation retain placement and depth. A few edge/corner samples change without cracks or face-color changes.",
+  "facts": "sha256:8317fb590ccb371dc7c7ad56eb1223ed3172a319795058619a6202387ef2e537",
+  "at": "2026-10-06"
 }

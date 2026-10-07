@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:cb43b43f3e0ef9f46f8dafa73baa529ed1414f56056c3bb80ab1d673064dc6e2",
-  "manimgx": "sha256:09668bbffdecb4e9ed411887c6a7ae6e54e2108655834e121f9f0ecbd7925fed",
-  "ce": "sha256:76a3563ceb6c64fef534e2777b72143e93a9c7f4d472b24e10af0acaa15cbf60",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 18: Inspected the eigenvalue instruction and gold determinant equation; two one-level glyph changes preserve mathematical notation and spacing.",
+  "facts": "sha256:1b77fa0a3df1f3d5fbdb39477d916d73ae1b960a2c5d0dbed8af18f346f09987",
+  "at": "2026-10-06"
 }

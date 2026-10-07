@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7f86deb93bbf9bc50c514a0e6aa2383ab07b27bd5b3da737a5a06ddc2cb4bc45",
-  "manimgx": "sha256:7447efce35fedfe20d975ba68b63c425849d17ad6e90c6a56a486780e3f8161f",
-  "ce": "sha256:bf0db86ab03a9fa525d30d25624ad85e41808de65bdea40f175c86ae56576e15",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 9: Inspected both transformation panels and enlarged numeric value. Two digit-edge changes preserve values, colors, animation state and placement.",
+  "facts": "sha256:6079195c723a86559ae8d341b747fc7bcb9bb463ca4f0a6cb4c943030cce7f2c",
+  "at": "2026-10-06"
 }

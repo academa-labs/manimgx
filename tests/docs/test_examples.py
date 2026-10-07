@@ -4,7 +4,7 @@ no voice's key (its workflow has none), so a narrated example says what `docs/vo
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from unittest.mock import Mock
 
 import numpy as np
@@ -13,6 +13,23 @@ from docs import examples
 from examples.cherenkov_cone import CherenkovCone
 
 from manimgx.rendering.film import Cut
+
+
+@pytest.mark.parametrize(
+    "root", [PurePosixPath("/project"), PureWindowsPath("C:/project")]
+)
+def test_block_locations_use_repository_paths_on_each_platform(
+    root: PurePath, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(examples, "DOCS", root / "docs")
+    blocks = examples.blocks(
+        "A story.\n\n```python\nclass Example(Scene): pass\n```\n",
+        root / "src" / "manimgx" / "example.py",
+        line=40,
+    )
+    assert blocks == [
+        examples.Example("class Example(Scene): pass\n", "src/manimgx/example.py:42")
+    ]
 
 
 def test_a_broken_runtime_stops_before_workers_start_or_films_change(

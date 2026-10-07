@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e6f312b2623c65705a0d78ec81e71543cdbe438c3617d41bcf984274ca0be5ba",
-  "manimgx": "sha256:4020d592c5ba0f6e1c939faba6bfadf161d8ff410f595d5ad239b157e4869fc7",
-  "ce": "sha256:515919a4fe2cea669bfd83443f6d284316d9b31c2f04f5a38c053b1d55ae9dcd",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 84: Inspected circle chord construction and enlarged intersections near a marked vertex. Three small line-edge changes preserve all vertices, chord connections and count text.",
+  "facts": "sha256:85b1a4663c87c0fa6e3fc5cb78235574ac27bf373885c5a838d86b1560d44487",
+  "at": "2026-10-06"
 }

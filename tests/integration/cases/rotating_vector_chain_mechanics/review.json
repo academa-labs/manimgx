@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:5b03f2d82520e09ae319cb20ea19e2db6f397810c021d3217d7a13ede2f86fcc",
-  "manimgx": "sha256:138e749ad525ccd55168ec02c15599ec8ef2b2b438e088d46db079f3503ad442",
-  "ce": "sha256:a0d50f4618f27a58aee9f900b035b1a2358a936e137d4339c945a7956e9f84b1",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 4: Inspected the early two-rotation title and enlarged text; the isolated edge change preserves letter shapes and layout.",
+  "facts": "sha256:e0a0d05a4e14731425270775240bc9716235da34047b3f637ab222e9e6613c05",
+  "at": "2026-10-06"
 }

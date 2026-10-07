@@ -39,9 +39,10 @@ const NODE_OTHER: f64 = 3.0;
 const GLYPH: f64 = 0.0;
 const SHAPE: f64 = 1.0;
 
-/// Fonts and packages for one font setup, kept for the process: loading fonts costs
-/// milliseconds, compiling with them again is incremental.
+/// Fonts and packages for one dependency revision: loading fonts costs milliseconds,
+/// compiling with the same revision again is incremental.
 struct Setup {
+    revision: u64, // the caller's font/package dependency identity, shared with its layout cache
     library: LazyHash<Library>,
     fonts: FontStore,
     packages: Option<PathBuf>,
@@ -62,31 +63,36 @@ fn setups() -> &'static Mutex<HashMap<SetupKey, Arc<Setup>>> {
 /// The fonts in `font_paths` (the caller's, then the ones manimgx ships) and Typst's own, and of
 /// the system's only the families in `named`: a document sets its text in manimgx's fonts on every
 /// machine, falls back only among them, and reaches a system font only by naming it.
-fn setup(font_paths: &[String], packages: Option<&str>, named: &[String]) -> Arc<Setup> {
+fn setup(font_paths: &[String], packages: Option<&str>, named: &[String], revision: u64) -> Arc<Setup> {
     let key = (font_paths.to_vec(), packages.map(str::to_owned), named.to_vec());
     let mut all = setups().lock().unwrap();
-    all.entry(key)
-        .or_insert_with(|| {
-            let mut fonts = FontStore::new();
-            let dirs: Vec<PathBuf> = font_paths.iter().map(PathBuf::from).collect();
-            fonts.extend(cached_scan(&dirs, || dirs.iter().flat_map(|dir| scan(dir)).collect()));
-            fonts.extend(embedded());
-            if !named.is_empty() {
-                fonts.extend(
-                    cached_scan(&font_directories(), || system().collect())
-                        .into_iter()
-                        .filter(|(_, info)| named.contains(&info.family.to_lowercase())),
-                );
-            }
-            Arc::new(Setup {
-                library: LazyHash::new(Library::default()),
-                fonts,
-                packages: packages.map(PathBuf::from),
-                files: Mutex::default(),
-                sources: Mutex::default(),
-            })
-        })
-        .clone()
+    if let Some(held) = all.get(&key)
+        && held.revision == revision
+    {
+        return held.clone();
+    }
+    let mut fonts = FontStore::new();
+    let dirs: Vec<PathBuf> = font_paths.iter().map(PathBuf::from).collect();
+    fonts.extend(cached_scan(&dirs, || dirs.iter().flat_map(|dir| scan(dir)).collect()));
+    fonts.extend(embedded());
+    if !named.is_empty() {
+        fonts.extend(
+            cached_scan(&font_directories(), || system().collect())
+                .into_iter()
+                .filter(|(_, info)| named.contains(&info.family.to_lowercase())),
+        );
+    }
+    let made = Arc::new(Setup {
+        revision,
+        library: LazyHash::new(Library::default()),
+        fonts,
+        packages: packages.map(PathBuf::from),
+        files: Mutex::default(),
+        sources: Mutex::default(),
+    });
+    // Existing documents retain their own Arc; only reuse under this setup is replaced.
+    all.insert(key, made.clone());
+    made
 }
 
 /// A font on disk, mapped into memory when first used (not read whole: a CJK font is 60 MB and a
@@ -549,7 +555,7 @@ pub type Layout = (Vec<f64>, Vec<Vec<f64>>, Vec<(String, Vec<usize>)>, bool);
 /// family's name), and the packages under `packages` besides mitex's (the engine's own): its
 /// items (one row of `ROW` floats each, in document order), its shapes' cubic points and its
 /// labelled groups (a label and the items inside, nested ones too).
-pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>) -> Result<Layout, String> {
+pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>, revision: u64) -> Result<Layout, String> {
     {
         static COMPILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let file = RootedPath::new(VirtualRoot::Project, VirtualPath::new("main.typ").unwrap())
@@ -557,7 +563,7 @@ pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>) ->
         let main = Source::new(file, source);
         // manimgx's fonts (the caller's, the bundled ones, Typst's own); a system font only
         // when the document names a family they don't include, and then that family alone
-        let lean = setup(font_paths, packages, &[]);
+        let lean = setup(font_paths, packages, &[], revision);
         let doc = Document { setup: &lean, main: main.clone() };
         let warned = typst::compile::<PagedDocument>(&doc);
         let mut named: Vec<String> = warned
@@ -571,7 +577,7 @@ pub fn typeset(source: String, font_paths: &[String], packages: Option<&str>) ->
         let full;
         let system = !named.is_empty();
         let (doc, compiled) = if system {
-            full = setup(font_paths, packages, &named);
+            full = setup(font_paths, packages, &named, revision);
             let doc = Document { setup: &full, main };
             let compiled = typst::compile::<PagedDocument>(&doc).output;
             (doc, compiled)
@@ -706,7 +712,7 @@ fn carets(data: &[u8], index: u32, glyph: u16) -> Option<Vec<f64>> {
     for k in 0..count {
         let value = glyph_table.get(usize::from(u16_at(glyph_table, 2 + 2 * k)?)..)?;
         match u16_at(value, 0)? {
-            1 | 3 => out.push(f64::from(i16::from_be_bytes([value[2], value[3]]))),
+            1 | 3 => out.push(f64::from(u16_at(value, 2)? as i16)),
             _ => return None,
         }
     }
@@ -754,6 +760,37 @@ pub fn mitex_text(latex: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    /// A one-table SFNT containing one ligature's GDEF caret, with no outline required.
+    fn caret_font(format: u16, coordinate: i16, length: usize) -> Vec<u8> {
+        let table: Vec<u8> = [1u16, 0, 0, 0, 12, 0, 6, 1, 12, 1, 1, 36, 1, 4, format, coordinate as u16, 0]
+            .into_iter().flat_map(u16::to_be_bytes).take(length).collect();
+        let mut data = vec![0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+        data.extend_from_slice(b"GDEF");
+        data.extend_from_slice(&0u32.to_be_bytes());
+        data.extend_from_slice(&28u32.to_be_bytes());
+        data.extend_from_slice(&(table.len() as u32).to_be_bytes());
+        data.extend(table);
+        data
+    }
+
+    #[test]
+    fn truncated_optional_caret_has_no_coordinate() {
+        for format in [1, 3] {
+            for length in 0..32 {
+                assert_eq!(super::carets(&caret_font(format, 250, length), 0, 36), None, "format {format}, length {length}");
+            }
+        }
+    }
+
+    #[test]
+    fn valid_caret_coordinates_remain_signed() {
+        for format in [1, 3] {
+            for coordinate in [i16::MIN, -1, 0, 250, i16::MAX] {
+                assert_eq!(super::carets(&caret_font(format, coordinate, 34), 0, 36), Some(vec![f64::from(coordinate)]));
+            }
+        }
+    }
+
     #[test]
     fn unavailable_cache_root_scans_each_time() {
         let calls = std::cell::Cell::new(0);

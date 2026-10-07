@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e768e4afe390223edfe6dc8bb92969fc344fc81621fee5a35bf3786acb4fe2d6",
-  "manimgx": "sha256:cc892cfb9f7c65c46e27f9671826935535b3010a49d3e64f94372d6d2676acd7",
-  "ce": "sha256:e5b2583f5b7700b1c4732c849f4f0789908b20d2170c874fa34fc32241b9c2bf",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 72: Before/after blocks and directional arrows remain unchanged; tiny coverage changes occur at yellow arrowhead joins.",
+  "facts": "sha256:cbd2093243c8c5cce80cf001d4a2b25653efcd62489efa2da7c9d5a2235bfa01",
+  "at": "2026-10-06"
 }

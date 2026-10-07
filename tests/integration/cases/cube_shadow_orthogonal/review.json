@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "Reviewed the rotated geometry and changed edge pixels: accept double-precision plane placement and projection (aa74c9f).",
-  "source": "sha256:2d1d8ac6d06cc19bd45b851d9019e3f208a099b1a82550cd6848f281061d941c",
-  "manimgx": "sha256:f34bd923880cf09a65402b9d26d575c859effc7dfa2468d8783e103fe0a63832",
-  "ce": "sha256:c499c4fb3087a079cd24a1b9f96656e380e3bbfc105a13c930473d1cd4ee50c6",
+  "note": "Reviewed the rotated geometry and changed edge pixels: accept double-precision plane placement and projection (aa74c9f).\n\nReviewed the exact-area raster correction at frame 39: Inspected cube, floor shadow and enlarged upper cube corner. Tiny contour changes preserve face colors, edge alignment, floor placement and shadow silhouette.",
+  "facts": "sha256:7b7897b1f87232c98dbfa28200931a3df4d139e60123520743087f5316a21e8c",
   "at": "2026-10-06"
 }

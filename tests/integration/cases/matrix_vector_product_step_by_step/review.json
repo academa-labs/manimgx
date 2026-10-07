@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:e43ff2a0f5c5a3c2b35a8493c68719561c682110bc083295446db99c4d62a388",
-  "manimgx": "sha256:dbca97132d353f0fdf5729cf04236548caea6114c3e2592ace76caf6be0c6ede",
-  "ce": "sha256:e59df442f3dfff4743b0ebab2cdbd586203ec4f2983fde4857ebd4827c93d28e",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 27: Inspected the matrix, vector and row-product expressions; the single numeric-glyph edge change preserves entries, operators and alignment.",
+  "facts": "sha256:fa6e5c3dada53007ee4c7be2b8b578583b2a453f7ca1b53d1cafc13e009b85f7",
+  "at": "2026-10-06"
 }

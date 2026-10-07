@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:b863bdbbe47fa77ade43c97e765de49cbb87dd3603522da82196d58310b5c597",
-  "manimgx": "sha256:a304df41c0033edd54d0dfe2ae1d5909825bab25f007e7d0c571ae8cd00cd34d",
-  "ce": "sha256:f51220a730a543d841bd650e4437e0900b9beb8f0be5890c018a99b171f5129d",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 64: Inspected the five-node graph and concrete-to-abstract title; two one-level title-arrow changes preserve connectivity, node positions and text.",
+  "facts": "sha256:44d4a9a4fccb5c9b2284c0817a7e68b4e654901471964c15b76437b09ecef339",
+  "at": "2026-10-06"
 }

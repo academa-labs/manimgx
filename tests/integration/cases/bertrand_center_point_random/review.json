@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:3945b60b6e74d0df07f04f67204f4d35eda06ffc6da434fbb8c201fce735186e",
-  "manimgx": "sha256:58f1c5adea38bd702bd6a54d2aad7b1abb5a079a9d25aa70eb59dea6121ff0bc",
-  "ce": "sha256:4d5781a58db790b5bf9db77dac1d1fa09c3f40e3143327bc153b7ac06410de9e",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 60: Inspected random chords, triangle and enlarged crossing region. Sparse intersection/edge changes preserve chord endpoints, triangle, title and visible probability labels.",
+  "facts": "sha256:81bf910412851207984fd14eb00dcaf738d0f1042f63c66b23669eaba149d1c3",
+  "at": "2026-10-06"
 }

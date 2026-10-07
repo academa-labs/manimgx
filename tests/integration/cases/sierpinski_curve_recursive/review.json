@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:a666b2f2b27d04919953f71e5bad4cd25c96be98237639a0c66c52d4efccc8c5",
-  "manimgx": "sha256:7ea101cc27635c6eb43eab7c8424beab828e1a2860f62bf9b8a8531d7b90d0c9",
-  "ce": "sha256:e76274e9edae950f1547ce1f7ded7c57db581b58f7b14d83e0a4c6a4cbd9ab18",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 89: Inspected recursive triangle and enlarged subdivisions. Sparse corner/edge coverage changes preserve the recursive pattern, holes, yellow opacity and title.",
+  "facts": "sha256:58b151d242615fe58612fca487b7d1bb06edf2ee805e7bf57bc407c546df130b",
+  "at": "2026-10-06"
 }

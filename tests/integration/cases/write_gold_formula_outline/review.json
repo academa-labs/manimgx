@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:548e55d765a01d11d786d1a355c29ede2230d8f4bf3887b7e021e1d25c6eb0de",
-  "manimgx": "sha256:8d297327d12eaf9f6788108c3d557296a0af964262ad44463e5a1004758370cf",
-  "ce": "sha256:c7dd21f7dae150f84cd30c24ad90fb27fd30195d9c2c278aba849c11149aa8eb",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 19: Inspected the completed-square identity and enlarged fractional term; two one-level glyph-edge changes preserve all mathematical notation and gold styling.",
+  "facts": "sha256:c093e1d5c596beb4225e4077909b611522a6e0711a9c8abae303e074062efae2",
+  "at": "2026-10-06"
 }

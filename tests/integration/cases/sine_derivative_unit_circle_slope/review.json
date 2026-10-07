@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:263f3464bf018a2b8db02c51deb4e625b8a2916b6ff71dd4339347a0f7f665d8",
-  "manimgx": "sha256:f59f4190069c9a01aa0dc4a6a6b20c3dd11b4d1141894e62e22f1db6549317f5",
-  "ce": "sha256:b1e01f06de36bc7070e8ad66834b6089cde821ea2e0f90db35af7ed062ab74c2",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 6: Inspected the early sine-coordinate title and enlarged equation lettering; two one-level changes preserve glyphs and spacing.",
+  "facts": "sha256:4e8c4f29cd8e03db55a824cff7feefe729f84f9d452eb0e3d528646f09f72388",
+  "at": "2026-10-06"
 }

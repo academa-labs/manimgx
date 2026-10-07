@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:38672272b9a9bb30f65f793234299364b2c8d27a88762252bf05d3a7d6ad89ea",
-  "manimgx": "sha256:24b6c62f0ba3e04f17113950f3357b0514dc826f1422e7cc3f21f3791412fe9a",
-  "ce": "sha256:9449cdba6b696eb45ada119352b9a6bd1b8ce29ebaac37de1fd554a480edec40",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 11: Inspected partial symmetry title and enlarged letters; one glyph-edge change preserves wording and position.",
+  "facts": "sha256:e1e01face67805ecba3c916a7cfc182d0729a36ae73f284ea1f24e04db2dd784",
+  "at": "2026-10-06"
 }

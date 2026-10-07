@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:806de92926a44392326351565306d2b42971b352df4f24e6c4ead419e4a24206",
-  "manimgx": "sha256:94db8a7c1a036406da0f8b638845733458315c3f321412e2d8fabb0b69987028",
-  "ce": "sha256:8c70dea9a450617d821162913e8f6880397db04ae9b177fde224e36fd8728b3b",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 57: Colored component arrows, grid and series formula preserve positions; local change at the yellow arrowhead/shaft join.",
+  "facts": "sha256:4cf9473e5492bc75e349e888166c5e2f46201acec0383d1a1aaf977172005280",
+  "at": "2026-10-06"
 }

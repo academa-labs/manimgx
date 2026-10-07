@@ -12,7 +12,7 @@ Some tasks must run the same way every time:
   browser to npm, and the Docker image to ghcr.io.
 - **For every issue and pull request:** a first reply to a newcomer's issue, a first
   review, and an assistant that a maintainer can ask.
-- **Every week or month:** move the pinned actions and dependencies to their new releases.
+- **When a maintainer requests an update:** review and update pinned actions and dependencies.
 
 Done by hand, steps get forgotten, and every run costs someone's time.
 
@@ -75,16 +75,19 @@ The seven regular build, release and collaboration workflows are in
 **When it runs:**
 
 - Every push to `main` and every pull request that changes the package, the engine, the
-  examples, the benchmarks or the dependencies.
+  examples, the benchmarks, their workflow or the dependencies.
 - By hand, from GitHub's interface, against a commit, branch or tag you name.
 
-**What it does**, in one job on Ubuntu: installs Mesa's lavapipe to draw with, then runs
-`just bench` against the base (see [Testing](testing.md#timed-benchmarks)). A pull request is
+**What it does**, in one job on macOS: runs `just bench` against the base (see
+[Testing](testing.md#timed-benchmarks)). A pull request is
 checked out merged into its base, so its base is the merge's first parent; a push to `main`
-is compared with the commit before it. There what is judged is CPU time, and the GPU is
-lavapipe's, on the CPU. A workload that became slower fails the job, and every workload's
-change goes in the run's summary. It is the only job that measures time: time is only
-comparable on one machine at one time.
+is compared with the commit before it. Metal draws on the GPU, while
+retired CPU instructions, when exposed, or CPU time judge host work. Each workload's summary
+names the measure used. A workload that became slower fails the job,
+and every workload's change goes in the run's summary. Paired runs stay on the same machine;
+all nine workloads keep their resolutions and rounds. GPU execution and waits appear only
+in the wall-time column: shader and GPU scheduling changes require reviewing those times
+on a quiet machine. Linux and Windows keep their functional rendering tests.
 
 ### 3. [`deploy-docs.yaml`](https://github.com/academa-labs/manimgx/blob/main/.github/workflows/deploy-docs.yaml): the docs site
 

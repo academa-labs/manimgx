@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:7030fa281e2e592706d3e0e61eb4f54bfce9bf39ddf60c1a89a1e4b351903e45",
-  "manimgx": "sha256:2d22b013268196e9ea70856fabed8659fca80ed0202ee9497d57a4dd893b16eb",
-  "ce": "sha256:0b4c4666ceceac10e6d0744a1dd14ca2cf1910222f12b087f163b92f06af8d71",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 51: Blue triangles, central quadrilateral and labels preserve their layout; isolated thin-edge contact adjustment at a bottom vertex.",
+  "facts": "sha256:658978bb78f2a4f5dbc63ff9a8be054256dc38e28d80c335bd13c02481591134",
+  "at": "2026-10-06"
 }

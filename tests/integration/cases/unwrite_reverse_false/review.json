@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:b8960e34002b4cd4a164b2553e48d3872144bcc1437a8d83dc82b7b596271102",
-  "manimgx": "sha256:1b95adff739b0a09a70f6bc1b765ff1353c890630babeb6bcaa7b68aa449924c",
-  "ce": "sha256:aaa775f2b6dcbbe39abee31027bb271150d88622c729b7fca244ee914fdf7dda",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 7: Inspected partially erased lettering and enlarged final ob shapes. Two glyph-edge changes preserve erase extent, contours and fills.",
+  "facts": "sha256:01663e10ec7b2f954e1f05f8e290c4e88e86b1cb48d34fdcd805420ef973b25d",
+  "at": "2026-10-06"
 }

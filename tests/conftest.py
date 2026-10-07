@@ -3,8 +3,8 @@ what its `config` marks change: `pytestmark = pytest.mark.config(pixel_width=320
 pixel_height=180)` for a module, or one test's own mark over it), nothing remembered for a test
 marked `cold` (`manimgx.caches.clear` before and after it), and the Hypothesis profiles;
 and the timed benchmarks' options (`--bench REF`, `--bench-rounds`): the tests marked `timed`
-(`tests/benchmarks/test_speed.py`) render each workload once in the suite, and with `--bench`
-are timed against REF, alone.
+(`tests/benchmarks/test_speed.py`) render each workload once in the Linux/macOS suite,
+and with `--bench` are timed against REF, alone.
 
 Profiles: `default`; `thorough` (2,000 examples a property, for a hunt); `mutation` (for
 mutmut: reproducible, and one failing example is enough). On CI (the CI variable), Hypothesis
@@ -135,9 +135,9 @@ def two_fonts(
     native = tc._engine.typeset
 
     def typeset(
-        source: str, fonts: list[str], packages: str | None = None
+        source: str, fonts: list[str], packages: str | None = None, *, revision: int = 0
     ) -> tuple[bytes, list[bytes], list[tuple[str, list[int]]], bool]:
-        raw, shapes, labels, system = native(source, fonts, packages)
+        raw, shapes, labels, system = native(source, fonts, packages, revision=revision)
         rows = np.frombuffer(raw).reshape(-1, tc.ROW).copy()
         wide, tall = next((sizes[path] for path in fonts if path in sizes), (1.0, 1.0))
         places = rows[:, tc.PLACEMENT]  # (sx, ky, kx, sy, tx, ty): x's, then y's, apart

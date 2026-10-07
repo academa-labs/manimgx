@@ -1,8 +1,6 @@
 {
   "verdict": "working",
-  "note": "",
-  "source": "sha256:d5dd2547735b8be8b3e5eb4351c7095924c64a5f2873431ee1fdc00305e610f4",
-  "manimgx": "sha256:1fb4f871acb32d94ab3288be752256149033088f4e8558ef83b0d757a826c7c4",
-  "ce": "sha256:0061789917c4212fdf96af388302259c7a8c2fc9ab573a7f8a71bb6e9413dcf8",
-  "at": "2026-10-04"
+  "note": "Reviewed the exact-area raster correction at frame 5: Red ring and rotating white axes retain geometry; changes remain at diagonal tick/axis contacts.",
+  "facts": "sha256:15fb818a6641e047d1261728f4f6346aadb407efc908f349f315b664feb9ddd4",
+  "at": "2026-10-06"
 }
