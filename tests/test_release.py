@@ -403,6 +403,73 @@ def test_npm_retry_requires_the_exact_tarball(
     assert uploaded == ([archive.read_bytes()] if state == "new" else [])
 
 
+@pytest.mark.parametrize("outcome", ["visible", "timeout", "unauthorized", "different"])
+def test_npm_waits_for_visibility_after_one_accepted_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    archive = tmp_path / "package.tgz"
+    with tarfile.open(archive, "w:gz") as package:
+        body = b'{"name":"manimgx","version":"0.1.0"}'
+        member = tarfile.TarInfo("package/package.json")
+        member.size = len(body)
+        package.addfile(member, io.BytesIO(body))
+    integrity = (
+        "sha512-"
+        + base64.b64encode(hashlib.sha512(archive.read_bytes()).digest()).decode()
+    )
+    now = 0.0
+    uploads = []
+    inspections = []
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        assert 0 < seconds <= 5
+        now += seconds
+
+    def run(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        if command[1] == "publish":
+            uploads.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if not uploads:
+            return subprocess.CompletedProcess(
+                command, 1, '{"error":{"code":"E404"}}', ""
+            )
+        inspections.append((now, options.get("timeout")))
+        if outcome == "timeout" or (outcome == "visible" and len(inspections) < 3):
+            return subprocess.CompletedProcess(
+                command, 1, '{"error":{"code":"E404"}}', ""
+            )
+        if outcome == "unauthorized":
+            return subprocess.CompletedProcess(
+                command, 1, '{"error":{"code":"E401"}}', ""
+            )
+        return subprocess.CompletedProcess(
+            command, 0, json.dumps("other" if outcome == "different" else integrity), ""
+        )
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(publish_npm, "monotonic", lambda: now)
+    monkeypatch.setattr(publish_npm, "sleep", sleep)
+    if outcome == "timeout":
+        with pytest.raises(TimeoutError, match="not available"):
+            publish_npm.publish(archive)
+        assert now == 300
+    elif outcome == "unauthorized":
+        with pytest.raises(RuntimeError, match="cannot inspect"):
+            publish_npm.publish(archive)
+        assert now == 0
+    elif outcome == "different":
+        with pytest.raises(ValueError, match="different artifact bytes"):
+            publish_npm.publish(archive)
+        assert now == 0
+    else:
+        publish_npm.publish(archive)
+        assert now == 10
+    assert len(uploads) == 1
+    assert inspections
+    assert all(timeout == 300 - instant for instant, timeout in inspections)
+
+
 def test_release_smoke_records_decoded_audio_and_a_complete_versioned_take(
     tmp_path: Path,
 ) -> None:

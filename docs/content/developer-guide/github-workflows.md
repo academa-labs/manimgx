@@ -169,7 +169,8 @@ See [Documentation](documentation.md#deployment) for how the site is served.
 6. **Publish to npm:** `publish-npm.yaml` acquires the browser's tarball from the public
    GitHub release and verifies its attestation against the release workflow, tag and commit.
    It confirms the matching Python browser wheel is public on PyPI before publishing with
-   provenance. A retry accepts an existing version only when its SHA512 integrity matches
+   provenance. After an accepted upload, verification waits up to five minutes for registry
+   visibility. A retry accepts an existing version only when its SHA512 integrity matches
    the exact tarball. The same workflow can run by hand from `main`, with a published `tag`,
    to retry publication with current tools without rebuilding or moving that tag.
    For the first release, before the package exists on npm, create a
@@ -187,6 +188,10 @@ See [Documentation](documentation.md#deployment) for how the site is served.
    `ghcr.io/academa-labs/manimgx`, tagged `X.Y.Z` and `X.Y` (a pre-release,
    `X.Y.Z` only), labeled `MIT AND GPL-3.0-or-later`: ManimGX's code, and the engine, which
    x264 makes GPL-3.0-or-later as a whole. It needs no new package resolution or image build.
+   After the first upload, set the container package's
+   [visibility to Public](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-an-organization)
+   in its GitHub package settings; repository visibility does not set package visibility.
+   Confirm an anonymous pull before announcing the release.
 8. **Confirm completion:** all registry uploads have succeeded and the GitHub release is
    public. Publication across registries is not atomic; a failed destination can be retried
    using the retained artifacts. Publishing alone does not lock the release's files or tag: that requires

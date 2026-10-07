@@ -7,6 +7,7 @@ import json
 import subprocess
 import tarfile
 from pathlib import Path
+from time import monotonic, sleep
 
 
 def publish(archive: Path) -> None:
@@ -22,12 +23,13 @@ def publish(archive: Path) -> None:
         hashlib.sha512(archive.read_bytes()).digest()
     ).decode("ascii")
 
-    def exists() -> bool:
+    def exists(timeout: float | None = None) -> bool:
         result = subprocess.run(
             ["npm", "view", name, "dist.integrity", "--json"],
             capture_output=True,
             text=True,
             check=False,
+            timeout=timeout,
         )
         record = json.loads(result.stdout)
         if result.returncode:
@@ -46,8 +48,17 @@ def publish(archive: Path) -> None:
             ["npm", "publish", str(archive), "--provenance", "--access", "public"],
             check=True,
         )
-        if not exists():
-            raise RuntimeError(f"{name} was not available after publication")
+        # Acceptance precedes registry visibility while npm processes a publication.
+        deadline = monotonic() + 300
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"{name} was not available within five minutes of publication"
+                )
+            if exists(timeout=remaining):
+                break
+            sleep(min(5, max(0, deadline - monotonic())))
 
 
 if __name__ == "__main__":
