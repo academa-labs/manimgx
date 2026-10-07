@@ -1,309 +1,402 @@
-"""Time manimgx, Manim Community Edition, ManimGL and Blender on the same scenes.
-
-    uv run --frozen python scripts/benchmark/run.py [--runs 5] [--only orbit,morph] [--tools manimgx,blender_workbench]
-
-Each scene is the same film in each tool's own idiom: 1920 x 1080 at 60 fps, written to an
-H.264 MP4 with the tool's own encoder settings. manimgx's are the timed benchmarks' workloads
-(`tests/benchmarks/scenes/<scene>.py`); the others are here (`scenes/<scene>_<tool>.py`). A
-run is the tool's command, in a fresh process and a fresh folder (its caches with it: Manim
-CE's and ManimGL's LaTeX, manimgx's Typst layouts), timed from launch to exit, when the MP4
-is written. Each contender renders a scene once to warm up (unless that takes over two
-minutes: it counts then), then again, the contenders taking turns, until it has five runs
-(three if a run takes over a minute, one if over ten). The medians go to `results.json`,
-with every run, the versions and the machine; each MP4 is checked for its length, then
-deleted.
-
-The tools:
-- manimgx and Manim CE (0.21.0): this repository's environment, with the `ce` group
-  (`uv sync --group ce`).
-- ManimGL (1.7.2): its own environment, e.g. `uv venv --python 3.12 ENV` and
-  `uv pip install --python ENV manimgl==1.7.2 setuptools` (`--manimgl ENV`); its LaTeX
-  template is its minimal one, "basic".
-- Blender (5.2 LTS), headless, twice: with EEVEE, its default renderer, and with Workbench,
-  its fastest (`--blender PATH`). It has no math typesetting, so it renders the 3D scenes.
-"""
+"""Render five scenes sequentially through the engines' native MP4 exporters."""
 
 import argparse
+import contextlib
+import hashlib
 import json
 import os
 import platform
+import re
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
-import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
+from fractions import Fraction
 from pathlib import Path
+from threading import Timer
 
-HERE = Path(__file__).parent
-ROOT = HERE.parents[1]
-SCENES = HERE / "scenes"
-WORKLOADS = ROOT / "tests" / "benchmarks" / "scenes"  # manimgx's scenes
-BIN = ROOT / ".venv" / "bin"
-SCENE_CLASSES = {"orbit": "Orbit", "morph": "Morph", "explainer": "Explainer"}
-SECONDS = {"orbit": 10.0, "morph": 10.0, "explainer": 9.5}
-WARM_LIMIT, SLOW, SLOWER = 120.0, 60.0, 600.0
+from scripts.benchmark.scenes.suite_data import DURATIONS, FPS, HEIGHT, WIDTH
+
+HERE = Path(__file__).resolve().parent
+SOURCES = HERE / "scenes"
+TOOLS = ("manimgx", "manimgl", "manim_ce", "blender_workbench", "blender_eevee")
+REPEATS = {tool: 3 if tool in ("manimgx", "manimgl") else 1 for tool in TOOLS}
 
 
-@dataclass(frozen=True)
-class Contender:
-    """A tool, as the chart names it, and how it renders a scene into a folder."""
+@dataclass
+class Run:
+    scene: str
+    tool: str
+    repeat: int
+    command: list[str]
+    status: str = "pending"
+    wall_seconds: float = 0
+    cpu_seconds: float = 0
+    log: str = ""
+    error: str = ""
+    video: dict[str, str | int | float] = field(default_factory=dict)
 
-    name: str
-    label: str
-    scenes: tuple[str, ...]
 
-    def command(self, scene: str, folder: Path, args: argparse.Namespace) -> list[str]:
-        """The command that renders `scene` into `folder`."""
-        mine = self.tool == "manimgx"
-        file = str(
-            WORKLOADS / f"{scene}.py" if mine else SCENES / f"{scene}_{self.tool}.py"
-        )
-        cls = SCENE_CLASSES[scene]
-        if mine:
-            return [str(BIN / "manimgx"), "render", file, "-o", str(folder / "out.mp4")]
-        if self.tool == "manim_ce":
-            return [
-                str(BIN / "manim"),
-                "render",
-                "-qh",
-                "--disable_caching",
-                "--media_dir",
-                str(folder),
-                file,
-                cls,
-            ]
-        if self.tool == "manimgl":
-            config = folder / "config.yml"
-            config.write_text(
-                f'directories:\n  cache: "{folder / "cache"}"\n'
-                'camera:\n  fps: 60\ntex:\n  template: "basic"\n',
-                encoding="utf-8",
-            )
-            return [
-                str(Path(args.manimgl) / "bin" / "manimgl"),
-                file,
-                cls,
-                "-w",
-                "--hd",  # 60 fps comes from the config (its --fps flag passes a string)
-                "--video_dir",
-                str(folder),
-                "--config_file",
-                str(config),
-            ]
-        engine = self.name.removeprefix("blender_").upper()
+def executable(value: str) -> str:
+    path = shutil.which(value)
+    if path is None:
+        raise FileNotFoundError(f"Executable not found: {value}")
+    return str(Path(path).absolute())
+
+
+def command(tool: str, scene: str, folder: Path, args: argparse.Namespace) -> list[str]:
+    source = SOURCES / (
+        f"{scene}_{tool}.py"
+        if scene in ("orbit", "matrix", "pendulums")
+        else "suite_manim.py"
+    )
+    cls = (
+        "Orbit"
+        if scene == "orbit"
+        else "TeacherScene"
+        if scene in ("matrix", "pendulums")
+        else "Benchmark"
+    )
+    if tool == "manimgx":
         return [
-            args.blender,
-            "-b",
-            "--factory-startup",
-            "--python-exit-code",
-            "1",
-            "-P",
-            file,
-            "--",
-            "--engine",
-            engine,
-            "--out",
+            args.gx,
+            "render",
+            str(source),
+            cls,
+            "-o",
             str(folder / "out.mp4"),
+            "--preset",
+            "ultrafast",
+            "--crf",
+            "23",
+            "--resolution",
+            f"{WIDTH}x{HEIGHT}",
+            "--fps",
+            str(FPS),
         ]
+    if tool == "manim_ce":
+        return [
+            args.ce_python,
+            str(SOURCES / "ce_cli.py"),
+            "render",
+            "-qh",
+            "--disable_caching",
+            "--media_dir",
+            str(folder),
+            str(source),
+            cls,
+        ]
+    if tool == "manimgl":
+        config = folder / "config.yml"
+        config.write_text(
+            f'directories:\n  cache: {json.dumps(str(folder / "cache"))}\ncamera:\n  background_color: "#000000"\n  fps: {FPS}\ntex:\n  template: "basic"\nfile_writer:\n  ffmpeg_bin: {json.dumps(str(SOURCES / "ffmpeg.py"))}\n',
+            encoding="utf-8",
+        )
+        return [
+            args.manimgl,
+            str(source),
+            cls,
+            "-w",
+            "--hd",
+            "--video_dir",
+            str(folder),
+            "--config_file",
+            str(config),
+        ]
+    name = (
+        "orbit_blender.py"
+        if scene == "orbit"
+        else "two_d_blender.py"
+        if scene in ("matrix", "pendulums")
+        else "linked_rings_blender.py"
+        if scene == "linked_rings"
+        else "suite_blender.py"
+    )
+    engine = tool.removeprefix("blender_")
+    cmd = [
+        args.blender,
+        "-b",
+        "--factory-startup",
+        "--python-exit-code",
+        "1",
+        "-P",
+        str(SOURCES / name),
+        "--",
+        "--engine",
+        engine.upper() if scene == "orbit" else engine,
+        "--out",
+        str(folder / "out.mp4"),
+    ]
+    if scene == "linked_rings":
+        cmd += ["--animate"]
+    elif scene != "orbit":
+        cmd += ["--scene", scene]
+    return cmd
 
-    @property
-    def tool(self) -> str:
-        """The tool whose scene files it runs."""
-        return "blender" if self.name.startswith("blender") else self.name
+
+def encoder_evidence(path: Path, tool: str) -> str:
+    match = re.search(rb"x264 - core [^\x00]{1,3000}", path.read_bytes())
+    if match is None and tool == "manimgx":
+        return "Explicit ultrafast / CRF 23 CLI arguments"
+    evidence = match.group().decode("ascii", errors="replace") if match else ""
+    required = (
+        ("crf=23.0", "subme=1", "me=dia", "bframes=0")
+        if tool.startswith("blender_")
+        else ("crf=23.0", "cabac=0", "subme=0", "bframes=0")
+    )
+    if not all(
+        re.search(rf"\b{re.escape(value)}(?:\s|$)", evidence) for value in required
+    ):
+        raise ValueError(f"Unexpected encoder options: {evidence}")
+    return evidence
 
 
-CONTENDERS = [
-    Contender("manimgx", "manimgx", ("orbit", "morph", "explainer")),
-    Contender("manimgl", "ManimGL", ("orbit", "morph", "explainer")),
-    Contender("blender_workbench", "Blender (Workbench)", ("orbit", "morph")),
-    Contender("blender_eevee", "Blender (EEVEE)", ("orbit", "morph")),
-    Contender("manim_ce", "Manim CE", ("orbit", "morph", "explainer")),
-]
+def validate(path: Path, tool: str, duration: float) -> dict[str, str | int | float]:
+    """Decode the complete video and check its timeline and encoder settings."""
+    import av
 
-
-def run(contender: Contender, scene: str, args: argparse.Namespace) -> dict[str, float]:
-    """Render once, in a fresh folder, and measure it; the MP4 is checked, then deleted."""
-    folder = Path(tempfile.mkdtemp(prefix=f"bench-{scene}-{contender.name}-"))
-    # a TMPDIR of its own: manimgx caches Typst's layouts there
-    env = os.environ | {"TMPDIR": str(folder)}
-    load = os.getloadavg()[0]
-    log = folder / "stderr.txt"
-    with log.open("wb") as stderr:
-        start = time.perf_counter()
-        pid = subprocess.Popen(
-            contender.command(scene, folder, args),
-            cwd=folder,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=stderr,
-        ).pid
-        _, status, usage = os.wait4(pid, 0)  # its CPU time, its children's included
-        wall = time.perf_counter() - start
-    if status:
-        errors = log.read_text(encoding="utf-8", errors="replace")[-3000:]
-        sys.exit(f"{contender.name} failed on {scene}:\n{errors}")
-    unit = 1024 if platform.system() == "Darwin" else 1  # ru_maxrss: bytes, or KiB
-    videos = [p for p in folder.rglob("*.mp4") if "partial_movie_files" not in p.parts]
-    if len(videos) != 1:
-        sys.exit(f"{contender.name} wrote {len(videos)} videos for {scene}")
     probe = json.loads(
-        subprocess.run(
+        subprocess.check_output(
             [
                 "ffprobe",
                 "-v",
                 "error",
+                "-select_streams",
+                "v:0",
                 "-show_entries",
-                "format=duration,size",
+                "stream=r_frame_rate",
                 "-of",
                 "json",
-                str(videos[0]),
+                str(path),
             ],
-            capture_output=True,
-            check=True,
-        ).stdout
-    )["format"]
-    duration = float(probe["duration"])
-    if abs(duration - SECONDS[scene]) > 0.1:
-        sys.exit(f"{contender.name}'s {scene} lasts {duration:.2f} s")
-    if args.keep:
-        kept = Path(args.keep) / f"{scene}_{contender.name}.mp4"
-        kept.parent.mkdir(parents=True, exist_ok=True)
-        if not kept.exists():
-            shutil.copyfile(videos[0], kept)
-    shutil.rmtree(folder)
+            text=True,
+        )
+    )
+    if Fraction(probe["streams"][0]["r_frame_rate"]) != FPS:
+        raise ValueError("Unexpected frame rate")
+    with av.open(str(path)) as container:
+        stream = container.streams.video[0]
+        if stream.codec_context.name != "h264" or stream.time_base is None:
+            raise ValueError("Expected H.264 with presentation timestamps")
+        stream.thread_type = "AUTO"
+        stream.codec_context.thread_count = 2
+        previous, end, decoded = -1, 0, 0
+        for frame in container.decode(stream):
+            if (frame.width, frame.height, frame.format.name) != (
+                WIDTH,
+                HEIGHT,
+                "yuv420p",
+            ):
+                raise ValueError("Unexpected resolution or pixel format")
+            if (
+                frame.pts is None
+                or frame.pts <= previous
+                or (decoded == 0 and frame.pts != 0)
+            ):
+                raise ValueError("Invalid presentation timestamps")
+            previous, end = frame.pts, frame.pts + frame.duration
+            decoded += 1
+        timeline = end * stream.time_base * FPS
+        if not decoded or end <= previous or abs(timeline - round(duration * FPS)) > 1:
+            raise ValueError(f"Unexpected video timeline: {timeline} frames")
     return {
-        "wall": round(wall, 3),
-        "cpu": round(usage.ru_utime + usage.ru_stime, 2),
-        "memory_mb": round(usage.ru_maxrss / unit / 1024),
-        "video_mb": round(int(probe["size"]) / 1e6, 1),
-        "load": round(load, 2),
+        "path": str(path),
+        "decoded_frames": decoded,
+        "timeline_frames": float(timeline),
+        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "encoder_evidence": encoder_evidence(path, tool),
     }
 
 
-def versions(tools: list[str], args: argparse.Namespace) -> dict[str, str]:
-    """The version of each tool that ran."""
-
-    def output(*command: str) -> str:
-        return subprocess.run(command, capture_output=True, text=True).stdout.strip()
-
-    found = {}
-    if "manimgx" in tools:
-        found["manimgx"] = output(str(BIN / "manimgx"), "--version").split()[-1]
-    if "manim_ce" in tools:
-        found["manim_ce"] = output(
-            str(BIN / "python"), "-c", "import manim; print(manim.__version__)"
-        )
-    if "manimgl" in tools:
-        python = str(Path(args.manimgl) / "bin" / "python")
-        found["manimgl"] = output(
-            python, "-c", "import importlib.metadata as m; print(m.version('manimgl'))"
-        )
-    if any(tool.startswith("blender") for tool in tools):
-        found["blender"] = (
-            output(args.blender, "--version").splitlines()[0].removeprefix("Blender ")
-        )
-    return found
-
-
-def sysctl(key: str) -> str:
-    """A value of macOS's kernel settings."""
-    command = ["sysctl", "-n", key]
-    return subprocess.run(command, capture_output=True, text=True).stdout.strip()
-
-
-def machine() -> dict[str, str]:
-    """The machine the runs were on."""
-    info = {
-        "os": f"{platform.system()} {platform.release()}",
-        "cpus": str(os.cpu_count()),
+def run_one(tool: str, scene: str, repeat: int, args: argparse.Namespace) -> Run:
+    folder = args.out / scene / tool / str(repeat)
+    folder.mkdir(parents=True, exist_ok=False)
+    cmd = command(tool, scene, folder, args)
+    result = Run(scene, tool, repeat, cmd, log=str(folder / "render.log"))
+    if args.dry_run:
+        result.status = "planned"
+        return result
+    env = os.environ | {
+        "BENCH_ENGINE": tool,
+        "BENCH_SCENE": scene,
+        "BENCH_DURATION": str(DURATIONS[scene]),
+        "PYTHONPATH": str(SOURCES),
+        "PYTHONHASHSEED": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TMPDIR": str(folder),
+        "MANIMGX_BENCH_PRESET": "ultrafast",
+        "MANIMGX_BENCH_CRF": "23",
+        "MANIMGX_BENCH_FFMPEG_LOG": str(folder / "ffmpeg-command.json"),
     }
-    if platform.system() == "Darwin":
-        info |= {
-            "cpu": sysctl("machdep.cpu.brand_string"),
-            "memory": f"{int(sysctl('hw.memsize')) // 2**30} GB",
-            "os": f"macOS {platform.mac_ver()[0]}",
-        }
-    return info
+    timed_out = False
+    with Path(result.log).open("wb") as log:
+        start = time.perf_counter()
+        process = subprocess.Popen(
+            cmd,
+            cwd=folder,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+        def expire() -> None:
+            nonlocal timed_out
+            timed_out = True
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+
+        watchdog = Timer(args.timeout, expire)
+        watchdog.start()
+        try:
+            _, status, usage = os.wait4(process.pid, 0)
+        finally:
+            result.wall_seconds = time.perf_counter() - start
+            watchdog.cancel()
+            watchdog.join()
+        process.returncode = os.waitstatus_to_exitcode(status)
+    result.cpu_seconds = usage.ru_utime + usage.ru_stime
+    if timed_out or process.returncode:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        result.status = "timeout" if timed_out else "failed"
+        result.error = Path(result.log).read_text(errors="replace")[-4000:]
+        return result
+    try:
+        videos = [
+            p for p in folder.rglob("*.mp4") if "partial_movie_files" not in p.parts
+        ]
+        if len(videos) != 1:
+            raise ValueError(f"Expected one MP4, found {len(videos)}")
+        result.video = validate(videos[0], tool, DURATIONS[scene])
+        result.status = "complete"
+    except Exception as error:
+        result.status, result.error = "invalid", str(error)
+    return result
+
+
+def summarize(
+    runs: list[Run], scenes: list[str], repeats: dict[str, int]
+) -> dict[str, object]:
+    per_scene = {}
+    for scene in scenes:
+        per_scene[scene] = {}
+        for tool in repeats:
+            samples = [
+                r.wall_seconds
+                for r in runs
+                if r.scene == scene and r.tool == tool and r.status == "complete"
+            ]
+            if len(samples) == repeats[tool]:
+                per_scene[scene][tool] = {
+                    "mean_seconds": statistics.mean(samples),
+                    "samples_seconds": samples,
+                }
+    totals = {
+        tool: sum(per_scene[scene][tool]["mean_seconds"] for scene in scenes)
+        for tool in repeats
+        if all(tool in per_scene[scene] for scene in scenes)
+    }
+    return {
+        "per_scene": per_scene,
+        "totals": totals,
+        "complete": len(totals) == len(repeats),
+    }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--runs", type=int, default=5)
-    parser.add_argument("--only", default=",".join(SCENE_CLASSES))
-    parser.add_argument("--tools", default=",".join(c.name for c in CONTENDERS))
-    parser.add_argument("--manimgl", help="ManimGL's environment")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--tools", nargs="+", choices=TOOLS, default=list(TOOLS))
     parser.add_argument(
-        "--blender",
-        default=shutil.which("blender")
-        or "/Applications/Blender.app/Contents/MacOS/Blender",
+        "--scenes", nargs="+", choices=DURATIONS, default=list(DURATIONS)
     )
-    parser.add_argument("--keep", help="a folder to keep each contender's first MP4 in")
-    parser.add_argument("--out", default=str(HERE / "results.json"))
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        help="Runs per scene and engine; default: three for GX/GL, one for CE/Blender",
+    )
+    parser.add_argument("--gx", default=str(Path(sys.executable).parent / "manimgx"))
+    parser.add_argument("--ce-python", default=sys.executable)
+    parser.add_argument("--manimgl", default="manimgl")
+    parser.add_argument("--blender", default="blender")
+    parser.add_argument("--timeout", type=float, default=900)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write commands without starting renderers",
+    )
     args = parser.parse_args()
-    scenes, tools = args.only.split(","), args.tools.split(",")
-    if "manimgl" in tools and not args.manimgl:
-        parser.error(
-            "ManimGL needs its environment: --manimgl ENV (or leave it out of --tools)"
-        )
-    pairs = [
-        (c, s) for s in scenes for c in CONTENDERS if c.name in tools and s in c.scenes
-    ]
-    runs: dict[tuple[str, str], list[dict[str, float]]] = {
-        (c.name, s): [] for c, s in pairs
-    }
-    wanted: dict[tuple[str, str], int] = {}
-    commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True
-    ).stdout.strip()
-    for contender, scene in pairs:  # the warm-up
-        first = run(contender, scene, args)
-        slow = first["wall"] > WARM_LIMIT
-        wanted[contender.name, scene] = (
-            args.runs if first["wall"] < SLOW else 3 if first["wall"] < SLOWER else 1
-        )
-        if slow:
-            runs[contender.name, scene].append(first)
-        print(
-            f"warm-up {scene:9} {contender.label:20} {first['wall']:8.2f} s", flush=True
-        )
-    while any(len(runs[k]) < wanted[k] for k in runs):
-        for contender, scene in pairs:
-            if len(runs[contender.name, scene]) < wanted[contender.name, scene]:
-                result = run(contender, scene, args)
-                runs[contender.name, scene].append(result)
-                print(
-                    f"{scene:9} {contender.label:20} {result['wall']:8.2f} s  load"
-                    f" {result['load']}",
-                    flush=True,
-                )
-    medians = {
-        key: statistics.median(r["wall"] for r in rows) for key, rows in runs.items()
-    }
-    results = {
-        "date": time.strftime("%Y-%m-%d"),
-        "commit": commit,
-        "machine": machine(),
-        "versions": versions(tools, args),
-        "scenes": {
-            scene: {
-                c.name: {
-                    "label": c.label,
-                    "median": round(medians[c.name, scene], 2),
-                    "runs": runs[c.name, scene],
-                }
-                for c, s in pairs
-                if s == scene
-            }
-            for scene in scenes
+    if (args.rounds is not None and args.rounds < 1) or args.timeout <= 0:
+        parser.error("Rounds and timeout must be positive")
+    args.scenes, args.tools = (
+        list(dict.fromkeys(args.scenes)),
+        list(dict.fromkeys(args.tools)),
+    )
+    if not args.dry_run:
+        for tool, option in (
+            ("manimgx", "gx"),
+            ("manim_ce", "ce_python"),
+            ("manimgl", "manimgl"),
+            ("blender", "blender"),
+        ):
+            if any(name.startswith(tool) for name in args.tools):
+                setattr(args, option, executable(getattr(args, option)))
+        executable("ffmpeg")
+        executable("ffprobe")
+    args.out = args.out.resolve()
+    args.out.mkdir(parents=True, exist_ok=False)
+    repeats = {tool: args.rounds or REPEATS[tool] for tool in args.tools}
+    manifest = {
+        "date": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "machine": {
+            "os": platform.platform(),
+            "cpu": platform.processor(),
+            "cpus": os.cpu_count(),
+        },
+        "settings": {
+            "width": WIDTH,
+            "height": HEIGHT,
+            "fps": FPS,
+            "crf": 23,
+            "manim_preset": "ultrafast",
+            "blender_preset": "REALTIME",
+            "scenes": {s: DURATIONS[s] for s in args.scenes},
+            "repeats": repeats,
+        },
+        "source_sha256": {
+            str(p.relative_to(HERE)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(HERE.rglob("*.py"))
         },
     }
-    Path(args.out).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
-    for contender, scene in pairs:
-        median, base = medians[contender.name, scene], medians.get(("manimgx", scene))
-        times = f"×{median / base:.1f}" if base else ""
-        print(f"{scene:9} {contender.label:20} {median:8.2f} s  {times}")
+    runs: list[Run] = []
+    for scene in args.scenes:
+        for repeat in range(1, max(repeats.values()) + 1):
+            for tool in args.tools:
+                if repeat > repeats[tool]:
+                    continue
+                print(f"{scene}: {tool}, run {repeat}", flush=True)
+                row = run_one(tool, scene, repeat, args)
+                runs.append(row)
+                result = (
+                    manifest
+                    | summarize(runs, args.scenes, repeats)
+                    | {"runs": [asdict(r) for r in runs]}
+                )
+                temp = args.out / "results.tmp"
+                temp.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+                temp.replace(args.out / "results.json")
+                print(
+                    f"  {row.status}"
+                    + (f" {row.wall_seconds:.3f}s" if not args.dry_run else ""),
+                    flush=True,
+                )
+                if row.status not in ("complete", "planned"):
+                    raise SystemExit(row.error or row.status)
 
 
 if __name__ == "__main__":

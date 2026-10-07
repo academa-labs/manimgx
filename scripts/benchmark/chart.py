@@ -1,22 +1,30 @@
-"""The README's chart: the benchmark's 3D scene as a race of bars, a light SVG and a dark one.
+"""The README's chart: the five-scene suite as a race of bars, light and dark.
 
     uv run --frozen python scripts/benchmark/chart.py
 
-Reads `results.json` (`run.py` writes it) and writes `docs/content/images/benchmark-light.svg`
+Reads `results.json` and writes `docs/content/images/benchmark-light.svg`
 and `benchmark-dark.svg`, which the README shows from the docs site, each where its color
-scheme is. Each bar grows as its tool renders: in real time until manimgx is done and a
+scheme is. Times are divided by manimgx's suite total, so its bar finishes at one second.
+Each bar grows on this normalized clock until manimgx is done and a
 moment more, then fast-forwarded (the chart says by how much) until the slowest is done;
 the chart then holds, and starts again. Without motion (`prefers-reduced-motion`), it is
 the finished chart.
 """
 
+import argparse
 import json
 import math
 from pathlib import Path
 
 HERE = Path(__file__).parent
 IMAGES = HERE.parents[1] / "docs" / "content" / "images"
-SCENE = "orbit"
+LABELS = {
+    "manimgx": "ManimGX",
+    "manim_ce": "ManimCE",
+    "manimgl": "ManimGL",
+    "blender_workbench": "Blender (Workbench)",
+    "blender_eevee": "Blender (EEVEE)",
+}
 FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
 THEMES = {
     "light": {
@@ -68,27 +76,38 @@ class Race:
 
 
 def duration(seconds: float) -> str:
-    """A time as the chart labels it: 0.85s, 6.2s, 27s, 4m 17s."""
-    if seconds < 1:
-        return f"{seconds:.2f}s"
-    if seconds < 10:
-        return f"{seconds:.1f}s"
-    if seconds < 100:
-        return f"{seconds:.0f}s"
-    minutes, rest = divmod(round(seconds), 60)
-    return f"{minutes}m {rest:02d}s"
+    """Normalized seconds, without unnecessary trailing zeros."""
+    return f"{seconds:.2f}".rstrip("0").rstrip(".") + "s"
+
+
+def normalized_rows(totals: dict[str, float]) -> list[tuple[str, float]]:
+    """Keep every engine's relative time while setting manimgx to one second."""
+    return sorted(
+        (
+            (LABELS[tool], seconds / totals["manimgx"])
+            for tool, seconds in totals.items()
+        ),
+        key=lambda row: row[1],
+    )
 
 
 def chart(rows: list[tuple[str, float]], theme: dict[str, str]) -> str:
-    """The bars, fastest first, on a scale of whole minutes, racing."""
+    """The bars, fastest first, on a normalized seconds scale, racing."""
     slowest = max(seconds for _, seconds in rows)
     race = Race(min(seconds for _, seconds in rows), slowest)
-    minutes = int(slowest // 60) + 1
+    magnitude = 10 ** math.floor(math.log10(slowest / 6))
+    step = next(
+        factor * magnitude
+        for factor in (1, 2, 5, 10)
+        if factor * magnitude >= slowest / 6
+    )
+    ticks = math.ceil(slowest / step)
+    limit = ticks * step
     span = WIDTH - LEFT - RIGHT
 
     def x(seconds: float) -> float:
         """Where a time is on the chart."""
-        return LEFT + span * seconds / (60 * minutes)
+        return LEFT + span * seconds / limit
 
     def percent(t: float) -> str:
         return f"{100 * t / race.period:.3f}%"
@@ -106,22 +125,25 @@ def chart(rows: list[tuple[str, float]], theme: dict[str, str]) -> str:
             ".clock{opacity:0}}"
         ),
     ]
-    parts = []
+    parts = [
+        f'<text x="{LEFT}" y="18" fill="{theme["muted"]}" font-size="13">'
+        "Normalized: ManimGX = 1s</text>"
+    ]
     bottom = TOP + ROW * len(rows)
-    for minute in range(minutes + 1):
-        at = x(60 * minute)
+    for tick in range(ticks + 1):
+        at = x(tick * step)
         parts.append(
             f'<line x1="{at:.1f}" y1="{TOP - 6}" x2="{at:.1f}" y2="{bottom}"'
             f' stroke="{theme["grid"]}" stroke-width="1"/>'
         )
-        label = "0s" if minute == 0 else f"{minute}min"
+        label = duration(tick * step)
         parts.append(
             f'<text x="{at:.1f}" y="{bottom + 22}" fill="{theme["muted"]}"'
             f' font-size="13" text-anchor="middle">{label}</text>'
         )
     for i, (name, seconds) in enumerate(rows):
         y = TOP + ROW * i + (ROW - BAR) / 2
-        ours = name == "manimgx"
+        ours = name == LABELS["manimgx"]
         weight = ' font-weight="700"' if ours else ""
         fill = "url(#manimgx)" if ours else theme["bar"]
         width = max(x(seconds) - LEFT, 3)
@@ -157,8 +179,8 @@ def chart(rows: list[tuple[str, float]], theme: dict[str, str]) -> str:
             f' fill="{theme["text"] if ours else theme["muted"]}"{weight}>'
             f"{duration(seconds)}</text>"
         )
-    # the clock: in real time, then fast-forwarded, by how much
-    captions = [("real time", 0.0)]
+    # The normalized clock, then fast-forwarded, by how much.
+    captions = [("", 0.0)]
     for factor in SPEEDS:
         t = race.live + math.log(factor / (race.growth * race.live)) / race.growth
         if race.live < t < race.end:
@@ -189,13 +211,25 @@ def chart(rows: list[tuple[str, float]], theme: dict[str, str]) -> str:
 
 
 def main() -> None:
-    results = json.loads((HERE / "results.json").read_text(encoding="utf-8"))
-    rows = sorted(
-        ((row["label"], row["median"]) for row in results["scenes"][SCENE].values()),
-        key=lambda row: row[1],
-    )
+    parser = argparse.ArgumentParser(description="Draw normalized render-time charts.")
+    parser.add_argument("--results", type=Path, default=HERE / "results.json")
+    parser.add_argument("--out", type=Path, default=IMAGES)
+    args = parser.parse_args()
+    results = json.loads(args.results.read_text(encoding="utf-8"))
+    if not results.get("complete") or set(results["totals"]) != set(LABELS):
+        parser.error("The chart requires complete results for all five engines")
+    if set(results["settings"]["scenes"]) != {
+        "orbit",
+        "matrix",
+        "pendulums",
+        "hierarchy",
+        "linked_rings",
+    }:
+        parser.error("The chart requires all five scenes")
+    args.out.mkdir(parents=True, exist_ok=True)
+    rows = normalized_rows(results["totals"])
     for name, theme in THEMES.items():
-        path = IMAGES / f"benchmark-{name}.svg"
+        path = args.out / f"benchmark-{name}.svg"
         path.write_text(chart(rows, theme), encoding="utf-8")
         print(f"{path}: {path.stat().st_size / 1e3:.0f} KB")
 

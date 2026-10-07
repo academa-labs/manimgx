@@ -195,8 +195,9 @@ def output(engine: str, path: str) -> None:
     settings.file_format = "FFMPEG"
     scene.render.ffmpeg.format = "MPEG4"
     scene.render.ffmpeg.codec = "H264"
-    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
-    scene.render.ffmpeg.ffmpeg_preset = "GOOD"
+    scene.render.ffmpeg.constant_rate_factor = "CUSTOM"
+    scene.render.ffmpeg.custom_constant_rate_factor = 23
+    scene.render.ffmpeg.ffmpeg_preset = "REALTIME"
     scene.render.filepath = path
     scene.render.use_file_extension = False
 

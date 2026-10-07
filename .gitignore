@@ -40,6 +40,7 @@ media/
 *.mp4
 *.mkv
 *.wav
+*.storyboard*.png
 !tests/integration/cases/*/*.wav
 tests/**/_testoutput/
 tests/**/_diffs/
