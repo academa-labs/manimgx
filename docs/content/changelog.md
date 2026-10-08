@@ -16,6 +16,17 @@ The notable changes to ManimGX, release by release. The format follows
 ### Removed
 -->
 
+## Unreleased
+
+### Changed
+
+- Show measured render times in a static benchmark chart.
+- Use a Markdown table for the benchmark comparison images.
+
+### Fixed
+
+- Preserve the benchmark comparison images' aspect ratios when PyPI narrows the README table.
+
 ## 0.1.1
 
 ### Changed

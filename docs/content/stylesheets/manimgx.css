@@ -885,7 +885,7 @@ html {
   margin: 1em 0;
 }
 
-.md-typeset .mx-benchmark figcaption {
+.md-typeset .mx-benchmark > p {
   max-width: none;
   margin: 0.5em 0 0;
   color: var(--md-default-fg-color--light);
@@ -893,35 +893,39 @@ html {
   font-style: normal;
 }
 
+.md-typeset .mx-benchmark > p > sub {
+  position: static;
+  font-size: inherit;
+  vertical-align: baseline;
+}
+
 /* Identical crops of the original 1080p benchmark frames; no image resampling. */
-.mx-benchmark-quality {
+.md-typeset .md-typeset__table:has(img[src*="/benchmark-quality/"]) {
+  display: block;
+}
+
+.md-typeset table:has(img[src*="/benchmark-quality/"]) {
+  display: table;
   table-layout: fixed;
   border-collapse: collapse;
-  width: min(100%, 80vw);
+  width: 100%;
   margin: 1rem auto 2rem;
 }
 
-.mx-benchmark-quality td {
+.md-typeset table:has(img[src*="/benchmark-quality/"]) td {
   padding: 0;
 }
 
-.mx-benchmark-quality th {
-  height: 3.2em;
-  padding: 0 0 0.5rem;
+.md-typeset table:has(img[src*="/benchmark-quality/"]) th {
   font-size: clamp(0.55rem, 1.5vw, 0.7rem);
   font-weight: 600;
   line-height: 1.25;
   text-align: center;
+  vertical-align: middle;
   overflow-wrap: anywhere;
 }
 
-.mx-benchmark-quality__frame {
-  display: block;
-  width: 100%;
-  aspect-ratio: 302 / 524;
-}
-
-.md-typeset .mx-benchmark-quality__frame img {
+.md-typeset table:has(img[src*="/benchmark-quality/"]) img {
   display: block;
   width: 100%;
   height: auto;

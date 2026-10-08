@@ -16,7 +16,12 @@ def test_the_readme_reaches_the_site_it_is_on() -> None:
 
     html = markdown.markdown(
         README.read_text(encoding="utf-8"),
-        extensions=["md_in_html", "pymdownx.superfences", links.makeExtension()],
+        extensions=[
+            "tables",
+            "md_in_html",
+            "pymdownx.superfences",
+            links.makeExtension(),
+        ],
     )
     site = f"https://{links.HOST}"
     for attribute in ("src", "srcset", "href", "poster"):
@@ -42,7 +47,7 @@ def test_the_welcome_page_uses_the_readme_s_same_showcase_images() -> None:
     assert len(images) == 9
     html = markdown.markdown(
         WELCOME.read_text(encoding="utf-8"),
-        extensions=["pymdownx.snippets", links.makeExtension()],
+        extensions=["tables", "pymdownx.snippets", links.makeExtension()],
         extension_configs={
             "pymdownx.snippets": {
                 "base_path": [str(README.parent)],
@@ -74,6 +79,29 @@ def test_the_banner_keeps_both_github_themes_and_a_light_fallback() -> None:
     for theme in ("dark", "light"):
         assert f'srcset="/showcase/logo-{theme}.svg"' in local
     assert 'src="/showcase/logo-light.svg"' in local
+
+
+def test_comparison_markdown_renders_five_images_without_fixed_dimensions() -> None:
+    markdown = pytest.importorskip("markdown")
+    from docs import links
+
+    html = markdown.markdown(
+        README.read_text(encoding="utf-8"),
+        extensions=["tables", "fenced_code", links.makeExtension()],
+    )
+    tables = re.findall(r"<table\b.*?</table>", html, re.DOTALL)
+    assert len(tables) == 1
+    table = tables[0]
+    assert len(re.findall(r"<th(?:\s|>)", table)) == 5
+    images = re.findall(r"<img\b[^>]*>", table)
+    assert len(images) == 5
+    for image, name in zip(
+        images,
+        ("manimgx", "manim_ce", "manimgl", "blender_workbench", "blender_eevee"),
+        strict=True,
+    ):
+        assert f'src="/images/benchmark-quality/{name}-light.png"' in image
+        assert not re.search(r"\b(?:width|height)=", image)
 
 
 def test_raw_showcase_urls_become_local_without_losing_url_parts() -> None:

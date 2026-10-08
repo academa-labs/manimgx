@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from xml.etree import ElementTree
 
 import numpy as np
 import pytest
@@ -129,14 +130,25 @@ def test_recorded_totals_match_every_run() -> None:
     assert result["per_scene"] == data["per_scene"]
 
 
-def test_normalized_chart_preserves_ratios() -> None:
+def test_static_chart_keeps_measured_seconds_and_proportional_bars() -> None:
     totals = {"manimgx": 2.0, "manimgl": 10.0, "manim_ce": 20.0}
-    rows = chart.normalized_rows(totals)
-    assert rows == [("ManimGX", 1), ("ManimGL", 5), ("ManimCE", 10)]
-    assert (
-        chart.normalized_rows({tool: seconds * 10 for tool, seconds in totals.items()})
-        == rows
-    )
+    rows = chart.measured_rows(totals)
+    assert rows == [("ManimGX", 2), ("ManimGL", 10), ("ManimCE", 20)]
+    for theme in chart.THEMES.values():
+        svg = chart.chart(rows, theme)
+        root = ElementTree.fromstring(svg)
+        widths = []
+        for i, (_, seconds) in enumerate(rows):
+            bar = root.find(f".//*[@id='b{i}']")
+            label = root.find(f".//*[@id='t{i}']")
+            assert bar is not None
+            assert label is not None
+            widths.append(float(bar.attrib["width"]))
+            assert label.text == f"{seconds:.2f} s"
+        assert widths[1] / widths[0] == pytest.approx(5)
+        assert widths[2] / widths[0] == pytest.approx(10)
+        assert "animation" not in svg
+        assert "<animate" not in svg
 
 
 @pytest.mark.parametrize("t", [0, 0.75, 1.5, 2.25, 3])

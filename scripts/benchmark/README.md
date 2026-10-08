@@ -64,13 +64,13 @@ The output directory must not already exist. It receives every MP4, process log,
 
 ## Chart
 
-Generate the dark and light SVG charts from the recorded results:
+Generate the static dark and light SVG charts from the recorded results:
 
 ```sh
 uv run --frozen python scripts/benchmark/chart.py
 ```
 
-The chart divides every engine's total by GX's total, so GX equals one second. To chart a new complete run into a separate directory:
+The chart shows each engine's recorded total render time in seconds on a shared linear scale, from process launch to finished MP4. To chart a new complete run into a separate directory:
 
 ```sh
 uv run --frozen python scripts/benchmark/chart.py \
