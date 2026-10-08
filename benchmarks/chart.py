@@ -1,6 +1,6 @@
 """The README's static chart: total render times for the five-scene suite.
 
-    uv run --frozen python scripts/benchmark/chart.py
+    uv run --frozen python -m benchmarks.chart
 
 Reads `results.json` and writes `docs/content/images/benchmark-light.svg`
 and `benchmark-dark.svg`. Every label and bar uses the recorded total in seconds,
@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 
 HERE = Path(__file__).parent
-IMAGES = HERE.parents[1] / "docs" / "content" / "images"
+IMAGES = HERE.parent / "docs" / "content" / "images"
 LABELS = {
     "manimgx": "ManimGX",
     "manim_ce": "ManimCE",

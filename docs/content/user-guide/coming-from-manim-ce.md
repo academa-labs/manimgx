@@ -84,4 +84,4 @@ ManimGX does the work of manim-voiceover and manim-slides, without plugins:
 - [`add_subcaption`][manimgx.Scene.add_subcaption] adds captions. `manimgx render` writes
   them next to the video, as subtitles.
 
-See [Sound and voice](sound-and-voice.md) and [Rendering and sharing](rendering.md#slides).
+See [Sound and voice](sound-and-voice.md) and [Rendering and sharing](rendering.md#present).

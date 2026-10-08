@@ -18,9 +18,10 @@ The repository is the package, ManimGX, and holds more than its code:
 ├── docker/                  ← the Docker image
 ├── docs/                    ← the docs site: its pages, its settings, what its build loads
 ├── examples/                ← thirty example films, a Python file each
+├── benchmarks/              ← the README's benchmark against Manim CE, ManimGL and Blender:
+│                              its scenes, its runner and its recorded results
 ├── scripts/                 ← what writes and builds: the release's scripts, the docs' generated
-│                              pages and pictures, the engine's DFG table, and the benchmark
-│                              against Manim CE, ManimGL and Blender
+│                              pages and pictures, and the engine's DFG table
 ├── skills/                  ← the agent skill
 ├── pyproject.toml           ← the package, its workspace (with fonts/), the tools and their settings
 ├── uv.lock                  ← the exact version of every Python package
@@ -298,8 +299,16 @@ What writes and builds, a folder for each thing it makes:
   [`dfg_table.py`](https://github.com/academa-labs/manimgx/blob/main/scripts/engine/dfg_table.py) writes `rust/engine/src/dfg.bin`, the
   split-sum table a lit surface's specular reflection is read from, run again only if the
   lighting changes.
-- [`benchmark/`](https://github.com/academa-labs/manimgx/tree/main/scripts/benchmark): ManimGX against Manim CE, ManimGL and Blender on
-  the README's scenes, and the README's chart from its results.
+
+### [`benchmarks/`](https://github.com/academa-labs/manimgx/tree/main/benchmarks)
+
+The README's benchmark: ManimGX against Manim CE, ManimGL and Blender on five scenes, each
+written in every engine's own API (`scenes/`). Its
+[README](https://github.com/academa-labs/manimgx/blob/main/benchmarks/README.md) is the
+method and the results, the source of the README's numbers. `run.py` times the engines into
+`results.json`; `chart.py` draws the README's chart from it, and `quality.py` makes the
+README's comparison images. `tests/benchmarks/test_comparison.py` checks that the numbers
+both READMEs give are the recorded ones.
 
 ### The docs' and the coverage's hosting
 

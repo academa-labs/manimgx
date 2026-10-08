@@ -1,6 +1,7 @@
-"""Every text file ManimGX reads or writes (its packages, tests, docs and scripts) names its
-encoding. Without one, Python takes the locale's, which on Windows is its ANSI code page: a
-subtitle, a page or a scene with characters beyond it would fail to write, or read wrong.
+"""Every text file ManimGX reads or writes (its packages, tests, docs, scripts and benchmark)
+names its encoding. Without one, Python takes the locale's, which on Windows is its ANSI code
+page: a subtitle, a page or a scene with characters beyond it would fail to write, or read
+wrong.
 """
 
 import ast
@@ -33,7 +34,7 @@ def _unnamed(tree: ast.Module) -> list[int]:
 def test_every_text_file_is_read_and_written_as_utf_8() -> None:
     unnamed = [
         f"{path.relative_to(ROOT)}:{line}"
-        for folder in ("src", "fonts", "tests", "docs", "scripts")
+        for folder in ("src", "fonts", "tests", "docs", "scripts", "benchmarks")
         for path in (ROOT / folder).rglob("*.py")
         # the corpus's scenes are Manim code, as users write it: what they read is theirs
         if "cases" not in path.relative_to(ROOT).parts

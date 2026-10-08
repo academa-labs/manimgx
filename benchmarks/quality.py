@@ -1,4 +1,5 @@
-"""Render the linked-rings frame at 2.5 seconds on dark and light backgrounds."""
+"""Render the linked-rings frame at 2.5 seconds, and the part of it the README shows on
+dark and light backgrounds."""
 
 import argparse
 import json
@@ -7,11 +8,32 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.run import executable
 from PIL import Image
-from scripts.benchmark.run import executable
 
 HERE = Path(__file__).resolve().parent
 SOURCES = HERE / "scenes"
+# what the README shows of each frame: the 302 × 524 pixels from (810, 326), which hold
+# the rings
+CROP = (810, 326, 1112, 850)
+
+
+def website_images(frame: Path) -> dict[str, Image.Image]:
+    """What the README shows of a transparent 1080p frame, on the site's dark (`""`) and
+    light (`"-light"`) backgrounds."""
+    with Image.open(frame) as source:
+        foreground = source.convert("RGBA")
+    if (
+        foreground.size != (1920, 1080)
+        or foreground.getchannel("A").getextrema()[0] != 0
+    ):
+        raise ValueError(f"Expected a transparent 1080p frame: {frame}")
+    pictures = {}
+    for suffix, color in (("", "#0B0C0F"), ("-light", "#FFFFFF")):
+        background = Image.new("RGBA", foreground.size, color)
+        background.alpha_composite(foreground)
+        pictures[suffix] = background.convert("RGB").crop(CROP)
+    return pictures
 
 
 def main() -> None:
@@ -82,17 +104,8 @@ def main() -> None:
                 check=True,
                 timeout=120,
             )
-        with Image.open(target) as source:
-            foreground = source.convert("RGBA")
-            if (
-                foreground.size != (1920, 1080)
-                or foreground.getchannel("A").getextrema()[0] != 0
-            ):
-                raise ValueError(f"Expected a transparent 1080p frame: {target}")
-            for suffix, color in (("", "#0B0C0F"), ("-light", "#FFFFFF")):
-                background = Image.new("RGBA", foreground.size, color)
-                background.alpha_composite(foreground)
-                background.convert("RGB").save(images / f"{engine}{suffix}.png")
+        for suffix, image in website_images(target).items():
+            image.save(images / f"{engine}{suffix}.png")
     print(images)
 
 

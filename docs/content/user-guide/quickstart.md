@@ -18,46 +18,13 @@ network or the GPU, allow it.
 
 ### 1. Install ManimGX
 
-=== "uv"
+With [Python](https://www.python.org/downloads/) 3.13 or later, run this in a terminal:
 
-    If you don't have [uv](https://docs.astral.sh/uv/), install it:
+```sh
+pip install manimgx
+```
 
-    === "macOS and Linux"
-
-        ```sh
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        ```
-
-    === "Windows"
-
-        ```powershell
-        powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-        ```
-
-    Then close the terminal and open a new one, so that it finds uv. Make a folder for
-    your videos, with ManimGX in it (uv also installs Python 3.14 if you don't have it):
-
-    ```sh
-    uv init --bare --python 3.14 my-videos
-    cd my-videos
-    uv add manimgx
-    ```
-
-=== "pip"
-
-    You need Python 3.13 or 3.14. Make a folder for your videos, with a virtual
-    environment, and install ManimGX in it:
-
-    ```sh
-    mkdir my-videos
-    cd my-videos
-    python3 -m venv .venv      # Windows: py -m venv .venv
-    source .venv/bin/activate  # Windows: .venv\Scripts\activate
-    pip install manimgx
-    ```
-
-    If Windows' PowerShell refuses to run the activate script, allow it once with
-    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`.
+It installs ManimGX and its command, `manimgx`.
 
 ### 2. Set up your editor
 
@@ -69,7 +36,7 @@ mistakes before you make a video.
 
     Install the [ty extension](https://marketplace.visualstudio.com/items?itemName=astral-sh.ty).
     Cursor, Windsurf and the other editors made from VS Code have it in their Extensions
-    view too. Then open your folder, `my-videos`, with **File > Open Folder**.
+    view too. Then make a folder for your videos, and open it with **File > Open Folder**.
 
 === "Zed"
 
@@ -85,9 +52,7 @@ mistakes before you make a video.
       },
     ```
 
-    Then open your folder, `my-videos`, with **File > Open**.
-
-ty finds ManimGX in the folder's `.venv`, which step 1 made.
+    Then make a folder for your videos, and open it with **File > Open**.
 
 ### 3. Write a scene
 
@@ -110,22 +75,9 @@ class SquareToCircle(m.Scene):
 
 Open your editor's terminal (++ctrl+grave++), and run:
 
-=== "uv"
-
-    ```sh
-    uv run manimgx preview scene.py
-    ```
-
-    With uv, start every `manimgx` command with `uv run`. The rest of these docs write
-    the commands without it.
-
-=== "pip"
-
-    ```sh
-    manimgx preview scene.py
-    ```
-
-    In a new terminal, activate the environment first, as in step 1.
+```sh
+manimgx preview scene.py
+```
 
 A window plays your scene. Put it next to your editor. Each time that you save
 `scene.py`, the window plays the new version. Try it: change `m.PINK` to `m.YELLOW`, and
@@ -133,17 +85,9 @@ save.
 
 ### 5. Make the video
 
-=== "uv"
-
-    ```sh
-    uv run manimgx render scene.py
-    ```
-
-=== "pip"
-
-    ```sh
-    manimgx render scene.py
-    ```
+```sh
+manimgx render scene.py
+```
 
 ManimGX writes the video, `SquareToCircle.mp4`, next to `scene.py`. It's the video above
 the code in step 3. For a tall video (Shorts, Reels, TikTok), add `-r 1080x1920`.

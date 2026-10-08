@@ -3,10 +3,10 @@
 Forty-eight short films made with ManimGX, each one Python file that needs only numpy. Every
 number on screen is computed as the film plays.
 
-Render one at 1920×1080, 60 fps:
+With ManimGX installed (`pip install manimgx`), render one at 1920×1080, 60 fps:
 
 ```sh
-uv run --frozen python examples/quadratic_formula.py   # writes quadratic_formula.mp4 to the current directory
+manimgx render examples/quadratic_formula.py   # writes examples/QuadraticFormula.mp4
 ```
 
 ## Equations and proofs

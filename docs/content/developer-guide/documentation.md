@@ -178,8 +178,15 @@ the README.
   per film and one shared wall, in both places and on both color schemes. The GIFs are
   committed; `uv run --frozen python -m scripts.showcase.wall` makes them again with
   Gifski installed and `gifski` on PATH.
-- **The chart** (`images/benchmark-light.svg` and `benchmark-dark.svg`): the benchmark, as
-  a race; `scripts/benchmark/chart.py` draws it from `scripts/benchmark/results.json`.
+- **The chart** (`images/benchmark-light.svg` and `benchmark-dark.svg`): the
+  [benchmark](https://github.com/academa-labs/manimgx/tree/main/benchmarks)'s total times,
+  as static bars on one linear scale;
+  [`benchmarks/chart.py`](https://github.com/academa-labs/manimgx/blob/main/benchmarks/chart.py)
+  draws it from `benchmarks/results.json`.
+- **The comparison** (`images/benchmark-quality/<engine>.png` and `<engine>-light.png`):
+  the benchmark's linked rings at 2.5 seconds, as each engine draws them;
+  [`benchmarks/quality.py`](https://github.com/academa-labs/manimgx/blob/main/benchmarks/quality.py)
+  renders them.
 - **The scene's film** (`films/readme-<scene>.svg`): `docs/examples.py` records the README's
   scene frame by frame with
   [`docs/svg.py`](https://github.com/academa-labs/manimgx/blob/main/docs/svg.py), which

@@ -19,8 +19,7 @@ class Hello(m.Scene):
 ```
 
 Save it in a file named `hello.py`. Then, in a terminal, in the same folder, run this
-command (with uv, start it with `uv run`, as the [Quickstart](quickstart.md#4-preview-it)
-says):
+command:
 
 ```sh
 manimgx render hello.py

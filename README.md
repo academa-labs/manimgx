@@ -42,7 +42,7 @@
   <a href="https://github.com/academa-labs/manimgx/blob/main/examples/catenoid_helicoid.py"><img alt="A rainbow helicoid bends into a catenoid while preserving its intrinsic curvature" src="https://raw.githubusercontent.com/academa-labs/manimgx/main/docs/content/showcase/catenoid_helicoid.gif" width="32%"></a>
 </p>
 
-**36.2 seconds of video, rendered in 3.08 seconds.** Across five scenes at 1080p60 on an Apple M4 Pro, ManimGX is **90.6× faster than ManimCE**, **11.5× faster than ManimGL**, and **18.7× faster than Blender Workbench**, from launch to finished MP4.
+**36.2 seconds of video, rendered in 3.08 seconds.** Across five scenes at 1080p60 on an Apple M4 Pro, ManimGX is **90.6× faster than ManimCE**, **11.5× faster than ManimGL**, and **18.7× faster than Blender Workbench**, from launch to finished MP4. [How it was measured](https://github.com/academa-labs/manimgx/tree/main/benchmarks): the scenes, the settings and every run.
 
 <figure class="mx-benchmark">
   <picture>
@@ -122,7 +122,7 @@ ManimGX's Rust + wgpu engine renders the MP4, blazingly fast.
   and plots.
 - **Runs in the browser.** `npm install manimgx`. [Pyodide](https://pyodide.org) runs
   Python in a Web Worker; WebGPU renders the scene.
-  [Embed a scene](https://manimgx.academa.ai/user-guide/rendering/#in-the-browser) with no render server.
+  [Embed a scene](https://manimgx.academa.ai/user-guide/rendering/#embed-in-a-web-page) with no render server.
 - **Agent feedback.** [`manimgx inspect`](https://manimgx.academa.ai/user-guide/rendering/#inspect): storyboards and 2D layout checks, at play endings or times you choose.
 - **Text and math.** Write LaTeX or Typst. No LaTeX installation needed.
 - **Speech in sync.** [Match animations to spoken words](https://manimgx.academa.ai/user-guide/sound-and-voice/)

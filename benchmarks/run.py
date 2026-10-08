@@ -18,7 +18,7 @@ from fractions import Fraction
 from pathlib import Path
 from threading import Timer
 
-from scripts.benchmark.scenes.suite_data import DURATIONS, FPS, HEIGHT, WIDTH
+from benchmarks.scenes.suite_data import DURATIONS, FPS, HEIGHT, WIDTH
 
 HERE = Path(__file__).resolve().parent
 SOURCES = HERE / "scenes"

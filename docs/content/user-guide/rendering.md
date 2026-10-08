@@ -30,7 +30,28 @@ smaller: `-r 1280x720 --fps 30`.
 `render` also writes a storyboard, with the picture at the end of each play that
 changes it, and the captions of a voice, as subtitles (`.srt`).
 
-## Tall videos
+### Settings
+
+Set the video's settings on `m.config`, after the import: its size in pixels,
+`pixel_width` and `pixel_height`; its `frame_rate`; and its `background_color`:
+
+```python
+import manimgx as m
+
+m.config.background_color = m.WHITE
+
+
+class OnWhite(m.Scene):
+    def construct(self) -> None:
+        circle = m.Circle(radius=2, color=m.BLUE, fill_opacity=0.5)
+        label = m.Text("On white", color=m.BLACK)
+        label.next_to(circle, m.DOWN)
+        self.play(m.Create(circle), m.Write(label))
+```
+
+On the command line, `-r` and `--fps` set the size and the frame rate over the file's.
+
+### Tall videos
 
 For Shorts, Reels and TikTok, make the video tall: 1080 × 1920. Give the size to the
 command:
@@ -49,6 +70,12 @@ A tall frame is 8 units wide and about 14.2 units high: the wide frame, turned. 
 the same square of 8 by 8 units in their middle, so a scene that stays in that square is
 the same in both. [Positions](positions.md#the-frame) shows the two frames. A square
 video, `-r 1080x1080`, is that square alone.
+
+### From Python
+
+A scene can make its own video: `SquareToCircle().render("square_to_circle.mp4")`
+returns its [`Film`][manimgx.Film] and writes the video. Without a path, it runs the
+scene quickly, without drawing it, for example in a test.
 
 ## Preview
 
@@ -102,28 +129,7 @@ Pictures go in chronological order to `<Scene>.storyboard.png`, six per sheet, t
 inspection leaves out consecutive identical pictures; explicit times keep every
 requested picture. Checks cover the sampled moments, not every frame of the video.
 
-## Settings
-
-Set the video's settings on `m.config`, after the import: its size in pixels,
-`pixel_width` and `pixel_height`; its `frame_rate`; and its `background_color`:
-
-```python
-import manimgx as m
-
-m.config.background_color = m.WHITE
-
-
-class OnWhite(m.Scene):
-    def construct(self) -> None:
-        circle = m.Circle(radius=2, color=m.BLUE, fill_opacity=0.5)
-        label = m.Text("On white", color=m.BLACK)
-        label.next_to(circle, m.DOWN)
-        self.play(m.Create(circle), m.Write(label))
-```
-
-On the command line, `-r` and `--fps` set the size and the frame rate over the file's.
-
-## Slides
+## Present
 
 A video can be a talk: it plays to the end of a slide, and waits until you continue.
 `self.next_section()` starts a new slide:
@@ -157,13 +163,7 @@ timer. To share the talk,
 send the page and the video together. `--pdf` also writes a handout, with a page for each
 slide.
 
-## From Python
-
-A scene can make its own video: `SquareToCircle().render("square_to_circle.mp4")`
-returns its [`Film`][manimgx.Film] and writes the video. Without a path, it runs the
-scene quickly, without drawing it, for example in a test.
-
-## In the browser
+## Embed in a web page
 
 ManimGX runs in a web page, with no server: the page makes the video from your scene,
 and plays it. Install the npm package `manimgx`, import it in your page's script

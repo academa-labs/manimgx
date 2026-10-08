@@ -85,8 +85,8 @@ is published apart from it has a folder of its own, with its own tests.
   `tests/docs/`: `llms.txt`'s hand-written primer for agents, checked against the API, and
   the narrated examples, which say what `docs/voice/` keeps (the site is built with no key).
 - `tests/benchmarks/`: laws of what work costs (with the suite) and timed benchmarks against
-  another commit (`just bench`): `manimgx render` of the README's scenes (`scenes/`) and of
-  example films, from launch to exit.
+  another commit (`just bench`): `manimgx render` of three scenes (`scenes/`) and of example
+  films, from launch to exit.
 - `docs/`: the Zensical site and what its build loads. Pages are in `docs/content/`, the
   first, Welcome, being the README, included; `docs/examples.py` renders the examples in
   them and in the docstrings, and shows each above its code; `docs/links.py` makes the
@@ -99,14 +99,17 @@ is published apart from it has a folder of its own, with its own tests.
   whole. `docs/zensical.toml` sets the site; its llmstxt plugin
   writes each page's Markdown beside it, and `llms.txt`, whose primer for agents it holds.
 - `examples/`: example films.
+- `benchmarks/`: the README's benchmark, ManimGX against Manim CE, ManimGL and Blender on
+  five scenes (`scenes/`). Its `README.md` is the method and the results, the source of the
+  README's numbers; `run.py` times the engines into `results.json`, `chart.py` draws the
+  README's chart from it into `docs/content/images/`, and `quality.py` renders the README's
+  comparison images (`docs/content/images/benchmark-quality/`).
 - `scripts/`: what writes and builds, a folder for each thing it makes. `release/`: lavapipe
   for the Linux wheels, the wheels' third-party notice, the executables, and the smoke test a
   wheel or an executable passes. `docs/`: the pages the docs build generates (not committed),
   the command line's reference (`reference.py`) and the Gallery from `examples/`
   (`gallery.py`). `showcase/`: the README's pictures (committed), the logo (`logo.py`: the
   banner, the header's, the favicon) and the wall of films (`wall.py`). `engine/`: the DFG
-  table the engine is compiled with (`dfg_table.py`). `benchmark/` times ManimGX against
-  Manim CE, ManimGL and Blender on the README's scenes (`run.py` writes `results.json`;
-  `chart.py` draws the README's chart from it into `docs/content/images/`).
+  table the engine is compiled with (`dfg_table.py`).
 - `skills/manimgx/`: the agent skill, which `npx skills add academa-labs/manimgx` installs;
   `tests/docs/test_skill.py` checks its front matter.

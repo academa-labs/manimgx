@@ -22,6 +22,9 @@ The notable changes to ManimGX, release by release. The format follows
 
 - Show measured render times in a static benchmark chart.
 - Use a Markdown table for the benchmark comparison images.
+- Install ManimGX in the Quickstart with one command, `pip install manimgx`, and run `manimgx` directly throughout the docs.
+- Move the benchmark to `benchmarks/`, whose README explains its scenes, method and results; the README's numbers link to it.
+- Arrange the Rendering and sharing page by command, with settings, tall videos and rendering from Python under Render.
 
 ### Fixed
 

@@ -1,9 +1,9 @@
 """ManimGX is not slower than the ManimGX it is compared with, on any workload.
 
 A workload is a scene rendered as a user renders it, `manimgx render`, in a process of its own
-from launch to exit: the README's three scenes as the README times them, and six example films,
-small. On Linux and macOS, the suite renders each once, tiny. Windows keeps the
-functional corpus and cost laws; these long benchmark films depend on its software GPU.
+from launch to exit: three scenes as the README's benchmark (`benchmarks/`) times its own, and
+six example films, small. On Linux and macOS, the suite renders each once, tiny. Windows keeps
+the functional corpus and cost laws; these long benchmark films depend on its software GPU.
 
 `just bench REF` renders each workload with this checkout and with REF's ManimGX, in turns, round
 after round on one machine, and compares what the runs cost: the instructions they retired where
@@ -53,7 +53,7 @@ TINY = ("--resolution", "64x36", "--fps", "5")
 """How the suite renders a workload once, to see that it still renders."""
 
 WORKLOADS: dict[str, Workload] = {
-    # the README's scenes, as it times them: 1920 x 1080 at 60 fps, to MP4
+    # three scenes as the README's benchmark times its own: 1920 x 1080 at 60 fps, to MP4
     "orbit": Workload(SCENES / "orbit.py"),
     "morph": Workload(SCENES / "morph.py"),
     "explainer": Workload(SCENES / "explainer.py"),

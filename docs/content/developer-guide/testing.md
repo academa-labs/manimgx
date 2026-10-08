@@ -68,7 +68,7 @@ tests/
 └── benchmarks/
     ├── test_laws.py      ← laws of cost: work grows as what is made does
     ├── test_speed.py     ← timed: this checkout against another commit (just bench)
-    ├── scenes/           ← the README's three scenes, which test_speed.py times
+    ├── scenes/           ← three scenes, which test_speed.py times
     ├── harness.py        ← the trees compared, a render measured, and their rounds
     └── work.py           ← work, counted
 ```
@@ -390,8 +390,9 @@ what the timed benchmarks are for.
 A workload is a scene rendered as a user renders it: `manimgx render`, in a process of its
 own, from launch to the finished video. The workloads, in
 [`test_speed.py`](https://github.com/academa-labs/manimgx/blob/main/tests/benchmarks/test_speed.py),
-are the README's three scenes as the README times them, at 1920 × 1080 and 60 frames per
-second ([`scenes/`](https://github.com/academa-labs/manimgx/tree/main/tests/benchmarks/scenes):
+are three scenes, at 1920 × 1080 and 60 frames per second as the README's
+[benchmark](https://github.com/academa-labs/manimgx/tree/main/benchmarks) makes its own
+([`scenes/`](https://github.com/academa-labs/manimgx/tree/main/tests/benchmarks/scenes):
 a surface the camera circles, a surface rebuilt every frame, and a 2D explainer), and six
 example films at 480 × 270 and 10 frames per second. In the suite, each is rendered once,
 tiny: it still renders. `just bench` times them against another ManimGX:
