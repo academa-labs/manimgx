@@ -67,7 +67,7 @@ fn acquire(url: &str, hash: &str, out: &Path, sources: Option<&Path>, prepare: P
                 .arg(url))?;
             let root = prepare(&archive, &unpacked, hash)?;
             if let Some(cached) = cached {
-                fs::rename(archive, cached)?;
+                publish(&archive, &cached, |copy| prepare(copy, &work.path().join("published"), hash).is_ok())?;
             }
             root
         }
@@ -79,6 +79,17 @@ fn acquire(url: &str, hash: &str, out: &Path, sources: Option<&Path>, prepare: P
         return Err(error.into());
     }
     Ok(tree)
+}
+
+/// Publishes the verified `archive` as the source store's copy, `cached`. Concurrent builders
+/// publish archives of the same files, and one copy serves them all: on Windows, a copy that
+/// another builder is reading can't be replaced (`tar.exe` doesn't share its deletion), and it
+/// stays if it `verifies` too.
+fn publish(archive: &Path, cached: &Path, verifies: impl FnOnce(&Path) -> bool) -> Result<()> {
+    match fs::rename(archive, cached) {
+        Err(error) if !verifies(cached) => Err(error.into()),
+        _ => Ok(()),
+    }
 }
 
 fn verified_file(archive: &Path, prepared: &Path, hash: &str) -> Result<PathBuf> {
@@ -143,4 +154,28 @@ fn run(command: &mut Command) -> Result<()> {
         return Err(format!("{command:?}: {}\n{}", output.status, String::from_utf8_lossy(&output.stderr)).into());
     }
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::fs;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// How `tar.exe` opens the archive it reads: others may read it too, but not replace it.
+    const FILE_SHARE_READ: u32 = 0x1;
+
+    #[test]
+    fn a_copy_another_builder_reads_stays_only_if_it_verifies() {
+        let folder = tempfile::tempdir().unwrap();
+        let (archive, cached) = (folder.path().join("archive"), folder.path().join("cached"));
+        fs::write(&archive, "ours").unwrap();
+        fs::write(&cached, "theirs").unwrap();
+        let reader = fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(&cached).unwrap();
+        assert!(super::publish(&archive, &cached, |_| false).is_err());
+        super::publish(&archive, &cached, |_| true).unwrap();
+        assert_eq!(fs::read_to_string(&cached).unwrap(), "theirs");
+        drop(reader);
+        super::publish(&archive, &cached, |_| false).unwrap();
+        assert_eq!(fs::read_to_string(&cached).unwrap(), "ours");
+    }
 }
