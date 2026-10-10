@@ -231,15 +231,15 @@ class Camera:
         self.ambient_occlusion = 0.0
         """How strongly the light from all around (an ambient or an environment light) is
         shut out of corners, creases and the ground under things, where the surfaces near
-        them block it: 0 not at all (off), 1 Filament's strength, more darker. Only
+        them block it: 0 not at all (off), 1 the standard strength, more darker. Only
         mobjects with a [material][manimgx.Material] are lit by that light, and only opaque
         ones shut it out or are darkened; a sun's, a point's or a spot's light is left as it
         is.
 
-        It is found from what the view shows (Filament's screen-space ambient
-        obscurance): a surface the view cannot see, such as a wall seen edge-on, shuts
-        nothing out. Light bounces between the surfaces that shut it out, so light-colored
-        ones darken less, and white ones hardly at all."""
+        It is found from what the view shows (screen-space ambient obscurance): a
+        surface the view cannot see, such as a wall seen edge-on, shuts nothing out.
+        Light bounces between the surfaces that shut it out, so light-colored ones
+        darken less, and white ones hardly at all."""
         self.ambient_occlusion_radius = 0.3
         """How far around a point the surfaces that shut light out of it are sought, in
         scene units: about the size of the creases and contacts to darken."""
@@ -247,8 +247,8 @@ class Camera:
         """How much of the light that mobjects with a [material][manimgx.Material] send
         into the view the lens spreads around it, as a glow (bloom), from 0 to 1: 0 none
         (off), 0.05 a lens's faint glow, plain around light brighter than white, 1 all of
-        it. What the glow spreads, the light leaves (Filament's interpolating bloom): the
-        view keeps the light it has, spread.
+        it. What the glow spreads, the light leaves: the view keeps the light it has,
+        spread.
 
         It is spread from the light the view shows: what lies nearer, a mobject fixed in
         the frame too, hides the light behind it. It falls off with the distance from

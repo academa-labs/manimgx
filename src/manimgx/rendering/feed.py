@@ -347,9 +347,9 @@ def lighting(camera: "Camera", lights: "list[Light]") -> list[float]:
     light: nowhere; a sun: its direction; a point or spot: its point; an environment: its
     picture's right) and its kind; its color in linear light times its intensity, and a
     point's or spot's reach (an environment: its picture's id, 0 the studio); a spot's axis
-    (an environment: its picture's up) and the scale and offset of its cone's falloff
-    (Filament's), and whether it casts shadows (an environment: its picture's sun, which
-    the engine lights by as a sun of the view's). A scene with no lights has the camera's: a sun
+    (an environment: its picture's up) and the scale and offset of its cone's falloff,
+    and whether it casts shadows (an environment: its picture's sun, which the engine
+    lights by as a sun of the view's). A scene with no lights has the camera's: a sun
     from its light source, and a dim ambient light (as Manim's shading always has its light).
     """
     if not lights:

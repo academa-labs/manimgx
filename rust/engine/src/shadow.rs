@@ -3,7 +3,7 @@
 //! to the sphere around the casters and as deep as what their shadows can fall on; a surface with a material compares
 //! its depth with the map (`light.wgsl`'s `shadowed`).
 
-/// A map's side, in texels (Filament's default).
+/// A map's side, in texels.
 pub(crate) const SIZE: u32 = 2048;
 /// The most maps a view draws (its first suns and spots that cast shadows).
 pub(crate) const MOST: usize = 4;

@@ -46,6 +46,12 @@ path = "rust/mitex-spec-gen/spec.rkyv"
 SPDX-FileCopyrightText = "the mitex authors (Myriad-Dreamin, OrangeX4, Enter-tainer, Shichien)"
 SPDX-License-Identifier = "Apache-2.0"
 
+# the DFG table scripts/engine/dfg_table.py writes: whose that script is
+[[annotations]]
+path = "rust/engine/src/dfg.bin"
+SPDX-FileCopyrightText = ["2026 Academa, Inc.", "2015 The Android Open Source Project"]
+SPDX-License-Identifier = "Apache-2.0"
+
 # documents from elsewhere: the Contributor Covenant, adapted
 [[annotations]]
 path = ".github/CODE_OF_CONDUCT.md"

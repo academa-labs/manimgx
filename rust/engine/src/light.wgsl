@@ -1,14 +1,18 @@
-// Light on a surface with a material, as Filament shades it (its standard model: GGX distribution, height-correlated
-// Smith visibility, Schlick Fresnel, Lambert diffuse), from a view's lights: the radiance the surface sends toward the
-// eye, which the view's tone mapping shows (`tone.wgsl`). A light's intensity is what a white matte surface shows: 1
-// makes one facing it white (its illuminance is π times the intensity; an ambient light's radiance is the intensity,
-// from every direction).
+// SPDX-FileCopyrightText: 2026 Academa, Inc.
+// SPDX-FileCopyrightText: The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+// Modified by Academa, Inc.
+
+// Light on a surface with a material (GGX distribution, height-correlated Smith visibility, Schlick Fresnel, Lambert
+// diffuse), from a view's lights: the radiance the surface sends toward the eye, which the view's tone mapping shows
+// (`tone.wgsl`). A light's intensity is what a white matte surface shows: 1 makes one facing it white (its
+// illuminance is π times the intensity; an ambient light's radiance is the intensity, from every direction).
 
 // A light (see `feed.lighting`): where (an ambient light: nowhere; a sun: the unit direction toward it; a point or
 // spot: its position; an environment: its picture's +x) and its kind (0 ambient, 1 sun, 2 point, 3 spot, 4
 // environment); its color in linear light times its intensity, and how far a point or spot reaches (an environment:
 // its cube's roughest level); a spot's axis (where it points; an environment: its picture's up, +z, and the light a 1
-// in its cube stands for) and its cone's falloff, scale and offset (Filament's); then its shadow map's layer (-1: none), a texel's world size (a spot's: at
+// in its cube stands for) and its cone's falloff, scale and offset; then its shadow map's layer (-1: none), a texel's world size (a spot's: at
 // unit distance along its axis), whether the map is a perspective one (`shadow.rs`), and where the map sees from
 // (clip = shadow · world).
 struct Light {
@@ -20,7 +24,7 @@ struct Light {
 };
 
 const LIGHT_PI: f32 = 3.14159265358979;
-const MIN_PERCEPTUAL_ROUGHNESS: f32 = 0.045; // below it, highlights alias and f16 overflows (Filament's)
+const MIN_PERCEPTUAL_ROUGHNESS: f32 = 0.045; // below it, highlights alias and f16 overflows
 
 fn d_ggx(roughness: f32, NoH: f32) -> f32 {
     let one_minus = 1.0 - NoH * NoH;
@@ -46,15 +50,14 @@ fn f_schlick(f0: vec3<f32>, LoH: f32) -> vec3<f32> {
 // The radiance a surface at p, facing n (either side: the one toward v), sends toward v (a unit vector toward the
 // eye), lit by the view's lights (`light_count`, `light_at`, `shadowed`, `dfg_at`, `environment_at`, `harmonic`: its
 // host's): its base color in linear light, how metallic, how rough (perceptual), how much a dielectric reflects head
-// on. The specular lobe keeps the light single scattering loses on a rough surface (Filament's energy compensation,
-// from the DFG table's albedo of a white conductor, y): a white rough metal under a uniform light shows that light,
-// at any roughness. Light from all around (an ambient light, an environment) lights by the split sum, as Filament's
-// image-based light does: the specular lobe's albedo, mix(dfg.x, dfg.y, f0), times the light the lobe gathers (an
-// environment's cube at the roughness's level, toward the lobe's dominant direction), and the diffuse part the light
-// the specular lobe does not reflect (1 - its albedo). Of that light, `ao` reaches p (its view's ambient occlusion; 1:
-// all of it): the diffuse part takes it as it is, the specular lobe as much of it as a lobe that narrow sees (Lagarde
-// and de Rousiers' approximation), each with the light that bounces between the surfaces that shut it out (`bounced`),
-// as Filament's multiple-bounce ambient occlusion has them.
+// on. The specular lobe keeps the light single scattering loses on a rough surface (energy compensation, from the
+// DFG table's albedo of a white conductor, y): a white rough metal under a uniform light shows that light, at any
+// roughness. Light from all around (an ambient light, an environment) lights by the split sum: the specular lobe's
+// albedo, mix(dfg.x, dfg.y, f0), times the light the lobe gathers (an environment's cube at the roughness's level,
+// toward the lobe's dominant direction), and the diffuse part the light the specular lobe does not reflect (1 - its
+// albedo). Of that light, `ao` reaches p (its view's ambient occlusion; 1: all of it): the diffuse part takes it as it
+// is, the specular lobe as much of it as a lobe that narrow sees (Lagarde and de Rousiers' approximation), each with
+// the light that bounces between the surfaces that shut it out (`bounced`).
 fn reflected(base: vec3<f32>, metallic: f32, perceptual_roughness: f32, reflectance: f32, normal: vec3<f32>, p: vec3<f32>, v: vec3<f32>, ao: f32) -> vec3<f32> {
     let n = select(normal, -normal, dot(normal, v) < 0.0);
     let perceptual = clamp(perceptual_roughness, MIN_PERCEPTUAL_ROUGHNESS, 1.0);
@@ -119,8 +122,8 @@ fn reflected(base: vec3<f32>, metallic: f32, perceptual_roughness: f32, reflecta
 // A surface's perceptual roughness widened by how far its normal turns across a pixel (`turn`: the normal's change a
 // pixel across and a pixel down, each squared, summed): a highlight narrower than the pixel then shows its light
 // averaged over the pixel, not its light at the one point shaded, which a glint misses or hits, by orders of magnitude,
-// from frame to frame (Filament's normal filtering: Kaplanyan 2016; Tokuyoshi and Kaplanyan 2019; its variance 0.15 and
-// threshold 0.2). A flat surface keeps its roughness.
+// from frame to frame (normal filtering: Kaplanyan 2016; Tokuyoshi and Kaplanyan 2019; its variance 0.15 and threshold
+// 0.2). A flat surface keeps its roughness.
 fn over_pixel(perceptual: f32, turn: f32) -> f32 {
     let roughness = perceptual * perceptual;
     let kernel = min(2.0 * 0.15 * turn, 0.2);

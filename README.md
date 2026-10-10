@@ -155,7 +155,10 @@ and links to the documentation as Markdown.
 community-maintained fork.
 
 The Rust renderer uses [wgpu](https://wgpu.rs) for native GPU rendering and WebGPU in
-the browser. [Typst](https://typst.app) typesets text and math, with
+the browser. Its 3D lighting is adapted from Google's
+[Filament](https://github.com/google/filament): physically based materials,
+image-based lighting, ambient occlusion, bloom and AgX tone mapping.
+[Typst](https://typst.app) typesets text and math, with
 [mitex](https://github.com/mitex-rs/mitex) translating LaTeX input to Typst.
 [x264](https://www.videolan.org/developers/x264.html) encodes native video exports as
 H.264; [FFmpeg](https://ffmpeg.org) decodes imported audio, using

@@ -1,8 +1,8 @@
-//! A 3D view's bloom (`Camera.bloom`): the glow a lens and a sensor spread around the light they take in, as
-//! Filament's bloom has it in its interpolating mode (`bloom.wgsl`), which keeps the light: a share of the light the view
-//! shows is spread over levels of half the size each and added back up, the rest stays where it is, and each pixel is
-//! shown with the glow over it. The view's composite leaves its pixels' paint and light for it (`vector::Out::Color`'s
-//! `light_out`) instead of showing them; a view without lit content, or without bloom, shows its pixels as it did.
+//! A 3D view's bloom (`Camera.bloom`): the glow a lens and a sensor spread around the light they take in, which keeps
+//! the light (`bloom.wgsl`): a share of the light the view shows is spread over levels of half the size each and added
+//! back up, the rest stays where it is, and each pixel is shown with the glow over it. The view's composite leaves its
+//! pixels' paint and light for it (`vector::Out::Color`'s `light_out`) instead of showing them; a view without lit
+//! content, or without bloom, shows its pixels as it did.
 
 /// The levels: the view halved, then halved again while a level keeps this many texels across its narrower side (a
 /// 1920x1080 view's: 960x540 down to 15x9, seven, the coarsest level's texel an eighth of the view's height; half the

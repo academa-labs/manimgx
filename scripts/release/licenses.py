@@ -1,8 +1,9 @@
 """Write LICENSE-THIRD-PARTY: what ManimGX's wheels hold that others hold the
 copyright in, with the licenses and notices it comes with, each text once, after what it covers:
 
-- the package's files that name others (REUSE: by their SPDX lines, or REUSE.toml), with their
-  copyright lines and their licenses' texts from LICENSES/: the modules ported from Manim CE;
+- the package's and the engine's files that name others (REUSE: by their SPDX lines, or
+  REUSE.toml), with their copyright lines and their licenses' texts from LICENSES/: the modules
+  ported from Manim CE, the engine's 3D lighting;
 - the crates compiled into the engine, in every build of it a wheel holds, with the license and
   notice files each ships: the workspace's crates, those of the sources they fetch (x264's,
   FFmpeg's and libopus's, mitex's); a crate from crates.io that ships none, its license's text
@@ -25,7 +26,10 @@ import tomllib
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
+# the repository's files a wheel holds: the package's, installed as they are, and the engine's,
+# compiled into its extension
 SOURCES = PurePosixPath("src")
+ENGINE_SOURCES = PurePosixPath("rust/engine/src")
 OUT = ROOT / "LICENSE-THIRD-PARTY"
 ENGINE = ROOT / "rust" / "engine"
 # the engine's builds a wheel holds, as (target, features): the extension on each platform a
@@ -98,9 +102,10 @@ def holder(line: str) -> str:
 
 
 def others() -> dict[tuple[str, tuple[str, ...]], list[str]]:
-    """The package's files that others hold copyright in, as REUSE finds them (`reuse lint`,
-    which `just check` runs), named as the wheel holds them: by license and copyright lines,
-    ManimGX's left out (those of the holder REUSE.toml gives its own files)."""
+    """The package's and the engine's files that others hold copyright in, as REUSE finds
+    them (`reuse lint`, which `just check` runs), named as the wheel holds them (the
+    engine's, compiled into it, by their path in the repository): by license and copyright
+    lines, ManimGX's left out (those of the holder REUSE.toml gives its own files)."""
     reuse = tomllib.loads((ROOT / "REUSE.toml").read_text(encoding="utf-8"))
     own = holder(reuse["annotations"][0]["SPDX-FileCopyrightText"])
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -117,13 +122,17 @@ def others() -> dict[tuple[str, tuple[str, ...]], list[str]]:
     for file in json.loads(report.stdout)["files"]:
         path = PurePosixPath(file["path"])
         lines = {notice(c["value"]) for c in file["copyrights"]}
-        if not path.is_relative_to(SOURCES) or not (
-            theirs := {line for line in lines if holder(line) != own}
-        ):
+        if path.is_relative_to(SOURCES):
+            shown = path.relative_to(SOURCES).as_posix()
+        elif path.is_relative_to(ENGINE_SOURCES):
+            shown = path.as_posix()
+        else:
+            continue
+        if not (theirs := {line for line in lines if holder(line) != own}):
             continue
         expression = " AND ".join(e["value"] for e in file["spdx_expressions"])
         paths, holders = groups.setdefault(expression, ([], set()))
-        paths.append(f"{name}: {path.relative_to(SOURCES).as_posix()}")
+        paths.append(f"{name}: {shown}")
         holders |= theirs
     return {
         (expression, tuple(sorted(holders))): sorted(paths)
@@ -243,9 +252,11 @@ def write(
             found.setdefault(written, []).append(f"{declared}: no license file")
     header = header or (
         "What ManimGX's wheels hold that others hold the copyright in: modules of its"
-        " Python package, and the crates compiled into the engine (the extension, on"
-        " each platform, Pyodide's, and the player for a page, which the extension"
-        " carries), with the sources the workspace's crates fetch; with the licenses"
+        " Python package, files of its engine (its 3D lighting, adapted from Google's"
+        " Filament, https://github.com/google/filament), and the crates compiled into"
+        " the engine (the extension, on each platform, Pyodide's, and the player for a"
+        " page, which the extension carries), with the sources the workspace's crates"
+        " fetch; with the licenses"
         " and notices they come with, each text once, after what it covers. FFmpeg is"
         " under the LGPL-2.1-or-later, and x264, in every wheel but Pyodide's, under"
         " the GPL-2.0-or-later, which makes such a wheel, as a whole, GPL-3.0-or-later."

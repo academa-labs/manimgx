@@ -1106,7 +1106,7 @@ type Colors = ParsableManimColor | Sequence[ParsableManimColor]
 
 @dataclass(frozen=True)
 class Material:
-    """How a surface reflects light: Filament's standard model, its base color the mobject's fill.
+    """How a surface reflects light: a physically based model, its base color the mobject's fill.
 
     A mobject with a material is lit by the scene's lights
     ([`SunLight`][manimgx.SunLight], [`PointLight`][manimgx.PointLight],

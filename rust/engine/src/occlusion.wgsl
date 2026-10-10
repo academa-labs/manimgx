@@ -1,7 +1,11 @@
-// A 3D view's ambient occlusion (`occlusion.rs`): Filament's scalable ambient obscurance (materials/ssao: sao.mat,
-// saoImpl.fs, mipmapDepth.mat, bilateralBlur.mat), as new_filament ports it (engine_ao, engine_depthmip,
-// engine_aoblur), over the view's opaque depth: as distances along the view (`linearize`), a pyramid of them
-// (`depth_mip`), the occlusion (`sao`), and its low-pass, which stops where depth jumps (`blur`).
+// SPDX-FileCopyrightText: 2026 Academa, Inc.
+// SPDX-FileCopyrightText: 2021 The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+// Modified by Academa, Inc.
+
+// A 3D view's ambient occlusion (`occlusion.rs`): scalable ambient obscurance, over the view's opaque depth: as
+// distances along the view (`linearize`), a pyramid of them (`depth_mip`), the occlusion (`sao`), and its low-pass,
+// which stops where depth jumps (`blur`).
 
 // The view: its half extent at unit distance (x, y), its near plane's distance, its pyramid's coarsest level; the
 // occlusion's radius, twice its power, its intensity's share a tap, its bias; its peak squared, one over its radius
@@ -50,7 +54,7 @@ fn depth_mip(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // Where a pixel's spiral starts, as a share of a turn and of a tap's step out: one of 16, interleaved 4 x 4 in Bayer's
 // order, so the low-pass (as wide as the interleave) averages every start in every neighbourhood: 16 taps look as
-// smooth as 32 interleaved-gradient ones (Jimenez 2014, Filament's), which streak at 16 (experiments/ambient-occlusion).
+// smooth as 32 interleaved-gradient ones (Jimenez 2014), which streak at 16 (experiments/ambient-occlusion).
 const STARTS = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 fn start(p: vec2<u32>) -> f32 {
@@ -68,9 +72,8 @@ fn depth_texel(p: vec2<i32>) -> f32 {
 
 // A tap at uv on the pyramid's level `level`: the distance its texel there holds (its edge held beyond it), and where
 // that distance was seen — the view's own pixel it is a copy of (the child rule, down to level 0), at its centre. A
-// tap is a real point of a surface, where it is: Filament's places the distance at uv itself, which lifts a tap off
-// a slanted plane by the depth's change over the texel's offset, and a flat floor seen at a slant shuts out its own
-// light.
+// tap is a real point of a surface, where it is: the distance placed at uv itself would lift a tap off a slanted plane
+// by the depth's change over the texel's offset, and a flat floor seen at a slant would shut out its own light.
 fn tap(uv: vec2<f32>, level: u32) -> vec3<f32> {
     let size0 = vec2<i32>(textureDimensions(depth0));
     if (level == 0u) {
@@ -131,7 +134,7 @@ fn visibility(id: vec2<u32>) -> f32 {
     for (var i = 0.0; i < samples; i += 1.0) {
         let t = sq((i + noise + 0.5) / (samples - 0.5));
         let r = max(1.0, t * disk);
-        // (the view's y grows downward, Filament's upward: the tap mirrored keeps its spiral)
+        // (the view's y grows downward: the tap mirrored, the spiral turns as it would with y up)
         let q = uv + r * vec2<f32>(dir.x, -dir.y) * texel;
         dir = vec2<f32>(dir.x * ci - dir.y * si, dir.x * si + dir.y * ci);
         let level = u32(clamp(floor(log2(r)) - 3.0, 0.0, params.proj.w));

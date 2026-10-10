@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 Academa, Inc.
+// SPDX-FileCopyrightText: 2021 The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+// Modified by Academa, Inc.
+
 // How light shows on a display: the radiance a view's lit content sends toward the eye, scaled by the exposure,
 // clipped or rolled off by AgX, encoded as sRGB (as every color is: `paint.wgsl`'s are).
 
@@ -7,8 +12,8 @@ fn gamma(c: vec3<f32>) -> vec3<f32> {
     return select(1.055 * pow(l, vec3<f32>(1.0 / 2.4)) - 0.055, 12.92 * l, l <= vec3<f32>(0.0031308));
 }
 
-// AgX (Sobotka's, as Filament has it): the sRGB scene value into its working space (Rec.2020, inset), its log2 over
-// 16.5 stops through a sigmoid, back out (outset), to linear sRGB.
+// AgX (Sobotka's; its matrices Blender's, its curve the iolite engine's minimal AgX): the sRGB scene value into its
+// working space (Rec.2020, inset), its log2 over 16.5 stops through a sigmoid, back out (outset), to linear sRGB.
 const AGX_IN: mat3x3<f32> = mat3x3<f32>(
     vec3<f32>(0.544904663, 0.140439629, 0.088826896),
     vec3<f32>(0.373779945, 0.754110565, 0.178877349),

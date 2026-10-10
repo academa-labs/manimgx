@@ -1,11 +1,14 @@
-// A 3D view's bloom (`bloom.rs`): the glow a lens and a sensor spread around the light they take in, as Filament's
-// bloom has it (PostProcessManager::bloom; materials bloomDownsample, bloomUpsample) in its interpolating mode, which
-// keeps the light: a share of each pixel's light (the view's strength) is spread over the view, the rest stays where
-// it is. The share is taken from the light the view shows (its composite's: what lies nearer has hidden the light
-// behind it), at half the view's size (`spread`), then halved level by level (`down`), and the levels are added back up
-// from the coarsest (`up`), each as much of the glow as any other, so that it falls off about as the square of the
-// distance, out to the coarsest level's reach, as a lens's glare does. Each pixel is then shown with the glow over it
-// (`show`).
+// SPDX-FileCopyrightText: 2026 Academa, Inc.
+// SPDX-FileCopyrightText: The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+// Modified by Academa, Inc.
+
+// A 3D view's bloom (`bloom.rs`): the glow a lens and a sensor spread around the light they take in, which keeps the
+// light: a share of each pixel's light (the view's strength) is spread over the view, the rest stays where it is. The
+// share is taken from the light the view shows (its composite's: what lies nearer has hidden the light behind it), at
+// half the view's size (`spread`), then halved level by level (`down`), and the levels are added back up from the
+// coarsest (`up`), each as much of the glow as any other, so that it falls off about as the square of the distance,
+// out to the coarsest level's reach, as a lens's glare does. Each pixel is then shown with the glow over it (`show`).
 
 // The view's glow: the share of its light spread, the share each level spreads (strength / levels), its tone mapping
 // (`tone.wgsl`'s `toned`).
@@ -33,9 +36,9 @@ fn tap(uv: vec2<f32>, t: vec2<f32>, x: f32, y: f32) -> vec3<f32> {
 }
 
 // Texel `id` of `level` from the level before it (`source`, twice its size): the mean of the 6 x 6 texels around it,
-// weighted toward its middle, by 13 bilinear taps (Jimenez's, as Filament's: the four around its centre, half the weight,
-// and four overlapping squares of four around them, an eighth each), which keeps the light (each texel of the level
-// before counts a quarter in all, as in a 2 x 2 box) and lets little alias where a small light moves across the texels.
+// weighted toward its middle, by 13 bilinear taps (Jimenez's: the four around its centre, half the weight, and four
+// overlapping squares of four around them, an eighth each), which keeps the light (each texel of the level before
+// counts a quarter in all, as in a 2 x 2 box) and lets little alias where a small light moves across the texels.
 fn halved(id: vec2<u32>) -> vec3<f32> {
     let uv = (vec2<f32>(id) + 0.5) / vec2<f32>(textureDimensions(level));
     let t = 1.0 / vec2<f32>(textureDimensions(source));
@@ -64,7 +67,7 @@ fn down(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // Each level added up, from the coarsest: its own share and the coarser levels' (`source`, half its size), read through
-// a tent over the 3 x 3 of its texels around each (Filament's), which keeps the light.
+// a tent over the 3 x 3 of its texels around each, which keeps the light.
 @compute @workgroup_size(8, 8)
 fn up(@builtin(global_invocation_id) id: vec3<u32>) {
     if (any(id.xy >= textureDimensions(level))) {

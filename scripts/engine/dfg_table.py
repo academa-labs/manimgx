@@ -1,13 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Academa, Inc.
+# SPDX-FileCopyrightText: 2015 The Android Open Source Project
+# SPDX-License-Identifier: Apache-2.0
+# Modified by Academa, Inc.
+
 # /// script
 # requires-python = ">=3.13"
 # dependencies = ["numpy"]
 # ///
-"""Write the DFG table the engine lights with (rust/engine/src/dfg.bin): Filament's split-sum terms of the GGX
-specular lobe with height-correlated Smith visibility, 128 x 128, NoV across (x) and perceptual roughness down (y),
-at the texels' centres, each texel two half floats: x = the integral of Fc V (Fc = (1 - VoH)^5), y = the integral of V
-(Filament's DFV_Multiscatter), by 1024 Hammersley samples of the GGX distribution, as new_filament's dfg.wgsl and
-Filament's CubemapIBL::DFG compute them. A surface's specular albedo is mix(x, y, f0), and its single scattering
-keeps y of a white conductor's light (the rest Filament's energy compensation gives back).
+"""Write the DFG table the engine lights with (rust/engine/src/dfg.bin): the split-sum terms of the GGX specular lobe
+with height-correlated Smith visibility, 128 x 128, NoV across (x) and perceptual roughness down (y), at the texels'
+centres, each texel two half floats: x = the integral of Fc V (Fc = (1 - VoH)^5), y = the integral of V, by 1024
+Hammersley samples of the GGX distribution. A surface's specular albedo is mix(x, y, f0), and its single scattering
+keeps y of a white conductor's light (the rest the energy compensation gives back).
 
     uv run scripts/engine/dfg_table.py
 """

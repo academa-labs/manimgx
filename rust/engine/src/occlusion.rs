@@ -1,21 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Academa, Inc.
+// SPDX-FileCopyrightText: 2016 The Android Open Source Project
+// SPDX-License-Identifier: Apache-2.0
+// Modified by Academa, Inc.
+
 //! A 3D view's ambient occlusion (`Camera.ambient_occlusion`): how much of the light from all around reaches the
-//! surface each pixel shows, as the surfaces near it shut it out — Filament's scalable ambient obscurance (McGuire,
-//! Mara and Luebke 2012), as new_filament ports it (`occlusion.wgsl`). The view's opaque depth comes first, its opaque
-//! meshes' (`vs_depth`) and then its opaque paths' where nearer (`vector::Out::Opaque`); from it come distances along
-//! the view, a pyramid of them, the occlusion and its low-pass, which the view's lit passes read (`light.wgsl`: what
-//! an ambient or environment light gives a surface, times it).
+//! surface each pixel shows, as the surfaces near it shut it out — scalable ambient obscurance (McGuire, Mara and
+//! Luebke 2012; `occlusion.wgsl`). The view's opaque depth comes first, its opaque meshes' (`vs_depth`) and then its
+//! opaque paths' where nearer (`vector::Out::Opaque`); from it come distances along the view, a pyramid of them, the
+//! occlusion and its low-pass, which the view's lit passes read (`light.wgsl`: what an ambient or environment light
+//! gives a surface, times it).
 
 use std::f32::consts::TAU;
 
-/// The taps a pixel's occlusion is sought with, and the turns of their spiral (Filament's high quality; its spiral's
-/// start interleaved 4 x 4: `occlusion.wgsl`'s `start`).
+/// The taps a pixel's occlusion is sought with, and the turns of their spiral (its start interleaved 4 x 4:
+/// `occlusion.wgsl`'s `start`).
 const SAMPLES: f32 = 16.0;
 const TURNS: f32 = 7.0;
-/// How far a surface's depth is taken nearer than it is, as a share of its distance (Filament's default bias): no
-/// surface shuts out its own light.
+/// How far a surface's depth is taken nearer than it is, as a share of its distance: no surface shuts out its own
+/// light.
 const BIAS: f32 = 0.0005;
-/// The depth within which the low-pass takes a neighbour as the surface's own, as a share of the radius (Filament's
-/// defaults: 5 cm of 30).
+/// The depth within which the low-pass takes a neighbour as the surface's own, as a share of the radius (5 cm of 30).
 const SAME_SURFACE: f32 = 1.0 / 6.0;
 
 /// The passes: a mesh's depth as its view sees it (the raster pipeline's `vs_depth`), and the occlusion's: distances,
@@ -80,7 +84,7 @@ impl Occlusion {
 
     /// Where a view of `size` finds its occlusion.
     pub(crate) fn occluded(&self, device: &wgpu::Device, [width, height]: [u32; 2]) -> Occluded {
-        // the pyramid's levels: down to about 32 pixels across the view's longer side, 2 to 8 of them (Filament's)
+        // the pyramid's levels: down to about 32 pixels across the view's longer side, 2 to 8 of them
         let levels = (32 - width.max(height).leading_zeros()).saturating_sub(5).clamp(2, 8);
         let sizes: Vec<[u32; 2]> = (0..levels).map(|l| [(width >> l).max(1), (height >> l).max(1)]).collect();
         let texture = |label: &str, [w, h]: [u32; 2], levels: u32, format, usage| {
@@ -112,8 +116,7 @@ impl Occlusion {
     }
 
     /// A view's occlusion, once its opaque depth is drawn: `projection` the view's (rows; a 3D view's: depth z / w =
-    /// near / distance, see `feed.view`), how much (`amount`, Filament's intensity) and how far around (`radius`, in
-    /// the world's units).
+    /// near / distance, see `feed.view`), how much (`amount`) and how far around (`radius`, in the world's units).
     pub(crate) fn encode(&self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, o: &Occluded, projection: &[[f32; 4]; 4], amount: f32, radius: f32) {
         let length = |r: [f32; 4]| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
         let unit = length(projection[3]); // w a unit along the view: one over the focal distance
@@ -122,7 +125,7 @@ impl Occlusion {
         let [width, height] = o.sizes[0];
         let params: [f32; 16] = [
             tan_x, tan_y, near, (o.sizes.len() - 1) as f32,
-            radius, 2.0, TAU * peak * amount / SAMPLES, BIAS, // (twice the power: Filament's 1)
+            radius, 2.0, TAU * peak * amount / SAMPLES, BIAS, // (twice a power of 1)
             peak * peak, 1.0 / (radius * radius), 0.5 * height as f32 / tan_y, 0.0,
             0.0, TURNS * TAU / (SAMPLES - 0.5), SAMPLES, 1.0 / (SAME_SURFACE * radius),
         ];

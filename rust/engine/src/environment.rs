@@ -1,18 +1,18 @@
 //! Environments: light from all around a 3D view, a picture of its surroundings (an equirectangular Radiance image,
 //! RGBE: a byte of red, green, blue and a shared exponent a pixel), lighting its mobjects with a material from every
-//! direction, metals reflecting it. Filament's image-based light: its diffuse light nine spherical harmonics (computed
-//! here, from the picture), its specular light a cube of the picture prefiltered by the GGX lobe a roughness a level
-//! (on the GPU, when a view first shows it: `environment.wgsl`), read by the split sum (`light.wgsl`).
+//! direction, metals reflecting it. Image-based light: its diffuse light nine spherical harmonics (computed here, from
+//! the picture), its specular light a cube of the picture prefiltered by the GGX lobe a roughness a level (on the GPU,
+//! when a view first shows it: `environment.wgsl`), read by the split sum (`light.wgsl`).
 
 #[cfg(feature = "render")]
-/// A cube's side, in texels (about a fifth of a degree a texel: cmgen's cubes in new_filament's assets).
+/// A cube's side, in texels (about a fifth of a degree a texel).
 pub(crate) const SIDE: u32 = 512;
 #[cfg(feature = "render")]
 /// Its roughness levels, 512 to 16 texels a side: level l is the GGX lobe of perceptual roughness r with
-/// l = (LEVELS - 1) r (2 - r) (Filament's mapping).
+/// l = (LEVELS - 1) r (2 - r).
 pub(crate) const LEVELS: u32 = 6;
 #[cfg(feature = "render")]
-/// The samples a level's texel averages (cmgen's): fewer blur the glossy levels (each sample then reads a coarser mip),
+/// The samples a level's texel averages: fewer blur the glossy levels (each sample then reads a coarser mip),
 /// measured in experiments/b4-ibl.
 const SAMPLES: u32 = 1024;
 #[cfg(feature = "render")]
@@ -165,7 +165,7 @@ pub(crate) fn direction(u: f64, v: f64) -> [f64; 3] {
 /// The diffuse light of a picture: nine spherical harmonics of its light, each weighted by its pixel's solid angle,
 /// convolved with the cosine lobe (Ramamoorthi and Hanrahan's 1, 2/3, 1/4 a band) and divided by pi, each with its
 /// basis function's constant, so that a matte white surface facing n shows c0 + c1 y + c2 z + c3 x + c4 xy + c5 yz
-/// + c6 (3 z^2 - 1) + c7 zx + c8 (x^2 - y^2) (cmgen's `--sh-shader`, Filament's `irradianceSH`).
+/// + c6 (3 z^2 - 1) + c7 zx + c8 (x^2 - y^2) (`light.wgsl`'s `irradiance`).
 pub(crate) fn harmonics(width: u32, height: u32, rgbe: &[u8]) -> [[f32; 4]; 9] {
     let mut sum = [[0f64; 3]; 9];
     // every pixel of a picture up to 1024 wide, else every k-th (a smooth function needs no more)

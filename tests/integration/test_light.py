@@ -164,7 +164,7 @@ def test_a_white_rough_metal_in_a_uniform_light_shows_that_light_at_any_roughnes
 ):
     # a white furnace: a surface that loses no energy shows its surroundings' light and no
     # more, rough metal as smooth (the light single scattering loses on a rough surface is
-    # given back, as Filament does)
+    # given back)
     def level(roughness: float) -> float:
         def build(scene: m.ThreeDScene) -> None:
             sphere = m.Sphere(radius=2.0, resolution=(48, 48), stroke_width=0)

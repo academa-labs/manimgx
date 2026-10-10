@@ -224,9 +224,10 @@ to `main` and every pull request, in the Test workflow (see
 
 ManimGX is under the MIT License, in
 [`LICENSE`](https://github.com/academa-labs/manimgx/blob/main/LICENSE): GitHub, PyPI and
-npm show it. Some files are others': modules ported from Manim CE, the Noto fonts, the
-corpus's scenes from CE's documentation, the command spec made from mitex's Typst package, a
-few documents and images. The repository says whose each file is, and under which license, as
+npm show it. Some files are others': modules ported from Manim CE, the engine's 3D lighting
+adapted from [Filament](https://github.com/google/filament)'s, the Noto fonts, the corpus's
+scenes from CE's documentation, the command spec made from mitex's Typst package, a few
+documents and images. The repository says whose each file is, and under which license, as
 [REUSE](https://reuse.software) specifies:
 
 - a file with code from elsewhere says it in its first lines: an `SPDX-FileCopyrightText`
@@ -359,14 +360,14 @@ Beside it, at the root, the notices `license-files` names besides `LICENSE`:
 
 - [`LICENSE-THIRD-PARTY`](https://github.com/academa-labs/manimgx/blob/main/LICENSE-THIRD-PARTY):
   what the wheels hold that others hold the copyright in, with the licenses and notices it
-  comes with: the package's files that name others (the modules ported from Manim CE), with
-  their copyright lines and their licenses' texts from `LICENSES/`; and every crate compiled
-  into the engine, in each build a wheel holds (each platform's extension, Pyodide's, the
-  player for a page), with the license and notice files it ships, the workspace's crates
-  those of what they fetch (x264's, FFmpeg's, libopus's, mitex's). `just licenses` writes it
-  again after `Cargo.lock` changes (so does `just upgrade`), or after code carrying
-  third-party notices moves between files. A test fails while the notice is stale, or
-  while a license in it is not among ManimGX's.
+  comes with: the package's and the engine's files that name others (the modules ported from
+  Manim CE, the engine's 3D lighting), with their copyright lines and their licenses' texts
+  from `LICENSES/`; and every crate compiled into the engine, in each build a wheel holds
+  (each platform's extension, Pyodide's, the player for a page), with the license and notice
+  files it ships, the workspace's crates those of what they fetch (x264's, FFmpeg's,
+  libopus's, mitex's). `just licenses` writes it again after `Cargo.lock` changes (so does
+  `just upgrade`), or after code carrying third-party notices moves between files. A test
+  fails while the notice is stale, or while a license in it is not among ManimGX's.
 - [`LICENSE-LAVAPIPE`](https://github.com/academa-labs/manimgx/blob/main/LICENSE-LAVAPIPE):
   the notices of the lavapipe the Linux wheels hold: Mesa's, with the copyright lines of the
   sources it is built from, and those of what it holds, of the libraries it links to and of

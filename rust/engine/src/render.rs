@@ -1181,7 +1181,7 @@ impl Gpu {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        // the split sum's DFG terms (Filament's, with its multiple-scattering term: scripts/engine/dfg_table.py), NoV across,
+        // the split sum's DFG terms (with the multiple-scattering term: scripts/engine/dfg_table.py), NoV across,
         // perceptual roughness down: 64 KB, made once
         let size = wgpu::Extent3d { width: 128, height: 128, depth_or_array_layers: 1 };
         let table = device.create_texture(&wgpu::TextureDescriptor { label: Some("dfg"), size, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rg16Float, usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[] });
