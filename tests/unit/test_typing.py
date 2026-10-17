@@ -1,6 +1,10 @@
 """A type checker knows each keyword a mobject or an animation takes, and each method
-`.animate` and `.always` call, and nothing else.
+`.animate` and `.always` call, and nothing else; and it takes every name of the authoring
+API as the package's own.
 
+- `manimgx.__all__` names each public name of the package (a typed package's imports are
+  private to it unless `__all__` names them: pyright reports `m.Scene` as not exported
+  otherwise), once, and nothing else: `np` and the package's modules are not the API.
 - Every TypedDict that a signature unpacks (`**kwargs: Unpack[Style]`) is closed (PEP 728):
   a keyword it doesn't name is an error to a type checker, not a key of type `object`.
 - So ty reports a misspelled keyword (`m.Circle(colour=…)`), where ManimGX would ignore it,
@@ -13,6 +17,7 @@
 
 import importlib
 import re
+import types
 from pathlib import Path
 
 from tests.typecheck import check
@@ -30,6 +35,18 @@ def unpacked() -> dict[str, set[str]]:
             module = ".".join(path.relative_to(PACKAGE.parent).with_suffix("").parts)
             found[module.removesuffix(".__init__")] = names
     return found
+
+
+def test_the_package_exports_each_public_name_once() -> None:
+    import manimgx
+
+    public = {
+        name
+        for name, value in vars(manimgx).items()
+        if not name.startswith("_")
+        and (not isinstance(value, types.ModuleType) or name == "voices")
+    }
+    assert sorted(manimgx.__all__) == sorted(public)
 
 
 def test_every_typeddict_a_signature_unpacks_is_closed() -> None:
