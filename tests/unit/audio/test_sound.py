@@ -419,6 +419,19 @@ class TestScript:
         for (a, b), part in zip(found, parts[1::2], strict=True):
             assert text[a:b] == part
 
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "Outer [inner [deep] bit] done.",
+            "An open [bracket never closes.",
+            "A stray] close.",
+            "Closed] before [open.",
+        ],
+    )
+    def test_nested_unclosed_or_stray_brackets_are_an_error(self, script: str) -> None:
+        with pytest.raises(ValueError, match="one pair of brackets"):
+            spans(script)
+
     def test_a_span_is_said_from_its_first_word_to_its_last(self) -> None:
         speech = said("the derivative of x squared is two x")
         text, (span,) = spans("the derivative of [x squared] is two x")
