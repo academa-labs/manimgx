@@ -33,6 +33,7 @@ The notable changes to ManimGX, release by release. The format follows
 
 ### Fixed
 
+- Keep a mobject's updaters off the member that takes its points when it becomes one without points, so `always_redraw` of a shape that empties no longer nests the family deeper at every frame until a RecursionError ([#32](https://github.com/academa-labs/manimgx/issues/32)).
 - Keep resources needed by queued video frames until their transparency retries finish, fixing render failures during cache cleanup ([#16](https://github.com/academa-labs/manimgx/issues/16)).
 - Preserve the benchmark comparison images' aspect ratios when PyPI narrows the README table.
 - Credit Filament, whose code the 3D lighting is adapted from, in the README and the wheels' third-party notices.

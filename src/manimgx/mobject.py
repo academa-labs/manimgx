@@ -3972,11 +3972,13 @@ class Mobject:
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def push_self_into_submobjects(self) -> Self:
         """Move the mobject's own points into a new submobject, added last: a copy of it
-        without submobjects. The mobject keeps its submobjects, and has no points of its
-        own.
+        without submobjects or updaters (a part of the mobject, which keeps its updaters,
+        not a replica that would run them too). The mobject keeps its submobjects, and has
+        no points of its own.
         """
         clone = self.copy()
         clone.submobjects = []
+        clone.clear_updaters()
         self.reset_points()
         return self.add(clone)
 
