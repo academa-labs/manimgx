@@ -87,6 +87,24 @@ def cases(replicas: list[str]) -> list[tuple[str, str]]:
     ]
 
 
+def test_a_redrawn_mobject_that_becomes_empty_stays_one_family() -> None:
+    """When what is redrawn has no points, the mobject's own points move into a member of
+    its own; the member is a part of it, not a replica: it runs none of the updaters, so
+    the family does not nest one level deeper at every frame."""
+    gone = m.ValueTracker(0.0)
+    shape = m.always_redraw(lambda: m.VMobject() if gone.get_value() else m.Square())
+    gone.set_value(1.0)
+    sizes = []
+    for _ in range(4):
+        shape.update(0.1)
+        sizes.append(len(shape.get_family()))
+    assert sizes == [sizes[0]] * 4
+    assert all(not member.get_updaters() for member in shape.get_family()[1:])
+    gone.set_value(0.0)
+    shape.update(0.1)
+    assert look(shape) == look(m.Square())
+
+
 @pytest.mark.parametrize(("name", "replica"), cases(list(REPLICAS)))
 def test_a_replica_updates_itself_and_leaves_its_original(
     name: str, replica: str
