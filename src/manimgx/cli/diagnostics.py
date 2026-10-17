@@ -380,7 +380,8 @@ def _cut(box: Box, frame: Box) -> str | None:
 def at(seen: View) -> list[Problem]:
     """The problems a viewer sees in this view."""
     frame, things = seen.frame, seen.things
-    px_per_unit = 1080 / (frame[3] - frame[1])
+    # the frame's short side is 1080 px at 1080p, in a wide video and in a tall one
+    px_per_unit = 1080 / min(frame[2] - frame[0], frame[3] - frame[1])
     now: list[Problem] = []
     texts = [t for t in things if t.text is not None]
     shapes = [t for t in things if t.outline is not None]
