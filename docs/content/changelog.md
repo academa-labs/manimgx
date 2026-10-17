@@ -33,6 +33,7 @@ The notable changes to ManimGX, release by release. The format follows
 
 ### Fixed
 
+- Make the folder a `-o` output names before the scene runs (`render`, `inspect` and `present`), rather than failing at the end of the render when it is missing ([#34](https://github.com/academa-labs/manimgx/issues/34)).
 - Keep resources needed by queued video frames until their transparency retries finish, fixing render failures during cache cleanup ([#16](https://github.com/academa-labs/manimgx/issues/16)).
 - Preserve the benchmark comparison images' aspect ratios when PyPI narrows the README table.
 - Credit Filament, whose code the 3D lighting is adapted from, in the README and the wheels' third-party notices.

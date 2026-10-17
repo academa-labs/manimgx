@@ -83,6 +83,7 @@ def render(
     video = output or file.with_name(f"{kind.__name__}.mp4")
     if video.suffix.lower() != ".mp4":
         raise fail(f"error: {video}: ManimGX writes MP4 video; name the output *.mp4")
+    folder(video)
     look = Format.own(resolution, fps)
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
@@ -103,6 +104,15 @@ def render(
         srt.write_text(subtitles, encoding="utf-8")
         typer.echo(f"subtitles: {srt}")
     typer.echo(watch.report(timeline=False, film=made.film))
+
+
+def folder(output: Path) -> None:
+    """Make the folder `output` is written in, if it is missing, before the scene runs: a
+    write to a missing folder fails at the end of a render, after all of its work."""
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise fail(f"error: {output.parent}: {error.strerror or error}") from None
 
 
 def moments(given: list[str]) -> set[Fraction | None]:
@@ -171,6 +181,7 @@ def inspect(
         raise fail(
             f"error: {target}: a storyboard is a PNG image; name the output *.png"
         )
+    folder(target)
     look = Format.own()
     fps = clock.rational(look.fps)
     # The last sample no later than the requested observed instant.
@@ -268,6 +279,7 @@ def present(
     video = output or file.with_name(f"{kind.__name__}.mp4")
     if video.suffix.lower() != ".mp4":
         raise fail(f"error: {video}: ManimGX writes MP4 video; name the output *.mp4")
+    folder(video)
     look = Format.own(resolution, fps)
     pictures: list[bytes] = []  # the pictures slides end on, for the PDF
     last: list[Frame] = []
