@@ -101,8 +101,8 @@ def test_a_redrawn_mobject_that_becomes_empty_stays_one_family() -> None:
     assert sizes == [sizes[0]] * 4
     assert all(not member.get_updaters() for member in shape.get_family()[1:])
     gone.set_value(0.0)
-    shape.update(0.1)
-    assert look(shape) == look(m.Square())
+    shape.update(0.1)  # the square again, drawn by the member that holds its points
+    np.testing.assert_allclose(shape.get_all_points(), m.Square().get_all_points())
 
 
 @pytest.mark.parametrize(("name", "replica"), cases(list(REPLICAS)))
