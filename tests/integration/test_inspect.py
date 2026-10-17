@@ -13,11 +13,13 @@ from manimgx.cli.storyboard import CAPTION, GAP, tile
 from manimgx.rendering.film import Frame
 
 
-def source(tmp_path: Path, body: str, base: str = "Scene") -> Path:
+def source(
+    tmp_path: Path, body: str, base: str = "Scene", size: tuple[int, int] = (320, 180)
+) -> Path:
     path = tmp_path / "scene.py"
     path.write_text(
         "import manimgx as m\n"
-        "m.config.pixel_width, m.config.pixel_height = 320, 180\n"
+        f"m.config.pixel_width, m.config.pixel_height = {size[0]}, {size[1]}\n"
         "m.config.frame_rate = 10\n"
         f"class Example(m.{base}):\n"
         "    def construct(self) -> None:\n"
@@ -102,6 +104,20 @@ def test_the_last_frame_keeps_local_names_and_problem_numbers(tmp_path: Path) ->
     assert "layout: 1 problem" in result.output
     assert "t=0.5–1s" in result.output
     assert "tiny (Text 'tiny')" in result.output
+
+
+def test_text_size_is_measured_on_the_frames_short_side(tmp_path: Path) -> None:
+    """A tall video's frame is 8 units wide, as a wide one's is 8 units high: a text's size
+    in pixels at 1080p is the same in both."""
+    body = 'self.add(m.Text("Hello", font_size=24))\nself.wait()'
+    wide = CliRunner().invoke(app, ["inspect", str(source(tmp_path, body))])
+    assert wide.exit_code == 0, wide.output
+    assert "no problems in 1 sample" in wide.output
+    tall = CliRunner().invoke(
+        app, ["inspect", str(source(tmp_path, body, size=(180, 320)))]
+    )
+    assert tall.exit_code == 0, tall.output
+    assert "no problems in 1 sample" in tall.output
 
 
 def test_notes_do_not_fail_inspection(tmp_path: Path) -> None:
