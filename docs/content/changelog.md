@@ -33,6 +33,7 @@ The notable changes to ManimGX, release by release. The format follows
 
 ### Fixed
 
+- Raise a ValueError for nested, unclosed or stray brackets in a `say` script, which were spoken and captioned ([#39](https://github.com/academa-labs/manimgx/issues/39)).
 - Keep resources needed by queued video frames until their transparency retries finish, fixing render failures during cache cleanup ([#16](https://github.com/academa-labs/manimgx/issues/16)).
 - Preserve the benchmark comparison images' aspect ratios when PyPI narrows the README table.
 - Credit Filament, whose code the 3D lighting is adapted from, in the README and the wheels' third-party notices.

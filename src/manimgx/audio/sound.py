@@ -471,22 +471,39 @@ def lines(speech: Speech, width: int = 42) -> list[tuple[float, float, str]]:
 
 # ── the script: [spans] in the text ─────────────────────────────────────────────────────
 
-_SPAN = re.compile(r"\[([^\[\]]*)\]")
-
 
 @deprecated("ManimGX's machinery: say calls it", category=None)
 def spans(script: str) -> tuple[str, list[tuple[int, int]]]:
     """The text of a script, its brackets taken out, and each bracketed span's characters
-    in that text: `"Here is [a circle]."` is `("Here is a circle.", [(8, 16)])`."""
-    text, found, at = [], [], 0
-    shift = 0
-    for m in _SPAN.finditer(script):
-        text.append(script[at : m.start()])
-        begin = m.start() - shift
-        found.append((begin, begin + len(m.group(1))))
-        text.append(m.group(1))
-        at, shift = m.end(), shift + 2
-    text.append(script[at:])
+    in that text: `"Here is [a circle]."` is `("Here is a circle.", [(8, 16)])`. A span
+    is one pair of brackets: a bracket inside a span, an opening bracket never closed or
+    a closing bracket with no span open raises a ValueError, rather than being spoken."""
+    text: list[str] = []
+    found: list[tuple[int, int]] = []
+    begin: int | None = None  # where the open span starts in the text
+    for c in script:
+        if c == "[":
+            if begin is not None:
+                raise ValueError(
+                    f"a bracket inside a span in {script!r}: mark each span with one"
+                    " pair of brackets"
+                )
+            begin = len(text)
+        elif c == "]":
+            if begin is None:
+                raise ValueError(
+                    f"a closing bracket with no span open in {script!r}: mark each"
+                    " span with one pair of brackets"
+                )
+            found.append((begin, len(text)))
+            begin = None
+        else:
+            text.append(c)
+    if begin is not None:
+        raise ValueError(
+            f"an opening bracket never closed in {script!r}: mark each span with one"
+            " pair of brackets"
+        )
     return "".join(text), found
 
 
