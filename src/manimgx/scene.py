@@ -42,7 +42,6 @@ from manimgx.mobject import (
     _family,
     _has_updater,
     _per_frame,
-    _Recorder,
     flow,
     records,
     remove_list_redundancies,
@@ -860,6 +859,7 @@ class Scene:
         else:
             self._pass(t, act, stepping, framing)
         clock.stepping = clock.framing = True
+        clock.recorders = None
 
     def _pass(
         self,
@@ -869,12 +869,13 @@ class Scene:
         framing: bool,
     ) -> None:
         clock.now, clock.stepping, clock.framing = t, stepping, framing
-        # the play brings what runs to `t`, then the updaters; then what opens at `t` begins,
-        # the world at `t`
+        clock.recorders = [] if self._records else None
+        # the play brings what runs to `t` (an animation's copy of its mobject too), then the
+        # updaters; then what opens at `t` begins, the world at `t`; then the recorders all
+        # these gathered run
         opening = act(t, None) if act is not None else None
-        recorders: list[_Recorder] | None = [] if self._records else None
         for mob in self.mobjects:
-            mob.advance(t, recorders=recorders)
+            mob.advance(t)
         updaters = self.updaters
         for func in updaters:
             if updaters is not self.updaters and not _has_updater(self.updaters, func):
@@ -886,7 +887,8 @@ class Scene:
             func(float(t - since))
         if opening is not None:
             self._together(opening)
-        for mob, recorder, _ in recorders or ():  # if still there when its turn comes
+        # each, if still there when its turn comes
+        for mob, recorder, _ in clock.recorders or ():
             if not mob.updating_suspended and _has_updater(mob.updaters, recorder):
                 mob._bring(recorder, t)
 

@@ -501,13 +501,11 @@ def _same_topology(
 
 @dataclass(slots=True)
 class Growth:
-    """A growing path as the player has it: its key (None until it grows), its curves, its uploads
-    afresh (a new subpath began) and its last subpath's first point."""
+    """A growing path as the player has it: the name of what it holds (None until it grows), and
+    its curves."""
 
-    key: int | None
+    name: int | None
     curves: int
-    restarts: int = 0
-    start: int = 0
 
 
 Player: type[_engine.Player] | None = getattr(_engine, "Player", None)
@@ -592,6 +590,8 @@ class Feeder:
         self.expanded: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         # a growing path, by log — uploaded whole once, then only the curves it gains
         self.logs: dict[int, Growth] = {}
+        # a growing path's name → the key of the upload holding it (one for equal paths)
+        self.holding: dict[int, int] = {}
         self.frames = 0  # frames made so far
         # key → the last frame that showed (or uploaded) it
         self.last_used: dict[int, int] = {}
@@ -648,11 +648,15 @@ class Feeder:
         self.pairs = {
             ab: keys for ab, keys in self.pairs.items() if gone.isdisjoint(keys)
         }
+        self.holding = {n: key for n, key in self.holding.items() if key not in gone}
 
     # ── uploads ──────────────────────────────────────────────────────────────
     def grown(self, shape: Shape) -> tuple[int, np.ndarray] | None:
-        """A growing path (a prefix of a log seen growing): uploaded whole once, then only the curves it
-        gains. None at first sight: a log that never grows is an ordinary shape."""
+        """A growing path (a prefix of a log seen growing), named by what it holds, as a shape is:
+        uploaded whole once, then only the curves it gains, and paths that hold the same share one
+        upload. It is named by its content when it first grows, then by that name and the curves
+        it gains: it costs what it grows. None for an ordinary shape: a log seen once or not
+        grown yet, or an earlier prefix of one."""
         log = shape.log
         assert log is not None
         points = shape.array
@@ -661,38 +665,48 @@ class Feeder:
         if state is None:
             self.logs[log.id] = Growth(None, curves)
             return None
-        key = state.key
-        if key is None and curves == state.curves:
-            return None  # not grown (yet)
-        if key is not None and key in self.sizes and curves > state.curves:
-            have = state.curves
-            continuing = (
-                len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
-            )
-            # no break: the last subpath goes on (closed or not, as it now ends)
-            if continuing:
+        held, have = state.name, state.curves
+        if curves < have or (held is None and curves == have):
+            return None
+        tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
+        if held is None:
+            name = digest(b"grown", shape.key.to_bytes(8, "little"))
+        elif curves > have:
+            name = digest(b"grown", held.to_bytes(8, "little"), tail.tobytes())
+        else:
+            name = held
+        key = self.holding.get(name)
+        if key is None:
+            # the upload holding what it held grows on, if its last subpath does (closed or
+            # not, as it now ends); else, or if none holds it, the path is uploaded whole
+            if (
+                held is not None
+                and (source := self.holding.get(held)) is not None
+                and len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
+            ):
+                *before, (first, _, _) = self.structures[source]
                 closed = bool(
-                    np.allclose(points[state.start], points[curves * 4 - 1], atol=1e-6)
+                    np.allclose(points[first * 4], points[curves * 4 - 1], atol=1e-6)
                 )
-                tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
-                self.player.grow_path(key, tail.tobytes(), closed)
-                state.curves = curves
-                self.sizes[key] = curves
-                *before, (first, _, _) = self.structures[key]
-                self.structures[key] = [*before, (first, curves, closed)]
+                self.player.grow_path(source, tail.tobytes(), closed)
+                self.sizes[source] = curves
+                self.structures[source] = [*before, (first, curves, closed)]
+                del self.holding[held]  # it holds what it grew to now
+                key = source
             else:
-                key = None  # a new subpath began: upload afresh
-        if key is None or key not in self.sizes:
-            restarts = state.restarts
-            key = digest(
-                b"log", log.id.to_bytes(8, "little"), restarts.to_bytes(8, "little")
-            )
-            ranges = structure(points)
-            if not ranges:
-                return None
-            self.player.add_path(key, *control(points, ranges), centroid_area(points))
-            self.sizes[key], self.structures[key] = curves, ranges
-            self.logs[log.id] = Growth(key, curves, restarts + 1, ranges[-1][0] * 4)
+                ranges = structure(points)
+                if not ranges:
+                    return None
+                # this log's own key: an upload grown in place is never named again
+                key = digest(
+                    b"grown", name.to_bytes(8, "little"), log.id.to_bytes(8, "little")
+                )
+                self.player.add_path(
+                    key, *control(points, ranges), centroid_area(points)
+                )
+                self.sizes[key], self.structures[key] = curves, ranges
+            self.holding[name] = key
+        state.name, state.curves = name, curves
         self.last_used[key] = self.frames
         return key, IDENTITY
 

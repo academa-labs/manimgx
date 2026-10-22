@@ -16,6 +16,8 @@ keeps the player's store in step with its own books; the player derives what dra
   of frames as it was.
 - A batch of a reveal's frames has each frame's window, as the frame alone would.
 - A path and a cloud of points drawn in one frame draw as each does alone.
+- A growing path is named by what it holds, as a shape is: paths that grow alike are one
+  upload, grown once by what they gain, and one that grows otherwise is uploaded as itself.
 - Over any run of frames of any mobjects (paths, graded paths, colored clouds and meshes,
   surfaces, images; moved, copied, recolored, stretched, morphed, turned partway into
   another shape, cut to a part), idle time, sweeps, and uploads or evictions that fail:
@@ -46,7 +48,7 @@ from tests.scenes import frames, scene_3d
 
 import manimgx as m
 from manimgx._engine import Player, Recorder, digest
-from manimgx.drawing.geometry import Path
+from manimgx.drawing.geometry import Log, Path
 from manimgx.rendering import feed
 
 
@@ -936,3 +938,54 @@ def test_a_picture_is_not_one_of_the_films_frames() -> None:
     assert (feeder.frames, feeder.latest) == (frames, latest)
     feeder.sweep(pressed=True)  # the picture's shapes may go: never the held frame's
     assert held <= set(sink.resident)
+
+
+class Growing(Sink):
+    """A sink that takes growing paths too, noting each path it is given whole, and each it
+    grows: (how, key, curves sent)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.paths: list[tuple[str, int, int]] = []
+
+    def add_path(
+        self, key: int, points: bytes, subpaths: bytes, ca: Sequence[float]
+    ) -> None:
+        super().add_path(key, points, subpaths, ca)
+        self.paths.append(("whole", key, len(points) // 96))
+
+    def grow_path(self, key: int, points: bytes, closed: bool = False) -> None:
+        self.engine.grow_path(key, points, closed)
+        self.paths.append(("grown", key, len(points) // 96))
+
+
+def test_paths_that_grow_alike_share_one_upload() -> None:
+    sink = Growing()
+    feeder = feed.Feeder(32, 32, sink)
+    right, up, nothing = np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.empty((0, 3))
+
+    def line(start: np.ndarray, step: np.ndarray) -> np.ndarray:
+        """A straight curve: its points a step apart, the handles at its thirds."""
+        return start + np.outer(np.arange(4), step)
+
+    def drawn(log: Log, tail: np.ndarray) -> int | None:
+        """The key a frame draws the log by once it gains `tail`; None: an ordinary shape."""
+        placed = feeder.grown(log.extended(tail))
+        return None if placed is None else placed[0]
+
+    a, b = Log(line(0 * right, right)), Log(line(0 * right, right))
+    assert [drawn(a, nothing), drawn(b, nothing)] == [None, None]  # first seen
+    shared = drawn(a, line(3 * right, right))
+    assert shared is not None
+    assert drawn(b, line(3 * right, right)) == shared  # grown alike: one upload
+    on, behind = drawn(a, line(6 * right, right)), drawn(b, nothing)
+    turned = drawn(b, line(6 * right, up))
+    assert on == shared
+    assert behind not in (None, shared)
+    assert turned == behind
+    assert sink.paths == [
+        ("whole", shared, 2),
+        ("grown", shared, 1),  # the one that goes on grows what both held
+        ("whole", behind, 2),  # the other, left behind, is itself
+        ("grown", behind, 1),
+    ]

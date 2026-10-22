@@ -517,6 +517,9 @@ def test_a_finer_pole_search_does_not_scan_the_area() -> None:
     scale=st.floats(0.25, 4),
     shift=st.tuples(st.floats(-3, 3), st.floats(-3, 3)),
 )
+@example(  # traced paths that grow alike, played as a group and one by one
+    name="TracedPath", copies=2, turn=0.0, scale=1.0, shift=(0.0, 0.0)
+)
 def test_copies_upload_what_one_does(
     name: str, copies: int, turn: float, scale: float, shift: tuple[float, float]
 ) -> None:

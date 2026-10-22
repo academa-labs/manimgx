@@ -1399,12 +1399,7 @@ class Mobject:
         return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
-    def advance(
-        self,
-        t: Fraction,
-        recursive: bool = True,
-        recorders: "list[_Recorder] | None" = None,
-    ) -> Self:
+    def advance(self, t: Fraction, recursive: bool = True) -> Self:
         """Bring the mobject's updaters to scene time `t`.
 
         An engine hook: the scene calls it on each of its mobjects at every instant it
@@ -1414,17 +1409,15 @@ class Mobject:
         updaters do). A simulated one (time-based, not a
         [flow][manimgx.mobject.flow]) runs only at the ticks of the simulation
         clock and at the ends of plays and waits; a per-frame one only at frames and
-        those ends. Nothing runs while the mobject's updating is suspended.
+        those ends. A [recorder][manimgx.mobject.record] is gathered into the instant's
+        (`clock.recorders`), to run once everything else is at `t`, wherever the scene
+        computes the instant; else it runs here, as the simulated updater it is. Nothing
+        runs while the mobject's updating is suspended.
 
         Args:
             t: The scene time, in seconds, exact.
             recursive: Whether its submobjects' updaters are brought there too, after
                 its own.
-            recorders: Where the scene collects the
-                [recorders][manimgx.mobject.record], each with its mobject
-                and the updater list it came from, to run them once everything
-                else is at `t`; None: they run here, as the
-                simulated updaters they are.
         """
         # a simulated updater runs only where it steps (`clock.stepping`: between the
         # simulation clock's ticks it stays where it was); a per-frame one only at a
@@ -1440,13 +1433,13 @@ class Mobject:
             if _per_frame(updater):
                 if clock.framing:
                     updater(self)
-            elif recorders is not None and records(updater):
-                recorders.append((self, updater, updaters))
+            elif records(updater) and (gathered := clock.recorders) is not None:
+                gathered.append((self, updater, updaters))
             elif clock.stepping or _flows(updater):
                 self._bring(updater, t)
         if recursive:
             for sub in self.submobjects:
-                sub.advance(t, recursive, recorders)
+                sub.advance(t, recursive)
         return self
 
     def _bring(self, updater: Callable[..., object], t: Fraction) -> None:
