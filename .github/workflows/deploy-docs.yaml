@@ -32,6 +32,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      MANIMGX_SOURCES: ${{ github.workspace }}/sources
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +55,7 @@ jobs:
           workspaces: rust
           shared-key: engine
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-directories: sources # the archives build scripts fetch (MANIMGX_SOURCES)
 
       - name: Identify the rendered examples
         id: films

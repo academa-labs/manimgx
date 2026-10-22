@@ -5,7 +5,7 @@ beside the engine. The engine selects it explicitly by absolute path. `dxil.dll`
 optional with this compiler version and is not distributed. `LICENSE-DXC` carries
 the compiler's complete notices, including its SPIR-V dependencies.
 
-With `MANIMGX_SOURCES` set, this crate collects the original binary release and
+With `MANIMGX_COMPLETE_SOURCE` set, this crate collects the original binary release and
 matching compiler source, plus every Git submodule at that revision. Ordinary
 non-Windows builds do not fetch DXC. The source bundle can build ManimGX offline
 using the included compiler payload.

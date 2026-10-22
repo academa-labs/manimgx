@@ -17,12 +17,13 @@ const SUBMODULES: &[(&str, &str)] = &[
 ];
 
 /// Stage DXC in the engine's OUT_DIR for maturin. A complete-source build on any platform
-/// collects both the distributable and its matching source; ordinary non-Windows builds do no
-/// DXC work. Only dxcompiler.dll is needed: since DXC 1.8.2502, dxil.dll is optional.
+/// (MANIMGX_COMPLETE_SOURCE) collects both the distributable and its matching source; ordinary
+/// non-Windows builds do no DXC work. Only dxcompiler.dll is needed: since DXC 1.8.2502,
+/// dxil.dll is optional.
 pub fn prepare() {
-    println!("cargo:rerun-if-env-changed=MANIMGX_SOURCES");
+    println!("cargo:rerun-if-env-changed=MANIMGX_COMPLETE_SOURCE");
     let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
-    let collecting = std::env::var_os("MANIMGX_SOURCES").is_some();
+    let collecting = std::env::var_os("MANIMGX_COMPLETE_SOURCE").is_some();
     if !windows && !collecting { return; }
     let archive = fetch::file(BINARY_URL, BINARY_HASH);
     if collecting {
