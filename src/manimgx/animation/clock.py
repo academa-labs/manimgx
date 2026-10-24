@@ -11,6 +11,10 @@ from collections.abc import Callable
 from fractions import Fraction
 from itertools import pairwise
 from math import inf, nextafter, ulp
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from manimgx.mobject import _Recorder
 
 
 def _rounding_cell(value: float) -> tuple[Fraction, Fraction, bool]:
@@ -64,6 +68,10 @@ scene is simulating: then at the ticks of its simulation clock and at its events
 framing: bool = True
 """Do per-frame updaters run at `now`? At frames and events — not at a tick between frames: an
 updater that takes no time is called once a frame, whatever else the scene simulates."""
+recorders: "list[_Recorder] | None" = None
+"""Where the instant being computed gathers the recorders it brings to `now` (an animation's
+copy of its mobject's too), to run them once everything else is there; None: a recorder
+brought to `now` runs at once, as the simulated updater it is."""
 
 
 class Clock:
@@ -101,11 +109,9 @@ class Clock:
                 local += b - a
             else:
                 start, duration, span, progress = ruling
-                if duration > 0:
-                    local += span * (
-                        progress((b - start) / duration)
-                        - progress((a - start) / duration)
-                    )
+                local += span * (
+                    progress((b - start) / duration) - progress((a - start) / duration)
+                )
         return local
 
 

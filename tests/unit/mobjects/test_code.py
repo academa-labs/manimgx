@@ -7,6 +7,25 @@ import pytest
 import manimgx as m
 
 
+@pytest.mark.parametrize("language", [None, "python"])
+def test_code_colors_tokens_but_keeps_line_numbers_plain(language: str | None) -> None:
+    code = m.Code(
+        code_string='self = "self" # self', language=language, formatter_style="vim"
+    )
+    expected = (
+        ["#CD00CD"] * 4 + ["#3399CC"] + ["#CD0000"] * 6 + ["#000080"] * 5
+        if language
+        else ["#CCCCCC"] * 16
+    )
+    assert [glyph.get_fill_color().to_hex() for glyph in code.code_lines[0]] == expected
+    assert all(
+        glyph.get_fill_color().to_hex() == "#CCCCCC"
+        for row in code.line_numbers
+        for glyph in row
+    )
+    assert code.background.get_fill_color() == m.BLACK
+
+
 @pytest.mark.parametrize("font", [None, "Monospace"])
 def test_default_code_font_is_the_bundled_monospace(font: str | None) -> None:
     listing = "from manim import Scene\n\nclass Example(Scene):\n    pass"

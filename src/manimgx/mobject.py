@@ -661,38 +661,21 @@ def remove_list_redundancies[T](items: Sequence[T]) -> list[T]:
 
 def _family(roots: Iterable["Mobject"]) -> list["Mobject"]:
     """Preorder from these roots, each member once at its last occurrence."""
-    # Members held once (most families) are the preorder itself, made in one pass; a member
-    # met again sends the work to the walk that keeps last occurrences.
-    roots = list(roots)
-    preorder: list[Mobject] = []
-    met: set[int] = set()
-    pending = roots[::-1]
-    while pending:
-        item = pending.pop()
-        if id(item) in met:
-            return _family_of_repeats(roots)
-        met.add(id(item))
-        preorder.append(item)
-        if item.submobjects:
-            pending.extend(item.submobjects[::-1])
-    return preorder
-
-
-def _family_of_repeats(roots: list["Mobject"]) -> list["Mobject"]:
-    """`_family` of roots whose families share members, or repeat them."""
     # Right-to-left postorder is reversed preorder. Keep its first occurrences,
     # skipping already visited subtrees, then reverse to keep preorder's last ones.
     family: list[Mobject] = []
     seen: set[int] = set()
-    pending: list[Mobject | tuple[Mobject]] = list(roots)
+    pending: list[Mobject | None] = list(roots)
+    parents: list[Mobject] = []
     while pending:
         item = pending.pop()
-        if isinstance(item, tuple):
-            family.append(item[0])
+        if item is None:
+            family.append(parents.pop())
         elif id(item) not in seen:
             seen.add(id(item))
             if item.submobjects:
-                pending.append((item,))
+                parents.append(item)
+                pending.append(None)
                 pending.extend(item.submobjects)
             else:
                 family.append(item)
@@ -1399,12 +1382,7 @@ class Mobject:
         return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
-    def advance(
-        self,
-        t: Fraction,
-        recursive: bool = True,
-        recorders: "list[_Recorder] | None" = None,
-    ) -> Self:
+    def advance(self, t: Fraction, recursive: bool = True) -> Self:
         """Bring the mobject's updaters to scene time `t`.
 
         An engine hook: the scene calls it on each of its mobjects at every instant it
@@ -1414,40 +1392,45 @@ class Mobject:
         updaters do). A simulated one (time-based, not a
         [flow][manimgx.mobject.flow]) runs only at the ticks of the simulation
         clock and at the ends of plays and waits; a per-frame one only at frames and
-        those ends. Nothing runs while the mobject's updating is suspended.
+        those ends. A [recorder][manimgx.mobject.record] is gathered into the instant's
+        (`clock.recorders`), to run once everything else is at `t`, wherever the scene
+        computes the instant; else it runs here, as the simulated updater it is. Nothing
+        runs while the mobject's updating is suspended.
 
         Args:
             t: The scene time, in seconds, exact.
             recursive: Whether its submobjects' updaters are brought there too, after
                 its own.
-            recorders: Where the scene collects the
-                [recorders][manimgx.mobject.record], each with its mobject
-                and the updater list it came from, to run them once everything
-                else is at `t`; None: they run here, as the
-                simulated updaters they are.
         """
+        self._advance(t, recursive, set())
+        return self
+
+    def _advance(self, t: Fraction, recursive: bool, seen: set[int]) -> None:
+        """`advance`, each member's updaters once: a member several groups share runs where
+        it is first met (`seen`: the members that ran)."""
         # a simulated updater runs only where it steps (`clock.stepping`: between the
         # simulation clock's ticks it stays where it was); a per-frame one only at a
         # frame or an event (`clock.framing`)
         if self.updating_suspended:
-            return self
+            return
         updaters = self.updaters
-        for updater in updaters:
-            if updaters is not self.updaters and not _has_updater(
-                self.updaters, updater
-            ):
-                continue
-            if _per_frame(updater):
-                if clock.framing:
-                    updater(self)
-            elif recorders is not None and records(updater):
-                recorders.append((self, updater, updaters))
-            elif clock.stepping or _flows(updater):
-                self._bring(updater, t)
+        if updaters and id(self) not in seen:
+            seen.add(id(self))
+            for updater in updaters:
+                if updaters is not self.updaters and not _has_updater(
+                    self.updaters, updater
+                ):
+                    continue
+                if _per_frame(updater):
+                    if clock.framing:
+                        updater(self)
+                elif records(updater) and (gathered := clock.recorders) is not None:
+                    gathered.append((self, updater, updaters))
+                elif clock.stepping or _flows(updater):
+                    self._bring(updater, t)
         if recursive:
             for sub in self.submobjects:
-                sub.advance(t, recursive, recorders)
-        return self
+                sub._advance(t, recursive, seen)
 
     def _bring(self, updater: Callable[..., object], t: Fraction) -> None:
         """Run a time-based updater with the time its clock ran since it was last brought
@@ -1711,7 +1694,7 @@ class Mobject:
         if recursive:
             for sub in self.submobjects:
                 sub.resume_updating(recursive)
-        self._stamp(clock.now, recursive)
+        self._stamp(clock.now, recursive=False)
         return self
 
     # ── the one transform primitive ────────────────────────────────────────

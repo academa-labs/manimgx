@@ -288,7 +288,6 @@ class Typst(VMobject):
         """The Typst code set before it."""
         # unless a stroke width is given, a stroke keeps its share of its part's size as
         # typeset: (part, its size and its stroke width as typeset)
-        self._strokes_scale = stroke_width is None
         self._strokes: list[tuple[VMobject, float, float]] = []
         # A height overrides font sizing; width is fitted afterward in either case.
         placed = should_center and height is None
@@ -300,6 +299,7 @@ class Typst(VMobject):
                 package_path=package_path,
             ),
             font_size * font_scale * SCALE_FACTOR_PER_FONT_POINT if placed else None,
+            stroke_width is None,
         )
         if opacity is not None:  # both, where one isn't given its own
             fill_opacity = opacity if fill_opacity is None else fill_opacity
@@ -320,7 +320,7 @@ class Typst(VMobject):
         if width is not None:
             self.set(width=width)
 
-    def _build(self, layout: Layout, scale: float | None) -> float:
+    def _build(self, layout: Layout, scale: float | None, scale_strokes: bool) -> float:
         """Every glyph and shape of the layout, in document order, Typst's black ink painted this
         mobject's color, and the labelled groups. With `scale`, parts are built in place (the ink
         centered and scaled). Returns the ink's height as typeset."""
@@ -394,7 +394,7 @@ class Typst(VMobject):
                     opacity=float(stroke[3]),
                     width=None if scale is None else width * scale * 100,
                 )
-                if self._strokes_scale and size > 0:
+                if scale_strokes and size > 0:
                     self._strokes.append((part, size / (scale or 1.0), width))
             parts.append(part)
         self.add(*parts)
@@ -478,17 +478,10 @@ class Typst(VMobject):
             **kwargs: [Pivot keywords][manimgx.mobject.Pivot].
         """
         result = super().scale(scale_factor, scale_stroke=scale_stroke, **kwargs)
-        self._scale_strokes()
-        return result
-
-    def _scale_strokes(self) -> None:
-        """Each typeset stroke's width, its share of its part's size again."""
-        if not self._strokes_scale:
-            return
         for part, typeset_size, typeset_width in self._strokes:
-            if typeset_size > 0:
-                width = typeset_width * max(part.width, part.height) / typeset_size
-                part.set_stroke(width=width * 100, family=False)  # in 1/100 units
+            width = typeset_width * max(part.width, part.height) / typeset_size
+            part.set_stroke(width=width * 100, family=False)  # in 1/100 units
+        return result
 
     def init_colors(self, propagate_colors: bool = True) -> Self:
         # Its parts are painted from the layout's ink; constructor style is not reused.
@@ -916,7 +909,6 @@ class Text(Typst):
         super().__init__(
             f"{head}{body}]", font_scale=_calibration(family, kwargs), **kwargs
         )
-        self._chars = chars
         self._clusters = self._characters(runs)
         colors: dict[int, ManimColor] = {}
         if gradient:
@@ -977,7 +969,7 @@ class Text(Typst):
     def _paint(self, colors: Mapping[int, ManimColor]) -> None:
         """Each glyph takes its characters' colors (a grapheme's color: its first character's);
         a glyph of several colors is cut at its carets."""
-        graphemes = _engine.graphemes(self._chars)
+        graphemes = _engine.graphemes(self.text)
         for part, chars in zip(self.submobjects, self._clusters):
             if not chars:
                 continue
@@ -993,7 +985,7 @@ class Text(Typst):
                 if paints[0] is not None:
                     part.set_color(paints[0])
             elif isinstance(part, TypstGlyph):
-                rtl = unicodedata.bidirectional(self._chars[chars.start]) in ("R", "AL")
+                rtl = unicodedata.bidirectional(self.text[chars.start]) in ("R", "AL")
                 _cut(part, paints[::-1] if rtl else paints)
 
 

@@ -202,15 +202,24 @@ class TestMix:
 
 
 class TestGradients:
-    @given(stops=st.lists(colors, min_size=1, max_size=5), n=st.integers(1, 30))
+    @given(stops=st.lists(colors, min_size=1, max_size=5), n=st.integers(0, 30))
+    @example(stops=[], n=0)
     def test_a_gradient_runs_from_its_first_color_to_its_last(
         self, stops: list[m.ManimColor], n: int
     ) -> None:
         out = m.color_gradient(stops, n)
         assert len(out) == n
+        if not n:
+            return
         np.testing.assert_allclose(out[-1].to_rgba(), stops[-1].to_rgba(), atol=1e-12)
         if n > 1:
             np.testing.assert_allclose(out[0].to_rgba(), stops[0].to_rgba(), atol=1e-12)
+        for i, sample in enumerate(out):
+            position = len(stops) - 1 if n == 1 else i * (len(stops) - 1) / (n - 1)
+            left = min(int(position), len(stops) - 1)
+            right = min(left + 1, len(stops) - 1)
+            expected = m.interpolate_color(stops[left], stops[right], position - left)
+            np.testing.assert_allclose(sample.to_rgba(), expected.to_rgba(), atol=1e-12)
 
     @given(
         stops=st.lists(colors, min_size=2, max_size=5),
@@ -675,3 +684,22 @@ class Derivations(RuleBasedStateMachine):
 
 TestDerivations = Derivations.TestCase
 TestDerivations.settings = settings(max_examples=50, stateful_step_count=25)
+
+
+@pytest.mark.parametrize("change", ["recolor", "turn"])
+def test_a_paint_changed_frame_after_frame_keeps_none_of_its_past_alive(
+    change: str,
+) -> None:
+    """A paint remembers what was derived from it only while something else holds that: a
+    mobject repainted frame after frame (an updater's work) leaves no chain of its past paints
+    alive behind its first one."""
+    square = m.Square().set_sheen(0.2, m.UR)
+    past: list[weakref.ref[Paint]] = []
+    for k in range(200):
+        if change == "recolor":
+            square.set_color(m.ManimColor((k / 200, 0.5, 1 - k / 200)))
+        else:
+            square.rotate(0.01)
+        past.append(weakref.ref(square.paint))
+    gc.collect()
+    assert sum(ref() is not None for ref in past[:-1]) == 0

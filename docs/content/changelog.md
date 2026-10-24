@@ -42,6 +42,8 @@ The notable changes to ManimGX, release by release. The format follows
 - Take NumPy out of the package: a scene imports it itself (`import numpy as np`), and `from manimgx import *` no longer brings `np`.
 - Make the voices' names the package's, as every other name is: `m.Fal`, `m.Voice`, `m.Word`, `m.timed`, `m.estimate` and `m.cached`, where they were `m.voices.Fal` and `manimgx.audio.Voice`. `m.voices` is gone.
 - Name the settings' module `manimgx.settings`. `manimgx.config` is the settings themselves, as `m.config` is: after `import manimgx.config`, `manimgx.config.Config` failed.
+- Find a play's events by bisection: a lagged play of n parts compared 2n instants at every frame.
+- Draw a surface rebuilt every frame faster: its spline's derivatives and its patches are matrix products over all its cells side by side. The frames are the same.
 
 ### Fixed
 
@@ -53,6 +55,7 @@ The notable changes to ManimGX, release by release. The format follows
 - Raise a ValueError, naming where it is, for a nested, unclosed or stray bracket in a `say` script, which was spoken and captioned ([#39](https://github.com/academa-labs/manimgx/issues/39)).
 - Time and caption speech in the pieces Unicode lets a line break between, so a `say` span in Chinese, Japanese or Thai, written without spaces, is timed by its own characters or words, where the whole sentence was one word ([#40](https://github.com/academa-labs/manimgx/issues/40)). Captions are the text as it is written, at most 42 columns wide (a Chinese or Japanese character takes two); a line never starts with a closing mark such as `，` or `」`, and ends where a sentence does, a quoted one too. A speech's words are found in its text by themselves, so a trimmed speech, or a voice that cuts its words its own way, no longer fails or mistimes a span; and an empty span after the last word starts where that word ends.
 - Show an image drawn smaller than its pixels as their mean: each pixel of the video shows the mean of the picture's pixels it covers, however the image is squashed and whatever its `resampling_algorithm`, where it showed the picture at one point, so thin lines broke up and small text was unreadable ([#36](https://github.com/academa-labs/manimgx/issues/36)). An image at its size or larger is drawn as before.
+- Trace a `TracedPath` once at each instant, and on while a play animates it. Where the scene came to an instant again (one play's end is the next one's beginning), the path recorded the point a second time, as a curve of no length. A play of the path traced a frozen copy of the traced mobject, a tick late, and lost when the curves were traced: the path stood still through the play and jumped at its end, and a dissipating one kept curves too long. A dissipating path's curves age in scene time, also while it is out of the scene. Paths that grow alike are uploaded once, as equal shapes are, where each copy uploaded every curve it gained.
 - Keep resources needed by queued video frames until their transparency retries finish, fixing render failures during cache cleanup ([#16](https://github.com/academa-labs/manimgx/issues/16)).
 - Draw a storyboard picture without dropping the frame the film holds back, fixing `manimgx render` failures ("unknown shape") under memory pressure.
 - Draw a vectorized curve whose function gives a component as one number (`use_vectorized` with `lambda t: (t, t**2, 0)`), which failed with numpy's inhomogeneous-shape error.
@@ -60,6 +63,14 @@ The notable changes to ManimGX, release by release. The format follows
 - Preserve the benchmark comparison images' aspect ratios when PyPI narrows the README table.
 - Credit Filament, whose code the 3D lighting is adapted from, in the README and the wheels' third-party notices.
 - End a `{{…}}` part of a `MathTex` or `Tex` at the `}}` that closes its own braces: `MathTex(r"V={{\tfrac{1}{3}}}B")` split at the fraction's `}}`, so the part was `\tfrac{1}{3` and `get_part_by_tex(r"\tfrac{1}{3}")` found nothing. An escaped brace (`\{` or `\}`) no longer opens or closes a part.
+- Shade a lit face as it is at each frame of a play: a play of shaded mobjects computed ahead of time mixed its keyframes' shading, so a sheared cube was shaded otherwise.
+- Run the updaters of a member that two groups of one family share once an instant, not once a group.
+- Start a mobject's updaters' time when it joins the scene, however it joins (`bring_to_back`, `Scene.replace`): it was handed the time it had spent outside.
+- Warp the clock of `ChangeSpeed`'s updaters over its own window in a play of waits, and run a copy's speed-clock updaters on the scene's speed clock, as the original's.
+- Keep no paint a mobject no longer has: a mobject repainted at every frame (an updater turning or recoloring it) kept every paint it had alive.
+- Write the same take of a scene however often it is made: a camera's view shown as a picture (an `ImageMobjectFromCamera`'s) was named by the camera's address in memory.
+- Record a tween's paint mixed so near an end that the player draws that end alone as that end's paint, so the film holds the frame.
+- Outline the parts a mobject has now with `AnimatedBoundary`: the outlines of parts its mobject no longer had stayed drawn.
 
 ## 0.1.1
 

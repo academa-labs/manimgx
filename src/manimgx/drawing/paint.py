@@ -12,6 +12,7 @@ appearance of a drawing; its geometry kind gives each brush row its meaning.
 import colorsys
 import random
 import re
+import weakref
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -788,18 +789,14 @@ def color_gradient(
     """
     if length_of_output == 0:
         return []
-    if len(reference_colors) == 1:
-        return [ManimColor(reference_colors[0])] * length_of_output
-    rgbas = [ManimColor(c).to_rgba() for c in reference_colors]
-    alphas = np.linspace(0, len(rgbas) - 1, length_of_output)
-    floors = alphas.astype(int)
-    alphas_mod1 = alphas % 1
-    alphas_mod1[-1] = 1
-    floors[-1] = len(rgbas) - 2
-    return [
-        ManimColor(tuple(mix_rgba(rgbas[i], rgbas[i + 1], float(a))))
-        for i, a in zip(floors, alphas_mod1, strict=True)
-    ]
+    if len(reference_colors) == 1 or length_of_output == 1:
+        return [ManimColor(reference_colors[-1])] * length_of_output
+    if length_of_output == 2:
+        return [ManimColor(reference_colors[i]) for i in (0, -1)]
+    end = len(reference_colors) - 1
+    return colors_by_value(
+        reference_colors, np.linspace(0, end, length_of_output), 0, end
+    )
 
 
 def average_color(*colors: ParsableManimColor) -> ManimColor:
@@ -889,10 +886,7 @@ def rgbas_by_value(
     ia, ib = np.clip(i - 1, 0, len(pivots) - 1), np.minimum(i, len(pivots) - 1)
     span = np.where(inside, pivots[ib] - pivots[ia], 1.0)
     t = np.where(inside, np.minimum(1.0, (v - pivots[ia]) / span), 0.0)
-    mixed = mix_rgba(colors[ia], colors[ib], t)
-    return np.where(
-        inside[:, None], mixed, colors[np.where(i == 0, 0, len(pivots) - 1)]
-    )
+    return mix_rgba(colors[ia], colors[ib], t)
 
 
 def random_color() -> ManimColor:
@@ -1530,8 +1524,9 @@ class Paint:
     def but(self, **changes: object) -> "Paint":
         """This paint with some fields changed (`fill`, `stroke`, `background`: brushes) —
         itself when they change nothing (arrays equal to those it holds), and the same paint
-        for the same plain changes, so what was derived from it holds too. Textures are
-        borrowed resources: equal only by identity, and their changes are not remembered.
+        for the same plain changes while that one is held, so what was derived from it holds
+        too. Textures are borrowed resources: equal only by identity, and their changes are
+        not remembered.
 
         Internal brush and direction arrays transfer ownership: callers must not
         change them or their aliases afterward. Public mobject style setters
@@ -1544,19 +1539,29 @@ class Paint:
             )
         except TypeError:
             key = None
-        derived = self._derived
-        if key is not None and (known := derived.get(key)) is not None:
-            return cast("Paint", known)
+        if key is not None and (known := self._known(key)) is not None:
+            return known
         new = self._but(changes)
         if key is not None and all(
             not isinstance(value, np.ndarray)
             or value is getattr(new, _SLOTS.get(name, name), None)
             for name, value in changes.items()
         ):
-            if len(derived) > 32:
-                derived.clear()
-            derived[key] = new
+            self._remember(key, new)
         return new
+
+    def _known(self, key: tuple[object, ...]) -> "Paint | None":
+        """The paint derived from this one for `key`, while something else holds it."""
+        ref = cast("weakref.ref[Paint] | None", self._derived.get(key))
+        return None if ref is None else ref()
+
+    def _remember(self, key: tuple[object, ...], paint: "Paint") -> None:
+        """Remember a paint derived from this one without keeping it alive: a paint changed
+        frame after frame would otherwise hold every paint after it."""
+        derived = self._derived
+        if len(derived) > 32:
+            derived.clear()
+        derived[key] = weakref.ref(paint)
 
     def _but(self, changes: dict[str, object]) -> "Paint":
         fields = self.__dict__.copy()
@@ -1606,8 +1611,8 @@ class Paint:
         color: ParsableManimColor | Iterable[ParsableManimColor] | None,
         opacity: float | Iterable[float] | None,
     ) -> "Paint":
-        """CE `update_rgbas_array`: colors and/or opacities written into one brush — remembered,
-        and the paint itself when nothing changes."""
+        """CE `update_rgbas_array`: colors and/or opacities written into one brush, remembered
+        while held, and the paint itself when nothing changes."""
         try:
             key: tuple[object, ...] | None = (
                 "updated",
@@ -1617,14 +1622,11 @@ class Paint:
             )
         except TypeError:
             key = None
-        derived = self._derived
-        if key is not None and (known := derived.get(key)) is not None:
-            return cast("Paint", known)
+        if key is not None and (known := self._known(key)) is not None:
+            return known
         result = self._updated(name, color, opacity)
         if key is not None:
-            if len(derived) > 32:
-                derived.clear()
-            derived[key] = result
+            self._remember(key, result)
         return result
 
     def _updated(

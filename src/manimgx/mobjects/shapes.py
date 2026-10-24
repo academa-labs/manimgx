@@ -1972,34 +1972,23 @@ class Rectangle(Polygon):
         """The lines of its grid: a group of the vertical lines, then one of the
         horizontal lines, those it has; a submobject, unless it is empty (without a
         grid)."""
-        if grid_xstep:
-            grid_xstep = abs(grid_xstep)
-            count = int(width / grid_xstep)
-            grid = VGroup(
-                *(
-                    Line(
-                        v[1] + i * grid_xstep * RIGHT,
-                        v[1] + i * grid_xstep * RIGHT + height * DOWN,
-                        color=line_color,
+        for step, span, along, length, across in (
+            (grid_xstep, width, RIGHT, height, DOWN),
+            (grid_ystep, height, DOWN, width, RIGHT),
+        ):
+            if step:
+                step = abs(step)
+                grid = VGroup(
+                    *(
+                        Line(
+                            v[1] + i * step * along,
+                            v[1] + i * step * along + length * across,
+                            color=line_color,
+                        )
+                        for i in range(1, int(span / step))
                     )
-                    for i in range(1, count)
                 )
-            )
-            self.grid_lines.add(grid)
-        if grid_ystep:
-            grid_ystep = abs(grid_ystep)
-            count = int(height / grid_ystep)
-            grid = VGroup(
-                *(
-                    Line(
-                        v[1] + i * grid_ystep * DOWN,
-                        v[1] + i * grid_ystep * DOWN + width * RIGHT,
-                        color=line_color,
-                    )
-                    for i in range(1, count)
-                )
-            )
-            self.grid_lines.add(grid)
+                self.grid_lines.add(grid)
         if self.grid_lines:
             self.add(self.grid_lines)
 

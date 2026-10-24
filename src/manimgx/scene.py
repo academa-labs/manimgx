@@ -19,6 +19,7 @@ from manimgx.settings import config
 
 if TYPE_CHECKING:
     from manimgx.animation.transform import Animate
+import bisect
 import inspect
 import os
 import pathlib
@@ -42,7 +43,6 @@ from manimgx.mobject import (
     _family,
     _has_updater,
     _per_frame,
-    _Recorder,
     flow,
     records,
     remove_list_redundancies,
@@ -567,7 +567,7 @@ class Scene:
         shows the world at `frame / fps` seconds."""
         self._records = False  # does anything record the world (`_recording`), this run
         # the play's instants no frame shows, with what each concerns (`_exact`, `_ticks`)
-        self._events: dict[Fraction, Concern | None] = {}
+        self._events: list[tuple[Fraction, Concern | None]] = []  # in order
         self._playing: list[Mobject] = []  # what the play running acts on (`_running`)
         # while animations begin together (`_together`): what the scene held, by id, and
         # the list of mobjects it was found in (`_introduce`)
@@ -815,7 +815,9 @@ class Scene:
                 for k in range(clock.now * rate // 1 + 1, -(-until * rate // 1))
             }
         )
-        events = {e: c for e, c in self._events.items() if clock.now < e < until}
+        first = bisect.bisect_right(self._events, clock.now, key=lambda e: e[0])
+        last = bisect.bisect_left(self._events, until, key=lambda e: e[0])
+        events = dict(self._events[first:last])
         for t in sorted(ticks | events.keys()):
             concern = events.get(t)
             if act is None or t in ticks or concern is None:
@@ -860,6 +862,7 @@ class Scene:
         else:
             self._pass(t, act, stepping, framing)
         clock.stepping = clock.framing = True
+        clock.recorders = None
 
     def _pass(
         self,
@@ -869,12 +872,14 @@ class Scene:
         framing: bool,
     ) -> None:
         clock.now, clock.stepping, clock.framing = t, stepping, framing
-        # the play brings what runs to `t`, then the updaters; then what opens at `t` begins,
-        # the world at `t`
+        clock.recorders = [] if self._records else None
+        # the play brings what runs to `t` (an animation's copy of its mobject too), then the
+        # updaters; then what opens at `t` begins, the world at `t`; then the recorders all
+        # these gathered run
         opening = act(t, None) if act is not None else None
-        recorders: list[_Recorder] | None = [] if self._records else None
+        seen: set[int] = set()  # (a member several groups share runs once)
         for mob in self.mobjects:
-            mob.advance(t, recorders=recorders)
+            mob._advance(t, True, seen)
         updaters = self.updaters
         for func in updaters:
             if updaters is not self.updaters and not _has_updater(self.updaters, func):
@@ -886,7 +891,8 @@ class Scene:
             func(float(t - since))
         if opening is not None:
             self._together(opening)
-        for mob, recorder, _ in recorders or ():  # if still there when its turn comes
+        # each, if still there when its turn comes
+        for mob, recorder, _ in clock.recorders or ():
             if not mob.updating_suspended and _has_updater(mob.updaters, recorder):
                 mob._bring(recorder, t)
 
@@ -911,8 +917,10 @@ class Scene:
         from manimgx.drawing.geometry import Path
 
         members = self.get_mobject_family_members()
+        # (a shaded face is lit as it is at each frame, not as its keyframes' records mix)
         if self.updaters or any(
-            m.updaters or isinstance(m.paint.texture, Camera) for m in members
+            m.updaters or isinstance(m.paint.texture, Camera) or m.paint.shade_in_3d
+            for m in members
         ):
             return None
         tweens: list[tuple[Transform, Path]] = []
@@ -1040,12 +1048,7 @@ class Scene:
                     self.wait()
             ```
         """
-        if any(m.updaters for mob in mobjects for m in mob.get_family()):
-            present = {id(m) for m in self.get_mobject_family_members()}
-            for mob in mobjects:  # joining the world: its updaters are live from now
-                for m in mob.get_family():
-                    if id(m) not in present:
-                        m._stamp(clock.now, recursive=False)
+        self._joining(mobjects)
         new = remove_list_redundancies([*mobjects, *self.foreground_mobjects])
         self.mobjects = _restructure(self.mobjects, new) + new
         return self
@@ -1121,9 +1124,20 @@ class Scene:
         Args:
             *mobjects: The mobjects, in order: the first is drawn at the bottom.
         """
+        self._joining(mobjects)
         self.remove(*mobjects)
         self.mobjects = [*mobjects, *self.mobjects]
         return self
+
+    def _joining(self, mobjects: Sequence[Mobject]) -> None:
+        """Mobjects about to join the scene, whichever way: the updaters of the members it does
+        not hold yet are live from now (a time-based one's first `dt` counts from now)."""
+        joining = [m for m in _family(mobjects) if m.updaters]
+        if joining:
+            present = {id(m) for m in _family(self.mobjects)}
+            for m in joining:
+                if id(m) not in present:
+                    m._stamp(clock.now, recursive=False)
 
     def clear(self) -> Self:
         """Take every mobject out of the scene, the foreground ones too; the scene's own
@@ -1154,6 +1168,7 @@ class Scene:
                     return True
             return any(replace_in(m.submobjects) for m in lst)
 
+        self._joining([new])
         if not (replace_in(self.mobjects) or replace_in(self.foreground_mobjects)):
             raise ValueError(f"Could not find {old} in scene")
         self._holding = None  # (what it holds changed in place)
@@ -1290,8 +1305,8 @@ class Scene:
                 if isinstance(window.part, Sound):
                     at = start + window.opens * (end - start)
                     self.film.clips.append(Clip(window.part, at))
-        if all(isinstance(p, Sound | Wait) for p in _leaves(anim)):
-            self._run(end)  # nothing on screen moves: as a wait
+        if all(isinstance(p, Sound | Wait) for p in _leaves(anim)) and not _warps(anim):
+            self._run(end)  # nothing on screen moves, nor any clock: as a wait
             anim.finish()
             anim.clean_up_from_scene(self)
             return
@@ -1342,16 +1357,16 @@ class Scene:
             # its parts begin and finish at their windows, whatever the frame rate: at
             # instants of their own where that shows (then the first at its start)
             self._playing = _acted_on(anim)
-            self._events = {
-                start + x * (end - start): concern
+            self._events = [
+                (start + x * (end - start), concern)
                 for x, concern in self._exact(parts).items()
-            }
+            ]
             try:
                 if self._events and Fraction(self.frame) / fps != start:
                     self._instant(start, act, framing=False)
                 self._run(end, act, boundaries=boundaries)
             finally:
-                self._events, self._playing = {}, []
+                self._events, self._playing = [], []
         else:
             tweens, introduced = pure
             self._advance_tweens(anim, tweens, alpha, introduced)
@@ -2237,6 +2252,17 @@ def _voice_folder(scene: Scene) -> pathlib.Path:
         return pathlib.Path(inspect.getfile(type(scene))).parent / "voice"
     except (TypeError, OSError):
         return pathlib.Path.home() / ".cache" / "manimgx" / "voice"
+
+
+def _warps(anim: Animation) -> bool:
+    """Does a `ChangeSpeed` under `anim` warp its updaters' clock as its window opens (one
+    that is `anim` itself warps it as the play begins)?"""
+    from manimgx.animation.timeline import AnimationGroup, ChangeSpeed
+
+    return isinstance(anim, AnimationGroup) and any(
+        (isinstance(part, ChangeSpeed) and part.affects_speed_updaters) or _warps(part)
+        for part in anim.animations
+    )
 
 
 def _leaves(anim: Animation) -> Iterable[Animation]:

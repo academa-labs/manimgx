@@ -12,8 +12,8 @@ widths and flags; the camera is one 4×4 matrix."""
 import functools
 import itertools
 import struct
+import weakref
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
@@ -226,10 +226,10 @@ def _cells(g: np.ndarray) -> np.ndarray:
     tol = 1e-7 * (1.0 + np.abs(g[..., :3]).max())
     du = _derivative(len(g), bool(np.abs(g[0, :, :3] - g[-1, :, :3]).max() <= tol))
     dv = _derivative(g.shape[1], bool(np.abs(g[:, 0, :3] - g[:, -1, :3]).max() <= tol))
-    gu = np.einsum("ik,kjd->ijd", du, g)
+    gu = np.tensordot(du, g, axes=(1, 0))
     data = (
-        (g, np.einsum("jk,ikd->ijd", dv, g)),
-        (gu, np.einsum("jk,ikd->ijd", dv, gu)),
+        (g, np.tensordot(g, dv, axes=(1, 1)).transpose(0, 2, 1)),
+        (gu, np.tensordot(gu, dv, axes=(1, 1)).transpose(0, 2, 1)),
     )
     u, v = len(g) - 1, g.shape[1] - 1
     return np.array(
@@ -247,14 +247,19 @@ def _patches(
     cells: np.ndarray, x: np.ndarray, *, derivatives: bool = True
 ) -> tuple[np.ndarray, ...]:
     """Points, and when requested their derivatives, of every cell at (s, t) ∈ x × x:
-    each (u, v, len(x), len(x), dims)."""
+    each (len(x), len(x), u, v, dims)."""
     value, slope = _hermite(x)
-    along_t = np.einsum("bq,abuvd->auvqd", value, cells)
-    points = np.einsum("ap,auvqd->uvpqd", value, along_t)
+    a, b, u, v, dims = cells.shape
+    # every cell side by side, the bases applied as matrix products (a BLAS's, not einsum's
+    # loops): along t, then along s
+    data = cells.reshape(a, b, u * v * dims)
+    shape = (len(x), len(x), u, v, dims)
+    along_t = np.matmul(value.T, data)
+    points = np.tensordot(value, along_t, axes=(0, 0)).reshape(shape)
     if not derivatives:
         return (points,)
-    ds = np.einsum("ap,auvqd->uvpqd", slope, along_t)
-    dt = np.einsum("ap,bq,abuvd->uvpqd", value, slope, cells, optimize=True)
+    ds = np.tensordot(slope, along_t, axes=(0, 0)).reshape(shape)
+    dt = np.tensordot(value, np.matmul(slope.T, data), axes=(0, 0)).reshape(shape)
     return points, ds, dt
 
 
@@ -264,9 +269,7 @@ def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
     SURFACE_TOLERANCE is the target of this estimate, not a guaranteed error bound;
     refinement is capped at SURFACE_STEPS and midpoint sampling can miss curvature.
     """
-    mid = _patches(_cells(g[..., :3]), np.array([0.5]), derivatives=False)[0][
-        :, :, 0, 0
-    ]
+    mid = _patches(_cells(g[..., :3]), np.array([0.5]), derivatives=False)[0][0, 0]
     flat = (g[:-1, :-1, :3] + g[1:, :-1, :3] + g[:-1, 1:, :3] + g[1:, 1:, :3]) / 4
     deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
     return int(
@@ -307,15 +310,17 @@ def refine_surface(
         np.linalg.norm(normal, axis=-1) <= 1e-10 * (1.0 + np.abs(g[..., :3]).max()) ** 2
     )
     if thin.any():
-        i, j = np.nonzero(thin.any(axis=(2, 3)))
+        i, j = np.nonzero(thin.any(axis=(0, 1)))
         _, ds, dt = _patches(cells[:, :, i, j][:, :, None], 1e-3 + (1.0 - 2e-3) * x)
-        nudged = np.cross(ds[..., :3], dt[..., :3])[0]
-        normal[i, j] = np.where(thin[i, j][..., None], nudged, normal[i, j])
+        nudged = np.cross(ds[..., :3], dt[..., :3])[:, :, 0]
+        normal[:, :, i, j] = np.where(
+            thin[:, :, i, j][..., None], nudged, normal[:, :, i, j]
+        )
     order, triangles = _face_layout(m)
     block, u, v = len(order), len(g) - 1, g.shape[1] - 1
-    selected = order[:, 0] * (m + 1) + order[:, 1]
-    points = np.take(points.reshape(u, v, -1, points.shape[-1]), selected, axis=2)
-    normal = np.take(normal.reshape(u, v, -1, 3), selected, axis=2)
+    selected = order[:, 0] * (m + 1) + order[:, 1]  # each face's block, face by face
+    points = points.reshape((m + 1) ** 2, u * v, -1)[selected].transpose(1, 0, 2)
+    normal = normal.reshape((m + 1) ** 2, u * v, 3)[selected].transpose(1, 0, 2)
     return (
         points.reshape(u * v * block, -1),
         normal.reshape(u * v * block, 3),
@@ -415,11 +420,6 @@ def lighting(camera: "Camera", lights: "list[Light]") -> list[float]:
     return out + [0.0] * (16 * LIGHTS - len(out))
 
 
-def lit(mobjects: "list[Mobject]") -> "list[Light]":
-    """The lights among a view's mobjects."""
-    return [m for m in mobjects if isinstance(m, Light)]
-
-
 def view(
     camera: "Camera", width: int, height: int, lights: "list[Light] | None" = None
 ) -> tuple[bytes, np.ndarray, bool]:
@@ -489,27 +489,6 @@ def view(
     return uniform.tobytes(), projection, three_d
 
 
-def _same_topology(
-    a: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
-    b: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
-) -> bool:
-    """Topology and UV values are immutable; retaining them also retains their identity."""
-    if a is None or b is None:
-        return a is b
-    return a[0] is b[0] and a[1] is b[1]
-
-
-@dataclass(slots=True)
-class Growth:
-    """A growing path as the player has it: its key (None until it grows), its curves, its uploads
-    afresh (a new subpath began) and its last subpath's first point."""
-
-    key: int | None
-    curves: int
-    restarts: int = 0
-    start: int = 0
-
-
 Player: type[_engine.Player] | None = getattr(_engine, "Player", None)
 """The engine's player, which draws with the GPU; None in Pyodide, whose engine has no GPU (a
 film is then recorded as a take, with a `Recorder`)."""
@@ -565,7 +544,6 @@ class Feeder:
         self.sizes: dict[int, int] = {}
         # key → a resident path's subpaths (first curve, end curve, closed)
         self.structures: dict[int, list[tuple[int, int, bool]]] = {}
-        self.materialized = 0
         self.pairs: dict[tuple[int, int], list[int]] = {}
         self.environments: set[int] = (
             set()
@@ -591,7 +569,15 @@ class Feeder:
         # (id(rows), key) → (rows, a row per vertex of the refined surface `key`)
         self.expanded: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         # a growing path, by log — uploaded whole once, then only the curves it gains
-        self.logs: dict[int, Growth] = {}
+        self.logs: dict[int, tuple[int | None, int]] = {}
+        # a growing path's name → the key of the upload holding it (one for equal paths)
+        self.holding: dict[int, int] = {}
+        # a camera whose view is a texture → its number, in the order the film first drew
+        # it: its texture's key (a film's keys are the same however often it is made)
+        self.cameras: weakref.WeakKeyDictionary[Camera, int] = (
+            weakref.WeakKeyDictionary()
+        )
+        self.camera_numbers = itertools.count()
         self.frames = 0  # frames made so far
         # key → the last frame that showed (or uploaded) it
         self.last_used: dict[int, int] = {}
@@ -648,51 +634,65 @@ class Feeder:
         self.pairs = {
             ab: keys for ab, keys in self.pairs.items() if gone.isdisjoint(keys)
         }
+        self.holding = {n: key for n, key in self.holding.items() if key not in gone}
 
     # ── uploads ──────────────────────────────────────────────────────────────
     def grown(self, shape: Shape) -> tuple[int, np.ndarray] | None:
-        """A growing path (a prefix of a log seen growing): uploaded whole once, then only the curves it
-        gains. None at first sight: a log that never grows is an ordinary shape."""
+        """A growing path (a prefix of a log seen growing), named by what it holds, as a shape is:
+        uploaded whole once, then only the curves it gains, and paths that hold the same share one
+        upload. It is named by its content when it first grows, then by that name and the curves
+        it gains: it costs what it grows. None for an ordinary shape: a log seen once or not
+        grown yet, or an earlier prefix of one."""
         log = shape.log
         assert log is not None
         points = shape.array
         curves = len(points) // 4
         state = self.logs.get(log.id)
         if state is None:
-            self.logs[log.id] = Growth(None, curves)
+            self.logs[log.id] = (None, curves)
             return None
-        key = state.key
-        if key is None and curves == state.curves:
-            return None  # not grown (yet)
-        if key is not None and key in self.sizes and curves > state.curves:
-            have = state.curves
-            continuing = (
-                len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
-            )
-            # no break: the last subpath goes on (closed or not, as it now ends)
-            if continuing:
+        held, have = state
+        if curves < have or (held is None and curves == have):
+            return None
+        tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
+        if held is None:
+            name = digest(b"grown", shape.key.to_bytes(8, "little"))
+        elif curves > have:
+            name = digest(b"grown", held.to_bytes(8, "little"), tail.tobytes())
+        else:
+            name = held
+        key = self.holding.get(name)
+        if key is None:
+            # the upload holding what it held grows on, if its last subpath does (closed or
+            # not, as it now ends); else, or if none holds it, the path is uploaded whole
+            if (
+                held is not None
+                and (source := self.holding.get(held)) is not None
+                and len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
+            ):
+                *before, (first, _, _) = self.structures[source]
                 closed = bool(
-                    np.allclose(points[state.start], points[curves * 4 - 1], atol=1e-6)
+                    np.allclose(points[first * 4], points[curves * 4 - 1], atol=1e-6)
                 )
-                tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
-                self.player.grow_path(key, tail.tobytes(), closed)
-                state.curves = curves
-                self.sizes[key] = curves
-                *before, (first, _, _) = self.structures[key]
-                self.structures[key] = [*before, (first, curves, closed)]
+                self.player.grow_path(source, tail.tobytes(), closed)
+                self.sizes[source] = curves
+                self.structures[source] = [*before, (first, curves, closed)]
+                del self.holding[held]  # it holds what it grew to now
+                key = source
             else:
-                key = None  # a new subpath began: upload afresh
-        if key is None or key not in self.sizes:
-            restarts = state.restarts
-            key = digest(
-                b"log", log.id.to_bytes(8, "little"), restarts.to_bytes(8, "little")
-            )
-            ranges = structure(points)
-            if not ranges:
-                return None
-            self.player.add_path(key, *control(points, ranges), centroid_area(points))
-            self.sizes[key], self.structures[key] = curves, ranges
-            self.logs[log.id] = Growth(key, curves, restarts + 1, ranges[-1][0] * 4)
+                ranges = structure(points)
+                if not ranges:
+                    return None
+                # this log's own key: an upload grown in place is never named again
+                key = digest(
+                    b"grown", name.to_bytes(8, "little"), log.id.to_bytes(8, "little")
+                )
+                self.player.add_path(
+                    key, *control(points, ranges), centroid_area(points)
+                )
+                self.sizes[key], self.structures[key] = curves, ranges
+            self.holding[name] = key
+        self.logs[log.id] = (name, curves)
         self.last_used[key] = self.frames
         return key, IDENTITY
 
@@ -780,11 +780,9 @@ class Feeder:
         known = self.mesh_keys.get(id(shape))
         if (
             known is not None
-            and known[0] is shape
             and known[1] is topology
             and known[2] is uvs
             and known[3] == steps
-            and known[4] in self.sizes
         ):
             return known[4], known[5]
         uv = (
@@ -799,9 +797,6 @@ class Feeder:
             tri = np.ascontiguousarray(topology, dtype="<u4")
             indices = b"triangles" + tri.tobytes()
         key = digest(form.to_bytes(8, "little"), indices, uv.tobytes())
-        if len(self.mesh_keys) > 1 << 12:
-            self.mesh_keys.clear()
-        self.mesh_keys[id(shape)] = (shape, topology, uvs, steps, key, a)
         if key not in self.sizes:
             self.last_used[key] = self.frames
             block = outline = 0
@@ -831,6 +826,9 @@ class Feeder:
                 block,
             )
             self.sizes[key] = len(array)
+        if len(self.mesh_keys) > 1 << 12:
+            self.mesh_keys.clear()
+        self.mesh_keys[id(shape)] = (shape, topology, uvs, steps, key, a)
         return key, a
 
     def per_vertex(
@@ -844,7 +842,7 @@ class Feeder:
         if lattice is None:
             return rows
         known = self.expanded.get((id(rows), key))
-        if known is not None and known[0] is rows:
+        if known is not None:
             return known[1]
         drawn = rows[lattice.first : lattice.end]
         out = np.repeat(drawn, self.sizes[key] // max(len(drawn), 1), axis=0)
@@ -856,24 +854,24 @@ class Feeder:
 
     def rows(self, rows: np.ndarray) -> int:
         known = self.row_keys.get(id(rows))
-        if known is not None and known[0] is rows and known[1] in self.sizes:
+        if known is not None:
             return known[1]  # a paint's rows never change: hashed once
         data = np.ascontiguousarray(rows, dtype="<f4").tobytes()
         key = digest(b"rows", data)
-        if not rows.flags.writeable:
-            if len(self.row_keys) > 1 << 12:
-                self.row_keys.clear()
-            self.row_keys[id(rows)] = (rows, key)
         if key not in self.sizes:
             self.last_used[key] = self.frames
             self.player.add_rows(key, data)
             self.sizes[key] = 0
+        if not rows.flags.writeable:
+            if len(self.row_keys) > 1 << 12:
+                self.row_keys.clear()
+            self.row_keys[id(rows)] = (rows, key)
         return key
 
     def lights(self, mobjects: "list[Mobject]") -> "list[Light]":
         """The lights among a view's mobjects, their environments' pictures uploaded the first
         time."""
-        lights = lit(mobjects)
+        lights = [m for m in mobjects if isinstance(m, Light)]
         for light in lights:
             p = light.picture if isinstance(light, EnvironmentLight) else None
             if p is not None and p.id not in self.environments:
@@ -883,7 +881,7 @@ class Feeder:
 
     def texture(self, pixels: np.ndarray) -> int:
         known = self.textures.get(id(pixels))
-        if known is not None and known[0] is pixels:
+        if known is not None:
             return known[1]
         data = np.ascontiguousarray(pixels, dtype=np.uint8)
         key = digest(b"texture", str(data.shape).encode(), data.tobytes())
@@ -935,7 +933,10 @@ class Feeder:
     ) -> int:
         """The texture key of what `seen_by` sees — everything but `display` — drawn at the size
         `display` covers on screen (CE's rule), before the view that shows it."""
-        key = digest(b"camera", id(seen_by).to_bytes(8, "little"))
+        number = self.cameras.get(seen_by)
+        if number is None:
+            number = self.cameras[seen_by] = next(self.camera_numbers)
+        key = digest(b"camera", number.to_bytes(8, "little"))
         if all(c[0] != key for c in cameras):
             w = max(1, int(width * display.width / camera.frame_width))
             h = max(1, int(height * display.height / camera.frame_height))
@@ -995,7 +996,8 @@ class Feeder:
             bool(p.material and three_d),
         )
         live = p.texture is not None and not isinstance(p.texture, np.ndarray)
-        topology = (mob._topology, mob.uvs) if isinstance(mob, MeshMobject) else None
+        topology = mob._topology if isinstance(mob, MeshMobject) else None
+        uvs = mob.uvs if isinstance(mob, MeshMobject) else None
         memo = mob.__dict__.get("_film_record")
         if (
             memo is not None
@@ -1004,12 +1006,13 @@ class Feeder:
             and memo[1] is g
             and memo[2] is p
             and memo[3] == state
-            and _same_topology(memo[7], topology)
+            and memo[7] is topology
+            and memo[8] is uvs
         ):
             if memo[6] == self.evictions:  # nothing evicted since it was made
                 return memo[4]
             if all(k in self.sizes for k in memo[5]):
-                mob.__dict__["_film_record"] = (*memo[:6], self.evictions, memo[7])
+                mob.__dict__["_film_record"] = (*memo[:6], self.evictions, *memo[7:])
                 return memo[4]
         made = self.make_record(
             mob, camera, three_d, mobjects, width, height, cameras, state[0]
@@ -1026,6 +1029,7 @@ class Feeder:
             keys,
             self.evictions,
             topology,
+            uvs,
         )
         return record
 
@@ -1047,21 +1051,31 @@ class Feeder:
         head = [0, 0, 0, 0, 0, 0, 0, 0]
         params = [0.0, 0.0, 0.0, 0.0]
         gradient_a, gradient_b = [0.0] * 4, [0.0] * 4
-        # a tween's paint is two, mixed by the player (see `Paint.mix`)
+        # a tween's paint is two, mixed by the player (see `Paint.mix`); mixed wholly, or not
+        # at all, as the player reads the mix (in single precision), it is one paint alone
         fill, stroke, background = (
             p.ends("fill"),
             p.ends("stroke"),
             p.ends("background"),
         )
-        dash = [0.0, 0.0, 0.0, p.mix[2] if p.mix is not None else 0.0]
+        dash = [0.0, 0.0, 0.0, 0.0]
+        if p.mix is not None:
+            if 0.0 < np.float32(p.mix[2]) < 1.0:
+                dash[3] = p.mix[2]
+            else:
+                end = int(p.mix[2] >= 0.5)
+                fill, stroke, background = (
+                    (x[end], x[end]) for x in (fill, stroke, background)
+                )
         terms = g.terms
         grid: tuple[int, int] | None = None
         m = 0
         for materialized in (False, True):
             if isinstance(mob, VMobject):
-                keys = [self.path(shape) for _, shape in terms[:2]]
                 if len(terms) == 2:
                     keys = self.pair(terms[0][1], terms[1][1])
+                else:
+                    keys = [self.path(shape) for _, shape in terms[:2]]
             elif isinstance(mob, PMobject):
                 keys = [self.points(shape) for _, shape in terms[:2]]
             elif isinstance(mob, MeshMobject):
@@ -1081,7 +1095,6 @@ class Feeder:
             if materialized:
                 return None
             terms = (Blend.of(mob.points).terms[0],)
-            self.materialized += 1
         # a surface's lattice, refined (m > 0): its faces are u's steps and own its rows
         topology = mob._topology if isinstance(mob, MeshMobject) and m > 0 else None
         lattice = topology if isinstance(topology, Lattice) else None

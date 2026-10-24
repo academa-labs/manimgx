@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # fragments of Manim CE's code, as ManimGX's modules hold them: `Mobject.move_to`'s mask,
-# `color_gradient`'s last step, `ApplyWave`'s phases (a port's own fragment goes here)
-PORTED_FROM_CE = ("coor_mask", "alphas_mod1", "phases = ripples * 2")
+# `ApplyWave`'s phases (a port's own fragment goes here)
+PORTED_FROM_CE = ("coor_mask", "phases = ripples * 2")
 CE_COPYRIGHT = "SPDX-FileCopyrightText: 2024 the Manim Community Developers"
 
 

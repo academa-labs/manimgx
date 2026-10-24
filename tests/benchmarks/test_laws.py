@@ -33,6 +33,7 @@ left in ManimGX's memories or flushed from them.
   computes nothing again.
 """
 
+import gc
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import fields
@@ -52,9 +53,8 @@ from manimgx.drawing.geometry import bezier_remap
 from manimgx.settings import config
 
 SLACK = 0.1
-"""A law's allowance over proportion, for what a thing's fixed costs and manimgx's memories
-leave uneven between two runs (a paint remembers the paints made from it, and `caches.clear`
-does not forget those)."""
+"""A law's allowance over proportion, for what a thing's fixed costs leave uneven between two
+runs."""
 COUNTS = tuple(f.name for f in fields(Work))
 PYTHON = {"calls": 0, "loops": 0}
 """The power of a law whose Python work does not grow at all: no loop runs once an element."""
@@ -86,10 +86,14 @@ def growth(small: Work, large: Work) -> dict[str, float]:
 def measured(make: Callable[[], Run]) -> Work:
     """The work of the run `make` sets up (the setting up uncounted), from nothing
     remembered (`caches.clear`) and once before it is counted: a run pays only for its own
-    work, never for what another left in, or flushed from, ManimGX's memories."""
+    work, never for what another left in, or flushed from, ManimGX's memories. What only
+    garbage held (a paint remembers the paints made from it while they live) is collected
+    before it is counted, so both runs find the same."""
     caches.clear()
     make()()  # what a first run pays once: imports, layouts, prototypes
-    return count(make())[1]
+    run = make()
+    gc.collect()
+    return count(run)[1]
 
 
 def law(
@@ -320,6 +324,15 @@ def updating(n: int) -> Run:
     return render(construct)
 
 
+def resuming(n: int) -> Run:
+    """A family nested `n` groups deep resumes every updater once."""
+    root = m.Mobject().add_updater(lambda mob, dt: None)
+    for _ in range(n):
+        root = m.Group(root).add_updater(lambda mob, dt: None)
+    root.suspend_updating()
+    return root.resume_updating
+
+
 U = [[0, 0, 0], [2, 0, 0], [2, 2, 0], [1.5, 2, 0], [1.5, 0.5, 0],
      [0.5, 0.5, 0], [0.5, 2, 0], [0, 2, 0], [0, 0, 0]]  # fmt: skip
 
@@ -457,6 +470,7 @@ test_a_family_grows_as_its_members = law(family, (4, 8))
 test_emptying_a_family_grows_as_its_members = law(emptying, (4, 8))
 test_a_matching_grows_as_its_parts = law(matching, (2, 32))
 test_an_instant_grows_as_its_updaters = law(updating, (2, 64))
+test_resuming_a_family_grows_as_its_members = law(resuming, (4, 32))
 test_a_rectangles_pole_costs_nothing_more_finer = law(
     rectangle_pole, (20, 100), power=0
 )
@@ -516,6 +530,9 @@ def test_a_finer_pole_search_does_not_scan_the_area() -> None:
     turn=angles(),
     scale=st.floats(0.25, 4),
     shift=st.tuples(st.floats(-3, 3), st.floats(-3, 3)),
+)
+@example(  # traced paths that grow alike, played as a group and one by one
+    name="TracedPath", copies=2, turn=0.0, scale=1.0, shift=(0.0, 0.0)
 )
 def test_copies_upload_what_one_does(
     name: str, copies: int, turn: float, scale: float, shift: tuple[float, float]

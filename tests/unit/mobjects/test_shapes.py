@@ -39,6 +39,27 @@ from manimgx.mobjects.shapes import TipableVMobject
 radii = st.floats(0.1, 10)
 
 
+@pytest.mark.parametrize("xstep", [None, 0, -1, 1])
+@pytest.mark.parametrize("ystep", [None, 0, -0.5, 0.5])
+def test_rectangle_grid_spans_the_interior_in_column_then_row_order(
+    xstep: float | None, ystep: float | None
+) -> None:
+    rectangle = m.Rectangle(
+        width=4, height=2, grid_xstep=xstep, grid_ystep=ystep, color=m.GREEN
+    )
+    expected = []
+    if xstep:
+        expected.extend(([x, 1, 0], [x, -1, 0]) for x in [-1, 0, 1])
+    if ystep:
+        expected.extend(([-2, y, 0], [2, y, 0]) for y in [0.5, 0, -0.5])
+    lines = [line for group in rectangle.grid_lines for line in group]
+    assert len(rectangle.grid_lines) == bool(xstep) + bool(ystep)
+    for line, (start, end) in zip(lines, expected, strict=True):
+        np.testing.assert_allclose(line.get_start(), start)
+        np.testing.assert_allclose(line.get_end(), end)
+        assert line.get_color() == m.GREEN
+
+
 turns = st.floats(0.05, 2 * np.pi).flatmap(lambda a: st.sampled_from([a, -a]))
 
 
@@ -239,6 +260,15 @@ def test_an_arrows_tip_is_where_it_ends(ends: np.ndarray) -> None:
     length = arrow.tip.length
     arrow.scale(2)
     assert arrow.tip.length == pytest.approx(length, rel=1e-9)
+
+
+def test_scaling_an_arrow_in_space_keeps_its_tips_direction() -> None:
+    arrow = m.Arrow(m.ORIGIN, [2, 1, 3], buff=0)
+    direction = arrow.tip.vector / arrow.tip.length
+    arrow.scale(2)
+    np.testing.assert_allclose(
+        arrow.tip.vector / arrow.tip.length, direction, atol=1e-12
+    )
 
 
 @given(

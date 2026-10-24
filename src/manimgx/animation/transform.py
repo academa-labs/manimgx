@@ -928,7 +928,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
     def __init__(self, mobject: M) -> None:
         self._target = mobject.generate_target()
         self._override: Animation | None = None
-        self._chaining = False
         self._anim_args: TransformOptions = {}
         self.methods: list[_Call] = []
         super().__init__(mobject, self._target)
@@ -958,7 +957,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
         Returns:
             This animation, for chaining.
         """
-        if self._chaining and anim_args:
+        if (self.methods or self._override is not None) and anim_args:
             raise ValueError(
                 "Animation arguments must be passed before accessing methods and can"
                 " only be passed once"
@@ -983,7 +982,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
                     "Method chaining is currently not supported for overridden animations"
                 )
             self._record(function, (), {})
-            self._chaining = True
         return self
 
     def _record(
@@ -1006,7 +1004,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
         override = (
             _animate_plays.get(method.__func__) if inspect.ismethod(method) else None
         )
-        if (self._chaining and override is not None) or self._override is not None:
+        if (self.methods and override is not None) or self._override is not None:
             raise NotImplementedError(
                 "Method chaining is currently not supported for overridden animations"
             )
@@ -1021,7 +1019,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
             self._record(method.__func__, args, kwargs)
             return self
 
-        self._chaining = True
         return record
 
     if (

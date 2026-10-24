@@ -1606,3 +1606,8 @@ class _OnClock:
 
     def __call__(self, mob: Mobject, dt: float) -> object:
         return self.function(mob, dt)
+
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
+        return (
+            self  # a function on the scene's speed clock: a copy runs it on that clock
+        )
