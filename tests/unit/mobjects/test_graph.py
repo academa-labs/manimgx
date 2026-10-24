@@ -6,7 +6,9 @@
 - Each method returns what it added or removed: a new vertex, an edge's new vertices then
   the edge, a vertex's edges then the vertex.
 - Every edge joins its vertices once the graph's updater runs: center to center, or outline
-  to outline for a directed graph's, wherever the vertices were moved or laid out.
+  to outline for a directed graph's, wherever the vertices were moved or laid out, at every
+  frame of a play that moves a vertex while the whole graph moves, turns, scales or is
+  recolored.
 - A layout by positions puts each vertex at its own; a layout function is handed a fresh
   graph of the current vertices and edges, the scale, and the layout keywords (over the
   partitions and root vertex given), and what it does to that graph stays there; a layout by
@@ -20,6 +22,7 @@
 
 import gc
 import weakref
+from collections.abc import Callable
 
 import networkx as nx
 import numpy as np
@@ -33,6 +36,7 @@ from hypothesis.stateful import (
     precondition,
     rule,
 )
+from tests.scenes import instants
 
 import manimgx as m
 from manimgx.mobjects.graph import GenericGraph, _spectral_layout
@@ -566,3 +570,87 @@ def test_own_keywords_are_mappings() -> None:
         m.Graph([1, 2], [(1, 2)], vertex_config={1: "red"})
     with pytest.raises(TypeError, match="tip_config is not a mapping"):
         m.DiGraph([1, 2], [(1, 2)], edge_config={"tip_config": 3})
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("added", [False, True])
+def test_moving_vertices_keeps_each_edges_buffer_and_bend(
+    directed: bool, added: bool
+) -> None:
+    kind = m.DiGraph if directed else m.Graph
+    edges = [(0, 1), (1, 2)]
+    options = {"buff": 0.15, "path_arc": 0.4, (1, 2): {"buff": 0.3, "path_arc": -0.5}}
+    graph = kind([0, 1, 2], [] if added else edges, layout=PLACES, edge_config=options)
+    if added:
+        graph.add_edges(*edges, edge_config=options)
+    graph[1].shift(m.UP)
+    graph.update(0)
+    reference = kind(
+        [0, 1, 2],
+        edges,
+        layout={v: graph[v].get_center() for v in graph.vertices},
+        edge_config=options,
+    )
+    for edge in edges:
+        actual_parts = graph.edges[edge].family_members_with_points()
+        expected_parts = reference.edges[edge].family_members_with_points()
+        for actual, expected in zip(actual_parts, expected_parts, strict=True):
+            np.testing.assert_allclose(actual.points, expected.points, atol=1e-12)
+
+
+def test_added_vertices_share_the_original_center_and_keep_their_own_labels() -> None:
+    graph = m.Graph([0], [], layout={0: [2, 1, 0]}, vertex_config={"color": m.BLUE})
+    center = graph.get_center()
+    label = m.Square(0.1)
+    supplied = m.Square(0.2)
+    added = graph.add_vertices(
+        1,
+        2,
+        3,
+        labels={1: label},
+        positions={1: [-3, 2, 0]},
+        vertex_config={"color": m.GREEN, 2: {"radius": 0.2}},
+        vertex_mobjects={3: supplied},
+    )
+    assert added.submobjects == [graph[1], graph[2], supplied]
+    assert label in graph[1].get_family()
+    assert graph[1].get_color() == m.GREEN
+    assert graph[2].get_color() == m.BLUE
+    assert graph[2].width == pytest.approx(0.4)
+    np.testing.assert_allclose(graph[1].get_center(), [-3, 2, 0])
+    np.testing.assert_allclose(graph[2].get_center(), center)
+    np.testing.assert_allclose(graph[3].get_center(), center)
+    with pytest.raises(ValueError, match="already used"):
+        graph.add_vertices(4, 4)
+
+
+@pytest.mark.parametrize(
+    "whole",
+    [
+        lambda g: g.animate.shift(0.5 * m.RIGHT),
+        lambda g: g.animate.set_color(m.YELLOW),
+        lambda g: g.animate.rotate(0.4),
+        lambda g: g.animate.scale(0.8),
+        lambda g: g.animate.rotate(0.4).set_color(m.YELLOW),
+    ],
+    ids=["moved", "recolored", "turned", "scaled", "turned and recolored"],
+)
+def test_edges_join_a_vertex_moved_while_the_whole_graph_plays(
+    whole: Callable[[m.Graph[int]], m.Animation],
+) -> None:
+    graph = m.Graph(
+        [0, 1, 2], [(0, 1), (1, 2)], layout={0: [-2, 0, 0], 1: [0, 1, 0], 2: [2, 0, 0]}
+    )
+
+    def construct(s: m.Scene) -> None:
+        s.add(graph)
+        s.play(graph[1].animate.shift(1.5 * m.DOWN), whole(graph), run_time=0.5)
+
+    def apart(s: m.Scene) -> float:
+        return max(
+            float(np.linalg.norm(edge.get_end() - graph[v].get_center()))
+            for (_, v), edge in graph.edges.items()
+        )
+
+    for at, gap in instants(construct, apart).items():
+        assert gap < 1e-9, f"at {at} s, an edge ends {gap} from its vertex"

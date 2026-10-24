@@ -74,6 +74,16 @@ cubic = arrays((4, 3), 20)
 CONTROLS = np.array([[0.0, 0, 0], [2, 4, -1], [6, -3, 5], [10, -5, 2]])
 
 
+@given(a=arrays((5, 3), 20), b=arrays((5, 3), 20))
+def test_planar_cross_products_are_the_z_of_spatial_cross_products(
+    a: np.ndarray, b: np.ndarray
+) -> None:
+    expected = np.cross(a, b)[:, 2]
+    np.testing.assert_array_equal(g.cross2d(a[:, :2], b[:, :2]), expected)
+    for x, y, z in zip(a, b, expected, strict=True):
+        assert g.cross2d(x[:2], y[:2]) == z
+
+
 def close(a: np.ndarray, b: np.ndarray, scale: np.ndarray) -> None:
     np.testing.assert_allclose(a, b, atol=1e-9 * (1 + np.abs(scale).max()))
 
@@ -1081,3 +1091,110 @@ ZERO_AXIS: dict[str, Callable[[float, np.ndarray], object]] = {
 def test_a_turn_needs_an_axis(name: str, angle: float) -> None:
     with pytest.raises(ValueError, match="axis"):
         ZERO_AXIS[name](angle, np.zeros(3))
+
+
+@st.composite
+def fixing_paths(draw: st.DrawFn) -> g.Path:
+    """A path that fixes the points whose start and end agree: straight, an arc, a spiral."""
+    kind = draw(st.sampled_from(["straight", "arc", "spiral"]))
+    if kind == "straight":
+        return g.straight_path()
+    angle = draw(st.floats(0.02, 6.2) | st.floats(-6.2, -0.02))
+    axis = draw(vectors())
+    return (g.path_along_arc if kind == "arc" else g.spiral_path)(angle, axis)
+
+
+@given(
+    points_=curves(),
+    shift=vectors(bound=50.0),
+    path=fixing_paths(),
+    alpha=st.floats(0, 1),
+)
+def test_a_geometry_mixed_with_itself_is_itself(
+    points_: np.ndarray, shift: np.ndarray, path: g.Path, alpha: float
+) -> None:
+    """Along a path that fixes every point whose start and end agree, a geometry mixed with
+    itself is that geometry: the same points, to the bit (a tween of paint alone leaves the shape
+    as it is)."""
+    blend = g.Blend.of(points_).translated(shift)
+    mixed = path.mix(blend, blend, alpha)
+    assert mixed is blend
+    assert np.array_equal(mixed.points(), blend.points()), (
+        f"moved by up to {np.abs(mixed.points() - blend.points()).max():.3g}"
+    )
+
+
+@given(
+    points_=curves(),
+    scale=st.floats(0.1, 10),
+    angle=angles(),
+    axis=vectors(),
+    shift=vectors(bound=50.0),
+)
+def test_length_fractions_are_invariant_under_similarities(
+    points_: np.ndarray, scale: float, angle: float, axis: np.ndarray, shift: np.ndarray
+) -> None:
+    """A path turned, scaled evenly and moved has its shape's length fractions (how far along
+    its length each curve parameter is) and its shape's lengths, times the scale."""
+    blend = g.Blend.of(points_)
+    linear = scale * g.rotation_matrix(angle, axis)
+    moved = blend.transformed(np.hstack([linear, shift[:, None]]))
+    s0, u0 = blend.pace()
+    s1, u1 = moved.pace()
+    assert s0 is s1
+    assert u0 is u1
+    assert np.array_equal(u0, u1)
+    np.testing.assert_allclose(s1, s0, rtol=0, atol=1e-9)
+    np.testing.assert_allclose(
+        moved.curve_lengths(),
+        scale * blend.curve_lengths(),
+        rtol=1e-9,
+        atol=1e-9 * scale,
+    )
+
+
+@given(points_=curves(), factor=st.floats(-10, 10), shift=vectors())
+def test_known_lengths_follow_moves_and_uniform_scales(
+    points_: np.ndarray, factor: float, shift: np.ndarray
+) -> None:
+    """A placed path carries its measure through similarities; collapse gives zero lengths."""
+    blend = g.Blend.of(points_)
+    measure = blend.lengths()
+    moved = blend.translated(shift)
+    assert moved.lengths() is measure
+    scaled = moved.scaled(factor, shift)
+    np.testing.assert_allclose(scaled.piece_lengths(), abs(factor) * measure.pieces)
+    if factor:
+        assert scaled.pace() is measure.pace()
+    else:
+        s, u = scaled.pace()
+        np.testing.assert_allclose(s, u / max(len(measure.pieces), 1))
+    assert not scaled.piece_lengths().flags.writeable
+    assert all(not row.flags.writeable for row in scaled.pace())
+
+
+@given(points_=curves(), matrix=arrays((3, 4), 3))
+def test_a_general_affine_map_remeasures_lengths(
+    points_: np.ndarray, matrix: np.ndarray
+) -> None:
+    """An anisotropic or singular map measures its own path instead of retaining its old pace."""
+    blend = g.Blend.of(points_)
+    blend.pace()
+    moved = blend.transformed(matrix)
+    expected = g.Lengths.of(moved.points())
+    np.testing.assert_allclose(
+        moved.piece_lengths(), expected.pieces, rtol=1e-9, atol=1e-10
+    )
+
+
+@given(points_=curves(), alpha=st.floats(0.05, 0.95))
+def test_a_closed_motion_does_not_fix_agreeing_geometries(
+    points_: np.ndarray, alpha: float
+) -> None:
+    """A full turn still moves a shape when its two keyframes are the same value."""
+    path = g.Path(steps=((2 * np.pi, m.OUT, m.ORIGIN),))
+    blend = g.Blend.of(points_)
+    mixed = path.mix(blend, blend, alpha)
+    assert mixed is not blend
+    expected = blend.points() @ g.rotation_matrix(2 * np.pi * alpha, m.OUT).T
+    np.testing.assert_allclose(mixed.points(), expected, atol=1e-12)

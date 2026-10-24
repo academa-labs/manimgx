@@ -44,7 +44,6 @@ from typing import Literal, Self, Unpack
 import numpy as np
 
 from manimgx import _engine
-from manimgx.caches import Memo
 from manimgx.constants import (
     DEFAULT_FONT_SIZE,
     MED_LARGE_BUFF,
@@ -58,6 +57,7 @@ from manimgx.drawing.geometry import (
     Blend,
     Shape,
     _pathops,
+    _stroke_outline,
     _to_path,
     extent,
     interpolate,
@@ -89,10 +89,7 @@ from manimgx.drawing.typesetting import (
     typeset,
     typst_string,
 )
-from manimgx.mobject import Mobject, Pivot, VGroup, VMobject, _append_path, prototype
-from manimgx.typing import Vector3DLike
-
-_HEX: Memo[tuple[float, ...], str] = Memo(1 << 12)
+from manimgx.mobject import Mobject, VGroup, VMobject, _append_path, prototype
 
 
 def _ink(rgba: np.ndarray, color: str) -> str:
@@ -101,12 +98,8 @@ def _ink(rgba: np.ndarray, color: str) -> str:
 
 
 def _hex(rgba: np.ndarray) -> str:
-    key = tuple(rgba[:3])
-    color = _HEX.get(key)
-    if color is None:
-        r, g, b = (round(c * 255) for c in key)
-        color = _HEX.keep(key, f"#{r:02x}{g:02x}{b:02x}")
-    return color
+    r, g, b = (round(c * 255) for c in rgba[:3])
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 class _TypstOptions(_Look, Repaint, total=False):
@@ -234,7 +227,8 @@ class Typst(VMobject):
         stroke_opacity: A stroke opacity for every part, from 0 to 1; None keeps the
             typeset ones.
         stroke_width: A stroke width for every part, in hundredths of a scene unit;
-            None keeps the typeset ones, which scale with the mobject.
+            None strokes none (what Typst strokes, a rule or a box's outline, is the shape
+            it covers, filled, and scales with the mobject).
         opacity: The opacity of every part's fill and stroke, from 0 to 1, where
             `fill_opacity` or `stroke_opacity` doesn't give one; None keeps the
             typeset ones.
@@ -286,10 +280,6 @@ class Typst(VMobject):
         """The Typst code the mobject was typeset from."""
         self.typst_preamble = typst_preamble
         """The Typst code set before it."""
-        # unless a stroke width is given, a stroke keeps its share of its part's size as
-        # typeset: (part, its size and its stroke width as typeset)
-        self._strokes_scale = stroke_width is None
-        self._strokes: list[tuple[VMobject, float, float]] = []
         # A height overrides font sizing; width is fitted afterward in either case.
         placed = should_center and height is None
         self.initial_height = self._build(
@@ -387,15 +377,23 @@ class Typst(VMobject):
                 )
                 part.points = place
             if stroke[0] >= 0 and row[WIDTH] > 0:
-                size = max(part.width, part.height)
-                width = float(row[WIDTH])
-                part.set_stroke(
-                    _ink(stroke, ink_color),
-                    opacity=float(stroke[3]),
-                    width=None if scale is None else width * scale * 100,
+                # a stroke typeset (a rule, a fraction's bar, a box's outline) is the shape
+                # it covers, filled, as a glyph is: it scales with the mobject, whatever map
+                # it is under; a filled shape's stroke is a part of its own, around it
+                outline = _stroke_outline(
+                    part.points, float(row[WIDTH]) * (scale or 1.0)
                 )
-                if self._strokes_scale and size > 0:
-                    self._strokes.append((part, size / (scale or 1.0), width))
+                if fill[0] < 0:
+                    part.points = outline
+                    part.set_fill(_ink(stroke, ink_color), opacity=float(stroke[3]))
+                else:
+                    border = VMobject(
+                        color=_ink(stroke, ink_color),
+                        fill_opacity=float(stroke[3]),
+                        stroke_width=0,
+                    )
+                    border.points = outline
+                    part.add(border)
             parts.append(part)
         self.add(*parts)
         self.labels: dict[str, VGroup] = {}  # the parts inside each `<label>`
@@ -459,36 +457,6 @@ class Typst(VMobject):
             raise ValueError("font_size must be greater than 0.")
         if self.height > 0:
             self.scale(val / self.font_size)
-
-    def scale(
-        self,
-        scale_factor: float | Vector3DLike,
-        scale_stroke: bool = False,
-        **kwargs: Unpack[Pivot],
-    ) -> Self:
-        """Scale the mobject and its whole family about a point, as
-        [Mobject.scale][manimgx.Mobject.scale] does; the strokes the typesetting drew (a
-        rule, a box's outline) keep their share of their part's size, unless the mobject
-        was made with a `stroke_width`.
-
-        Args:
-            scale_factor: The factor: 2 doubles the mobject's size, 0.5 halves it; or
-                its factors along x, y and z.
-            scale_stroke: Whether the other strokes' widths scale too, by the factor.
-            **kwargs: [Pivot keywords][manimgx.mobject.Pivot].
-        """
-        result = super().scale(scale_factor, scale_stroke=scale_stroke, **kwargs)
-        self._scale_strokes()
-        return result
-
-    def _scale_strokes(self) -> None:
-        """Each typeset stroke's width, its share of its part's size again."""
-        if not self._strokes_scale:
-            return
-        for part, typeset_size, typeset_width in self._strokes:
-            if typeset_size > 0:
-                width = typeset_width * max(part.width, part.height) / typeset_size
-                part.set_stroke(width=width * 100, family=False)  # in 1/100 units
 
     def init_colors(self, propagate_colors: bool = True) -> Self:
         # Its parts are painted from the layout's ink; constructor style is not reused.
@@ -916,7 +884,6 @@ class Text(Typst):
         super().__init__(
             f"{head}{body}]", font_scale=_calibration(family, kwargs), **kwargs
         )
-        self._chars = chars
         self._clusters = self._characters(runs)
         colors: dict[int, ManimColor] = {}
         if gradient:
@@ -977,7 +944,7 @@ class Text(Typst):
     def _paint(self, colors: Mapping[int, ManimColor]) -> None:
         """Each glyph takes its characters' colors (a grapheme's color: its first character's);
         a glyph of several colors is cut at its carets."""
-        graphemes = _engine.graphemes(self._chars)
+        graphemes = _engine.graphemes(self.text)
         for part, chars in zip(self.submobjects, self._clusters):
             if not chars:
                 continue
@@ -993,7 +960,7 @@ class Text(Typst):
                 if paints[0] is not None:
                     part.set_color(paints[0])
             elif isinstance(part, TypstGlyph):
-                rtl = unicodedata.bidirectional(self._chars[chars.start]) in ("R", "AL")
+                rtl = unicodedata.bidirectional(self.text[chars.start]) in ("R", "AL")
                 _cut(part, paints[::-1] if rtl else paints)
 
 

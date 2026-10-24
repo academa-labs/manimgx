@@ -12,15 +12,15 @@ widths and flags; the camera is one 4×4 matrix."""
 import functools
 import itertools
 import struct
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+import weakref
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
 from manimgx import _engine
 from manimgx._engine import digest
-from manimgx.caches import forgets
+from manimgx.caches import Memo, forgets
 from manimgx.constants import CapStyleType, LineJointType
 from manimgx.drawing.geometry import (
     IDENTITY,
@@ -30,7 +30,7 @@ from manimgx.drawing.geometry import (
     grid_triangles,
     subpath_ranges,
 )
-from manimgx.drawing.paint import stretch_array
+from manimgx.drawing.paint import linear_light, stretch_array
 from manimgx.mobject import MeshMobject, PMobject, VMobject
 from manimgx.mobjects.images import ImageMobject
 from manimgx.mobjects.lights import (
@@ -42,7 +42,6 @@ from manimgx.mobjects.lights import (
 )
 
 if TYPE_CHECKING:
-    from manimgx.drawing.geometry import Path
     from manimgx.mobject import Mobject
     from manimgx.scene import Camera
 
@@ -109,11 +108,6 @@ LIGHTS = 8  # the most lights a view takes
 assert PACKED.size == RECORD.itemsize
 NO_TERM = (0.0,) * 12
 KEYS = ("key1", "key2", "fill_rows", "stroke_rows", "fill_rows2", "stroke_rows2")
-
-
-def unpack(record: bytes | None) -> np.void | None:
-    """A record's fields (for mixing records of a pure play)."""
-    return None if record is None else np.frombuffer(record, RECORD)[0]
 
 
 def place(m: np.ndarray, a: np.ndarray) -> np.ndarray:
@@ -226,10 +220,10 @@ def _cells(g: np.ndarray) -> np.ndarray:
     tol = 1e-7 * (1.0 + np.abs(g[..., :3]).max())
     du = _derivative(len(g), bool(np.abs(g[0, :, :3] - g[-1, :, :3]).max() <= tol))
     dv = _derivative(g.shape[1], bool(np.abs(g[:, 0, :3] - g[:, -1, :3]).max() <= tol))
-    gu = np.einsum("ik,kjd->ijd", du, g)
+    gu = np.tensordot(du, g, axes=(1, 0))
     data = (
-        (g, np.einsum("jk,ikd->ijd", dv, g)),
-        (gu, np.einsum("jk,ikd->ijd", dv, gu)),
+        (g, np.tensordot(g, dv, axes=(1, 1)).transpose(0, 2, 1)),
+        (gu, np.tensordot(gu, dv, axes=(1, 1)).transpose(0, 2, 1)),
     )
     u, v = len(g) - 1, g.shape[1] - 1
     return np.array(
@@ -247,15 +241,36 @@ def _patches(
     cells: np.ndarray, x: np.ndarray, *, derivatives: bool = True
 ) -> tuple[np.ndarray, ...]:
     """Points, and when requested their derivatives, of every cell at (s, t) ∈ x × x:
-    each (u, v, len(x), len(x), dims)."""
+    each (len(x), len(x), u, v, dims)."""
     value, slope = _hermite(x)
-    along_t = np.einsum("bq,abuvd->auvqd", value, cells)
-    points = np.einsum("ap,auvqd->uvpqd", value, along_t)
+    a, b, u, v, dims = cells.shape
+    # every cell side by side, the bases applied as matrix products (a BLAS's, not einsum's
+    # loops): along t, then along s
+    data = cells.reshape(a, b, u * v * dims)
+    shape = (len(x), len(x), u, v, dims)
+    along_t = np.matmul(value.T, data)
+    points = np.tensordot(value, along_t, axes=(0, 0)).reshape(shape)
     if not derivatives:
         return (points,)
-    ds = np.einsum("ap,auvqd->uvpqd", slope, along_t)
-    dt = np.einsum("ap,bq,abuvd->uvpqd", value, slope, cells, optimize=True)
+    ds = np.tensordot(slope, along_t, axes=(0, 0)).reshape(shape)
+    dt = np.tensordot(value, np.matmul(slope.T, data), axes=(0, 0)).reshape(shape)
     return points, ds, dt
+
+
+def refinement(shape: Shape, grid: tuple[int, int] | None) -> int:
+    """A surface shape's refinement m (0: not a surface's grid, drawn as its faces), once per
+    shape: its own size decides, not where a frame puts it (a morph keeps its m)."""
+    if grid is None:
+        return 0
+
+    def steps() -> int:
+        _, array, a = shape.affine
+        return surface_steps(array.reshape(grid[0] + 1, grid[1] + 1, -1), a[:, :3])
+
+    return _STEPS.recall((shape.key, grid), steps)
+
+
+_STEPS: Memo[tuple[int, tuple[int, int]], int] = Memo(1 << 12)
 
 
 def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
@@ -264,9 +279,7 @@ def surface_steps(g: np.ndarray, linear: np.ndarray) -> int:
     SURFACE_TOLERANCE is the target of this estimate, not a guaranteed error bound;
     refinement is capped at SURFACE_STEPS and midpoint sampling can miss curvature.
     """
-    mid = _patches(_cells(g[..., :3]), np.array([0.5]), derivatives=False)[0][
-        :, :, 0, 0
-    ]
+    mid = _patches(_cells(g[..., :3]), np.array([0.5]), derivatives=False)[0][0, 0]
     flat = (g[:-1, :-1, :3] + g[1:, :-1, :3] + g[:-1, 1:, :3] + g[1:, 1:, :3]) / 4
     deviation = float(np.linalg.norm((mid - flat) @ linear.T, axis=-1).max())
     return int(
@@ -307,15 +320,17 @@ def refine_surface(
         np.linalg.norm(normal, axis=-1) <= 1e-10 * (1.0 + np.abs(g[..., :3]).max()) ** 2
     )
     if thin.any():
-        i, j = np.nonzero(thin.any(axis=(2, 3)))
+        i, j = np.nonzero(thin.any(axis=(0, 1)))
         _, ds, dt = _patches(cells[:, :, i, j][:, :, None], 1e-3 + (1.0 - 2e-3) * x)
-        nudged = np.cross(ds[..., :3], dt[..., :3])[0]
-        normal[i, j] = np.where(thin[i, j][..., None], nudged, normal[i, j])
+        nudged = np.cross(ds[..., :3], dt[..., :3])[:, :, 0]
+        normal[:, :, i, j] = np.where(
+            thin[:, :, i, j][..., None], nudged, normal[:, :, i, j]
+        )
     order, triangles = _face_layout(m)
     block, u, v = len(order), len(g) - 1, g.shape[1] - 1
-    selected = order[:, 0] * (m + 1) + order[:, 1]
-    points = np.take(points.reshape(u, v, -1, points.shape[-1]), selected, axis=2)
-    normal = np.take(normal.reshape(u, v, -1, 3), selected, axis=2)
+    selected = order[:, 0] * (m + 1) + order[:, 1]  # each face's block, face by face
+    points = points.reshape((m + 1) ** 2, u * v, -1)[selected].transpose(1, 0, 2)
+    normal = normal.reshape((m + 1) ** 2, u * v, 3)[selected].transpose(1, 0, 2)
     return (
         points.reshape(u * v * block, -1),
         normal.reshape(u * v * block, 3),
@@ -335,11 +350,6 @@ def rotation(phi: float, theta: float, gamma: float) -> np.ndarray:
     c, s = np.cos(-phi), np.sin(-phi)
     rx = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
     return rz(gamma) @ rx @ rz(-theta - np.pi / 2)
-
-
-def linear(rgb: np.ndarray) -> np.ndarray:
-    """sRGB-encoded colors in linear light (what light adds)."""
-    return np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
 
 
 def lighting(camera: "Camera", lights: "list[Light]") -> list[float]:
@@ -371,7 +381,7 @@ def lighting(camera: "Camera", lights: "list[Light]") -> list[float]:
     out = []
     for light in lights[:LIGHTS]:
         place = np.asarray(light.get_center(), dtype=float)
-        color = [*(linear(light.light_color.to_rgb()) * light.intensity)]
+        color = [*(linear_light(light.light_color.to_rgb()) * light.intensity)]
         if isinstance(light, EnvironmentLight):
             right, up = light.axes()
             picture = 0.0 if light.picture is None else float(light.picture.id)
@@ -413,11 +423,6 @@ def lighting(camera: "Camera", lights: "list[Light]") -> list[float]:
             0.0,
         ]
     return out + [0.0] * (16 * LIGHTS - len(out))
-
-
-def lit(mobjects: "list[Mobject]") -> "list[Light]":
-    """The lights among a view's mobjects."""
-    return [m for m in mobjects if isinstance(m, Light)]
 
 
 def view(
@@ -489,27 +494,6 @@ def view(
     return uniform.tobytes(), projection, three_d
 
 
-def _same_topology(
-    a: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
-    b: "tuple[np.ndarray | Lattice, np.ndarray | None] | None",
-) -> bool:
-    """Topology and UV values are immutable; retaining them also retains their identity."""
-    if a is None or b is None:
-        return a is b
-    return a[0] is b[0] and a[1] is b[1]
-
-
-@dataclass(slots=True)
-class Growth:
-    """A growing path as the player has it: its key (None until it grows), its curves, its uploads
-    afresh (a new subpath began) and its last subpath's first point."""
-
-    key: int | None
-    curves: int
-    restarts: int = 0
-    start: int = 0
-
-
 Player: type[_engine.Player] | None = getattr(_engine, "Player", None)
 """The engine's player, which draws with the GPU; None in Pyodide, whose engine has no GPU (a
 film is then recorded as a take, with a `Recorder`)."""
@@ -565,7 +549,6 @@ class Feeder:
         self.sizes: dict[int, int] = {}
         # key → a resident path's subpaths (first curve, end curve, closed)
         self.structures: dict[int, list[tuple[int, int, bool]]] = {}
-        self.materialized = 0
         self.pairs: dict[tuple[int, int], list[int]] = {}
         self.environments: set[int] = (
             set()
@@ -574,6 +557,12 @@ class Feeder:
         self.textures: dict[int, tuple[np.ndarray, int]] = {}
         # id(read-only rows) → (rows, key)
         self.row_keys: dict[int, tuple[np.ndarray, int]] = {}
+        # a camera whose view is a texture → its number, in the order the film first drew
+        # it: its texture's key (a film's keys are the same however often it is made)
+        self.cameras: weakref.WeakKeyDictionary[Camera, int] = (
+            weakref.WeakKeyDictionary()
+        )
+        self.camera_numbers = itertools.count()
         # id(shape) → (shape, topology, uvs, steps, key, A): the mesh's upload inputs.
         self.mesh_keys: dict[
             int,
@@ -586,12 +575,12 @@ class Feeder:
                 np.ndarray,
             ],
         ] = {}
-        # a surface shape's refinement: (shape key, grid) → m (0: not a grid, drawn as faces)
-        self.steps: dict[tuple[int, tuple[int, int]], int] = {}
         # (id(rows), key) → (rows, a row per vertex of the refined surface `key`)
         self.expanded: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
         # a growing path, by log — uploaded whole once, then only the curves it gains
-        self.logs: dict[int, Growth] = {}
+        self.logs: dict[int, tuple[int | None, int]] = {}
+        # a growing path's name → the key of the upload holding it (one for equal paths)
+        self.holding: dict[int, int] = {}
         self.frames = 0  # frames made so far
         # key → the last frame that showed (or uploaded) it
         self.last_used: dict[int, int] = {}
@@ -648,51 +637,65 @@ class Feeder:
         self.pairs = {
             ab: keys for ab, keys in self.pairs.items() if gone.isdisjoint(keys)
         }
+        self.holding = {n: key for n, key in self.holding.items() if key not in gone}
 
     # ── uploads ──────────────────────────────────────────────────────────────
     def grown(self, shape: Shape) -> tuple[int, np.ndarray] | None:
-        """A growing path (a prefix of a log seen growing): uploaded whole once, then only the curves it
-        gains. None at first sight: a log that never grows is an ordinary shape."""
+        """A growing path (a prefix of a log seen growing), named by what it holds, as a shape is:
+        uploaded whole once, then only the curves it gains, and paths that hold the same share one
+        upload. It is named by its content when it first grows, then by that name and the curves
+        it gains: it costs what it grows. None for an ordinary shape: a log seen once or not
+        grown yet, or an earlier prefix of one."""
         log = shape.log
         assert log is not None
         points = shape.array
         curves = len(points) // 4
         state = self.logs.get(log.id)
         if state is None:
-            self.logs[log.id] = Growth(None, curves)
+            self.logs[log.id] = (None, curves)
             return None
-        key = state.key
-        if key is None and curves == state.curves:
-            return None  # not grown (yet)
-        if key is not None and key in self.sizes and curves > state.curves:
-            have = state.curves
-            continuing = (
-                len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
-            )
-            # no break: the last subpath goes on (closed or not, as it now ends)
-            if continuing:
+        held, have = state
+        if curves < have or (held is None and curves == have):
+            return None
+        tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
+        if held is None:
+            name = digest(b"grown", shape.key.to_bytes(8, "little"))
+        elif curves > have:
+            name = digest(b"grown", held.to_bytes(8, "little"), tail.tobytes())
+        else:
+            name = held
+        key = self.holding.get(name)
+        if key is None:
+            # the upload holding what it held grows on, if its last subpath does (closed or
+            # not, as it now ends); else, or if none holds it, the path is uploaded whole
+            if (
+                held is not None
+                and (source := self.holding.get(held)) is not None
+                and len(subpath_ranges(points[have * 4 - 4 : curves * 4], 1e-6)) == 1
+            ):
+                *before, (first, _, _) = self.structures[source]
                 closed = bool(
-                    np.allclose(points[state.start], points[curves * 4 - 1], atol=1e-6)
+                    np.allclose(points[first * 4], points[curves * 4 - 1], atol=1e-6)
                 )
-                tail = np.ascontiguousarray(points[have * 4 : curves * 4], "<f8")
-                self.player.grow_path(key, tail.tobytes(), closed)
-                state.curves = curves
-                self.sizes[key] = curves
-                *before, (first, _, _) = self.structures[key]
-                self.structures[key] = [*before, (first, curves, closed)]
+                self.player.grow_path(source, tail.tobytes(), closed)
+                self.sizes[source] = curves
+                self.structures[source] = [*before, (first, curves, closed)]
+                del self.holding[held]  # it holds what it grew to now
+                key = source
             else:
-                key = None  # a new subpath began: upload afresh
-        if key is None or key not in self.sizes:
-            restarts = state.restarts
-            key = digest(
-                b"log", log.id.to_bytes(8, "little"), restarts.to_bytes(8, "little")
-            )
-            ranges = structure(points)
-            if not ranges:
-                return None
-            self.player.add_path(key, *control(points, ranges), centroid_area(points))
-            self.sizes[key], self.structures[key] = curves, ranges
-            self.logs[log.id] = Growth(key, curves, restarts + 1, ranges[-1][0] * 4)
+                ranges = structure(points)
+                if not ranges:
+                    return None
+                # this log's own key: an upload grown in place is never named again
+                key = digest(
+                    b"grown", name.to_bytes(8, "little"), log.id.to_bytes(8, "little")
+                )
+                self.player.add_path(
+                    key, *control(points, ranges), centroid_area(points)
+                )
+                self.sizes[key], self.structures[key] = curves, ranges
+            self.holding[name] = key
+        self.logs[log.id] = (name, curves)
         self.last_used[key] = self.frames
         return key, IDENTITY
 
@@ -750,22 +753,6 @@ class Feeder:
             self.sizes[key] = len(array)
         return key, a
 
-    def surface_steps(self, shape: Shape, grid: tuple[int, int] | None) -> int:
-        """A surface shape's refinement m (0: not a surface's grid — drawn as its faces), once
-        per shape: its own size decides, not where a frame puts it (a morph keeps its m).
-        """
-        if grid is None:
-            return 0
-        known = self.steps.get((shape.key, grid))
-        if known is None:
-            _, array, a = shape.affine
-            g = array.reshape(grid[0] + 1, grid[1] + 1, -1)
-            known = surface_steps(g, a[:, :3])
-            if len(self.steps) > 1 << 12:
-                self.steps.clear()
-            self.steps[(shape.key, grid)] = known
-        return known
-
     def mesh(
         self,
         shape: Shape,
@@ -780,11 +767,9 @@ class Feeder:
         known = self.mesh_keys.get(id(shape))
         if (
             known is not None
-            and known[0] is shape
             and known[1] is topology
             and known[2] is uvs
             and known[3] == steps
-            and known[4] in self.sizes
         ):
             return known[4], known[5]
         uv = (
@@ -799,9 +784,6 @@ class Feeder:
             tri = np.ascontiguousarray(topology, dtype="<u4")
             indices = b"triangles" + tri.tobytes()
         key = digest(form.to_bytes(8, "little"), indices, uv.tobytes())
-        if len(self.mesh_keys) > 1 << 12:
-            self.mesh_keys.clear()
-        self.mesh_keys[id(shape)] = (shape, topology, uvs, steps, key, a)
         if key not in self.sizes:
             self.last_used[key] = self.frames
             block = outline = 0
@@ -831,6 +813,9 @@ class Feeder:
                 block,
             )
             self.sizes[key] = len(array)
+        if len(self.mesh_keys) > 1 << 12:
+            self.mesh_keys.clear()
+        self.mesh_keys[id(shape)] = (shape, topology, uvs, steps, key, a)
         return key, a
 
     def per_vertex(
@@ -844,7 +829,7 @@ class Feeder:
         if lattice is None:
             return rows
         known = self.expanded.get((id(rows), key))
-        if known is not None and known[0] is rows:
+        if known is not None:
             return known[1]
         drawn = rows[lattice.first : lattice.end]
         out = np.repeat(drawn, self.sizes[key] // max(len(drawn), 1), axis=0)
@@ -856,24 +841,24 @@ class Feeder:
 
     def rows(self, rows: np.ndarray) -> int:
         known = self.row_keys.get(id(rows))
-        if known is not None and known[0] is rows and known[1] in self.sizes:
+        if known is not None:
             return known[1]  # a paint's rows never change: hashed once
         data = np.ascontiguousarray(rows, dtype="<f4").tobytes()
         key = digest(b"rows", data)
-        if not rows.flags.writeable:
-            if len(self.row_keys) > 1 << 12:
-                self.row_keys.clear()
-            self.row_keys[id(rows)] = (rows, key)
         if key not in self.sizes:
             self.last_used[key] = self.frames
             self.player.add_rows(key, data)
             self.sizes[key] = 0
+        if not rows.flags.writeable:
+            if len(self.row_keys) > 1 << 12:
+                self.row_keys.clear()
+            self.row_keys[id(rows)] = (rows, key)
         return key
 
     def lights(self, mobjects: "list[Mobject]") -> "list[Light]":
         """The lights among a view's mobjects, their environments' pictures uploaded the first
         time."""
-        lights = lit(mobjects)
+        lights = [m for m in mobjects if isinstance(m, Light)]
         for light in lights:
             p = light.picture if isinstance(light, EnvironmentLight) else None
             if p is not None and p.id not in self.environments:
@@ -883,7 +868,7 @@ class Feeder:
 
     def texture(self, pixels: np.ndarray) -> int:
         known = self.textures.get(id(pixels))
-        if known is not None and known[0] is pixels:
+        if known is not None:
             return known[1]
         data = np.ascontiguousarray(pixels, dtype=np.uint8)
         key = digest(b"texture", str(data.shape).encode(), data.tobytes())
@@ -935,7 +920,10 @@ class Feeder:
     ) -> int:
         """The texture key of what `seen_by` sees — everything but `display` — drawn at the size
         `display` covers on screen (CE's rule), before the view that shows it."""
-        key = digest(b"camera", id(seen_by).to_bytes(8, "little"))
+        number = self.cameras.get(seen_by)
+        if number is None:
+            number = self.cameras[seen_by] = next(self.camera_numbers)
+        key = digest(b"camera", number.to_bytes(8, "little"))
         if all(c[0] != key for c in cameras):
             w = max(1, int(width * display.width / camera.frame_width))
             h = max(1, int(height * display.height / camera.frame_height))
@@ -982,20 +970,28 @@ class Feeder:
     ) -> bytes | None:
         """One object's record (336 bytes), or None if it draws nothing. It is a function of the
         object's geometry and paint (values), a mesh's topology (indices or lattice dimensions, with uvs:
-        values too), its camera flags and lighting, so it is kept on the object and remade only
-        when one of them changes (or what it draws was evicted); a camera's picture is remade
-        every frame."""
+        values too), its gradient's current bounds, image sampling, camera flags and lighting.
+        It is kept on the object and remade only when one of them changes (or what it draws
+        was evicted); a camera's picture is remade every frame."""
         g: Blend = mob._geometry
         if not g.terms:
             return None
         p = mob.paint
+        box = (
+            (mob.gradient_frame or mob).boundary_box()
+            if isinstance(mob, VMobject) and p.graded
+            else None
+        )
         state = (
             mob in fixed,
             bool(p.shade_in_3d and three_d),
             bool(p.material and three_d),
+            None if box is None else box.tobytes(),
+            mob.resampling_algorithm if isinstance(mob, ImageMobject) else None,
         )
         live = p.texture is not None and not isinstance(p.texture, np.ndarray)
-        topology = (mob._topology, mob.uvs) if isinstance(mob, MeshMobject) else None
+        topology = mob._topology if isinstance(mob, MeshMobject) else None
+        uvs = mob.uvs if isinstance(mob, MeshMobject) else None
         memo = mob.__dict__.get("_film_record")
         if (
             memo is not None
@@ -1004,12 +1000,13 @@ class Feeder:
             and memo[1] is g
             and memo[2] is p
             and memo[3] == state
-            and _same_topology(memo[7], topology)
+            and memo[7] is topology
+            and memo[8] is uvs
         ):
             if memo[6] == self.evictions:  # nothing evicted since it was made
                 return memo[4]
             if all(k in self.sizes for k in memo[5]):
-                mob.__dict__["_film_record"] = (*memo[:6], self.evictions, memo[7])
+                mob.__dict__["_film_record"] = (*memo[:6], self.evictions, *memo[7:])
                 return memo[4]
         made = self.make_record(
             mob, camera, three_d, mobjects, width, height, cameras, state[0]
@@ -1026,6 +1023,7 @@ class Feeder:
             keys,
             self.evictions,
             topology,
+            uvs,
         )
         return record
 
@@ -1047,27 +1045,37 @@ class Feeder:
         head = [0, 0, 0, 0, 0, 0, 0, 0]
         params = [0.0, 0.0, 0.0, 0.0]
         gradient_a, gradient_b = [0.0] * 4, [0.0] * 4
-        # a tween's paint is two, mixed by the player (see `Paint.mix`)
+        # a tween's paint is two, mixed by the player (see `Paint.mix`); mixed wholly, or not
+        # at all, as the player reads the mix (in single precision), it is one paint alone
         fill, stroke, background = (
             p.ends("fill"),
             p.ends("stroke"),
             p.ends("background"),
         )
-        dash = [0.0, 0.0, 0.0, p.mix[2] if p.mix is not None else 0.0]
+        dash = [0.0, 0.0, 0.0, 0.0]
+        if p.mix is not None:
+            if 0.0 < np.float32(p.mix[2]) < 1.0:
+                dash[3] = p.mix[2]
+            else:
+                end = int(p.mix[2] >= 0.5)
+                fill, stroke, background = (
+                    (x[end], x[end]) for x in (fill, stroke, background)
+                )
         terms = g.terms
         grid: tuple[int, int] | None = None
         m = 0
         for materialized in (False, True):
             if isinstance(mob, VMobject):
-                keys = [self.path(shape) for _, shape in terms[:2]]
                 if len(terms) == 2:
                     keys = self.pair(terms[0][1], terms[1][1])
+                else:
+                    keys = [self.path(shape) for _, shape in terms[:2]]
             elif isinstance(mob, PMobject):
                 keys = [self.points(shape) for _, shape in terms[:2]]
             elif isinstance(mob, MeshMobject):
                 if not materialized:
                     grid = mob.grid
-                steps = [self.surface_steps(shape, grid) for _, shape in terms[:2]]
+                steps = [refinement(shape, grid) for _, shape in terms[:2]]
                 m = max(steps) if min(steps) > 0 else 0
                 keys = [
                     self.mesh(shape, mob._topology, mob.uvs, m)
@@ -1081,7 +1089,6 @@ class Feeder:
             if materialized:
                 return None
             terms = (Blend.of(mob.points).terms[0],)
-            self.materialized += 1
         # a surface's lattice, refined (m > 0): its faces are u's steps and own its rows
         topology = mob._topology if isinstance(mob, MeshMobject) and m > 0 else None
         lattice = topology if isinstance(topology, Lattice) else None
@@ -1092,7 +1099,7 @@ class Feeder:
             if p.dash is not None:  # a periodic window, in u: (period, duty, phase)
                 curves = g.n // 4
                 dash[:3] = p.dash[0] * curves, p.dash[1], p.dash[2] * curves
-            if max(len(fill[0]), len(stroke[0])) > 1:
+            if p.graded:
                 a, b = mob.get_gradient_start_and_end_points()
                 gradient_a[:3], gradient_b[:3] = a, b
                 if len(fill[0]) > 1:
@@ -1155,220 +1162,3 @@ class Feeder:
         )
         # the keys it draws: shapes, rows and its texture (what must be resident to reuse it)
         return record, tuple(k for k in head[:7] if k)
-
-    # ── a pure play, all frames at once ──────────────────────────────────────
-    def tween(
-        self,
-        camera: "Camera",
-        mobjects: "list[Mobject]",
-        leaves: "list[tuple[Mobject, list[Mobject], Path, np.ndarray, np.ndarray]]",
-    ) -> Iterator[tuple[bytes, bytes]]:
-        """Mix whole keyframe intervals on the CPU; upload an interval when it first appears.
-
-        A leaf that cannot be mixed is materialized when its frame is yielded, so a long
-        play never makes every future shape resident on the GPU before drawing its first.
-        """
-        self.sweep()
-        frames = len(leaves[0][3]) if leaves else 0
-        uniform, _, three_d = view(
-            camera, self.width, self.height, self.lights(mobjects)
-        )
-        views = self.views(camera, mobjects, leaves, frames)
-        fixed = camera.fixed_in_frame_mobjects
-        args = (camera, three_d, mobjects, self.width, self.height, [], fixed)
-        base = [unpack(self.record(mob, *args)) for mob in mobjects]
-        rows = np.zeros((frames, len(mobjects)), RECORD)
-        present = np.zeros((frames, len(mobjects)), bool)
-        for k, r in enumerate(base):
-            if r is not None:
-                rows[:, k], present[:, k] = r, True
-        position = {id(mob): k for k, mob in enumerate(mobjects)}
-        type Interval = tuple[
-            Mobject, Mobject, Mobject, Path, np.ndarray, np.ndarray, int
-        ]
-        type Cached = dict[float, tuple[np.void | None, tuple[int, ...]]]
-        type Materialize = tuple[
-            Mobject, Mobject, Mobject, Path, np.ndarray, float, int, Cached
-        ]
-        starts: dict[int, list[Interval]] = {}
-        moving: dict[int, list[Materialize]] = {}
-        restores: dict[int, list[tuple[Mobject, np.ndarray, int, set[Mobject]]]] = {}
-        for leaf, keys, path, index, t in leaves:
-            k = position.get(id(leaf))
-            if k is None:
-                continue
-            present[index == -2, k] = False
-            initial = None
-            for interval in dict.fromkeys(index[index >= -1].tolist()):
-                at = np.nonzero(index == interval)[0]
-                # A nonmonotone clock can leave an interval and return: its inputs may
-                # have been evicted while absent, so entering it prepares them again.
-                for run in np.split(at, np.flatnonzero(np.diff(at) != 1) + 1):
-                    if interval == -1:
-                        if run[0] > 0:
-                            # A clock can return to before the animation began. Keep
-                            # its original CPU state, not its now-unused uploads.
-                            if initial is None:
-                                initial = leaf.copy()
-                            pinned = fixed | {initial} if leaf in fixed else fixed
-                            restores.setdefault(int(run[0]), []).append(
-                                (initial, run, k, pinned)
-                            )
-                        continue
-                    starts.setdefault(int(run[0]), []).append(
-                        (leaf, keys[interval], keys[interval + 1], path, run, t[run], k)
-                    )
-        for f in range(frames):
-            self.sweep()
-            for initial, at, k, pinned in restores.pop(f, ()):
-                r = unpack(self.record(initial, *args[:-1], pinned))
-                present[at, k] = r is not None
-                if r is not None:
-                    rows[at, k] = r
-            for leaf, a, b, path, at, t, k in starts.pop(f, ()):
-                distinct = dict.fromkeys(t.tolist())
-                ts = np.array(list(distinct))
-                where = np.array([*map({x: j for j, x in enumerate(distinct)}.get, t)])
-                mixed = self.mix(a, b, path, ts, args, base[k])
-                if mixed is not None:
-                    rows[at, k], present[at, k] = mixed[where], True
-                    continue
-                cache: Cached = {}
-                # A hold has one materialization. Revisited values reuse their records
-                # while resident, and reconstruct from their keyframes after eviction.
-                for run in np.split(
-                    np.arange(len(at)), np.flatnonzero(np.diff(where)) + 1
-                ):
-                    moving.setdefault(int(at[run[0]]), []).append(
-                        (leaf, a, b, path, at[run], float(t[run[0]]), k, cache)
-                    )
-            for leaf, a, b, path, at, t, k, cache in moving.pop(f, ()):
-                known = cache.get(t)
-                if known is None or any(key not in self.sizes for key in known[1]):
-                    leaf.interpolate(a, b, t, path)
-                    r = unpack(self.record(leaf, *args))
-                    keys = (
-                        ()
-                        if r is None
-                        else tuple(
-                            int(r[name]) for name in (*KEYS, "texture") if r[name]
-                        )
-                    )
-                    known = cache[t] = (r, keys)
-                r = known[0]
-                present[at, k] = r is not None
-                if r is not None:
-                    rows[at, k] = r
-            data = rows[f][present[f]].tobytes()
-            self.latest = [data]
-            if self.frames % MARK == 0:
-                self.shown(np.frombuffer(data, RECORD), self.frames)
-            self.frames += 1
-            yield uniform if views is None else views[f], data
-
-    def views(
-        self,
-        camera: "Camera",
-        mobjects: "list[Mobject]",
-        leaves: "list[tuple[Mobject, list[Mobject], Path, np.ndarray, np.ndarray]]",
-        frames: int,
-    ) -> list[bytes] | None:
-        """Each frame's view of a pure play that moves the camera or a light (None if it moves
-        neither): their leaves stepped frame by frame, the view read after each step."""
-        lights = self.lights(mobjects)
-        own = {
-            id(m)
-            for mob in [*camera.get_mobjects_indicating_movement(), *lights]
-            for m in mob.get_family()
-        }
-        moving = [leaf for leaf in leaves if id(leaf[0]) in own]
-        if not moving:
-            return None
-        views: list[bytes] = []
-        for f in range(frames):
-            for leaf, keys, path, index, t in moving:
-                if index[f] >= 0:
-                    leaf.interpolate(
-                        keys[index[f]], keys[index[f] + 1], float(t[f]), path
-                    )
-            views.append(view(camera, self.width, self.height, lights)[0])
-        return views
-
-    def mix(
-        self,
-        a: "Mobject",
-        b: "Mobject",
-        path: "Path",
-        t: np.ndarray,
-        args: tuple,
-        live: np.void | None,
-    ) -> np.ndarray | None:
-        """The leaf's records between keyframes a and b at every t: shapes by the path's coefficients,
-        paints as the player mixes them (b's is paint 2); None unless both are one-term paths.
-        """
-        if not (isinstance(a, VMobject) and isinstance(b, VMobject)) or live is None:
-            return None
-        ra, rb = unpack(self.record(a, *args)), unpack(self.record(b, *args))
-        if (
-            ra is None
-            or rb is None
-            or ra["key2"]
-            or rb["key2"]
-            or ra["dash"][3]  # a paint mixed already
-            or rb["dash"][3]
-            or (ra["fill_rows"] == 0) != (rb["fill_rows"] == 0)
-            or (ra["stroke_rows"] == 0) != (rb["stroke_rows"] == 0)
-            or (
-                ra["material"] != rb["material"]
-            ).any()  # (a material's tween: frame by frame)
-        ):
-            return None
-        ga, gb = a._geometry, b._geometry
-        if len(ga.terms) != 1 or len(gb.terms) != 1 or ga.n != gb.n:
-            return None
-        coefficients = [path.coefficients(float(x)) for x in t]
-        ls = np.array([c[0] for c in coefficients])
-        le = np.array([c[1] for c in coefficients])
-        offset = np.array([c[2] for c in coefficients])
-        ma, mb = ra["m1"].astype(float), rb["m1"].astype(float)
-        out = np.empty(len(t), RECORD)
-        out[:] = live
-        if ra["key1"] == rb["key1"]:
-            m = ls @ ma + le @ mb
-            m[:, :, 3] += offset
-            out["key1"], out["m1"], out["key2"] = ra["key1"], m, 0
-        else:
-            keys = [key for key, _ in self.pair(ga.terms[0][1], gb.terms[0][1])]
-            m1, m2 = ls @ ma, le @ mb
-            m1[:, :, 3] += offset
-            out["key1"], out["m1"], out["key2"], out["m2"] = keys[0], m1, keys[1], m2
-        tt = t[:, None]
-        for name in ("fill", "stroke", "background", "fill_rows", "stroke_rows"):
-            out[name], out[name + "2"] = ra[name], rb[name]
-        # a gradient's axis moves with the leaf
-        for name in ("gradient_a", "gradient_b"):
-            out[name][:, :3] = ra[name][:3] * (1 - tt) + rb[name][:3] * tt
-        da, db = ra["dash"][:3].astype(float), rb["dash"][:3].astype(float)
-        out["dash"][:, :3] = (  # as Paint.mixed: dashed ↔ solid at the middle
-            da * (1 - tt) + db * tt if da[0] and db[0] else np.where(tt >= 0.5, db, da)
-        )
-        # the paints' mix, as Paint.mixed: past its ends a color is its end's
-        out["dash"][:, 3] = np.clip(t, 0.0, 1.0)
-        pa, pb = a.paint, b.paint
-        trim = pa.trim[None] * (1 - tt) + pb.trim[None] * tt
-        curves = max(ga.n // 4, 1)
-
-        def window(
-            trims: np.ndarray, pace: tuple[np.ndarray, np.ndarray] | None
-        ) -> np.ndarray:
-            return trims * curves if pace is None else np.interp(trims, *pace)
-
-        # as Paint.mixed: the start's pace (else the end's), the end's at exactly 1
-        out["params"][:, :2] = window(trim, pa.pace if pa.pace is not None else pb.pace)
-        last = t == 1.0
-        if last.any():
-            out["params"][last, :2] = window(trim[last], pb.pace)
-        out["params"][:, 2:] = np.maximum(  # as Paint.mixed: no width is < 0
-            ra["params"][2:][None] * (1 - tt) + rb["params"][2:][None] * tt, 0.0
-        )
-        return out

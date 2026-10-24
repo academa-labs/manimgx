@@ -20,18 +20,24 @@ import functools
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Unpack
+from typing import TYPE_CHECKING, ClassVar, Self, Unpack
 
 import numpy as np
 
 from manimgx import _engine
 from manimgx.caches import forgets
 from manimgx.constants import LEFT, ORIGIN, OUT, PI, RIGHT, UP
-from manimgx.drawing.paint import WHITE, Look, ManimColor, ParsableManimColor
-from manimgx.mobject import VectorizedPoint
+from manimgx.drawing.paint import (
+    WHITE,
+    Look,
+    ManimColor,
+    ParsableManimColor,
+    interpolate_color,
+)
+from manimgx.mobject import _STRAIGHT, Mobject, VectorizedPoint
 
 if TYPE_CHECKING:
-    from manimgx.typing import Point3DLike
+    from manimgx.typing import PathFunc, Point3DLike
 
 
 class Light(VectorizedPoint):
@@ -47,6 +53,12 @@ class Light(VectorizedPoint):
 
     kind: ClassVar[int] = 0
     """How the renderer reads it: 0 ambient, 1 sun, 2 point, 3 spot, 4 environment."""
+    _parameters: ClassVar[tuple[str, ...]] = ("intensity",)
+    """The numbers its kind is read by, beside its color: its value with its point, which
+    `become` takes and a tween carries."""
+    _settings: ClassVar[tuple[str, ...]] = ()
+    """What else its kind is read by (whether it casts shadows, its picture): its value
+    too, which `become` takes whole; a tween leaves it as it is until its end."""
 
     def __init__(
         self,
@@ -58,6 +70,43 @@ class Light(VectorizedPoint):
         self.light_color = ManimColor(color)
         self.intensity = intensity
         super().__init__(location, **kwargs)
+
+    def _shape(self) -> tuple[object, ...]:
+        return (
+            self.light_color,
+            *(getattr(self, name) for name in (*self._parameters, *self._settings)),
+        )
+
+    def _take_shape(self, mobject: Mobject) -> None:
+        if isinstance(mobject, Light):
+            self.light_color = mobject.light_color
+            for name in {*self._parameters, *self._settings} & {
+                *mobject._parameters,
+                *mobject._settings,
+            }:
+                setattr(self, name, getattr(mobject, name))
+
+    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
+    def interpolate(
+        self,
+        mobject1: Mobject,
+        mobject2: Mobject,
+        alpha: float,
+        path_func: PathFunc = _STRAIGHT,
+    ) -> Self:
+        super().interpolate(mobject1, mobject2, alpha, path_func)
+        if isinstance(mobject1, Light) and isinstance(mobject2, Light):
+            self.light_color = interpolate_color(
+                mobject1.light_color, mobject2.light_color, alpha
+            )
+            for name in (
+                set(self._parameters)
+                & set(mobject1._parameters)
+                & set(mobject2._parameters)
+            ):
+                first, last = getattr(mobject1, name), getattr(mobject2, name)
+                setattr(self, name, first + alpha * (last - first))
+        return self
 
 
 class AmbientLight(Light):
@@ -122,6 +171,7 @@ class SunLight(Light):
     """
 
     kind: ClassVar[int] = 1
+    _settings: ClassVar[tuple[str, ...]] = ("shadows",)
 
     def __init__(
         self,
@@ -166,6 +216,7 @@ class PointLight(Light):
     """
 
     kind: ClassVar[int] = 2
+    _parameters: ClassVar[tuple[str, ...]] = (*Light._parameters, "radius")
 
     def __init__(
         self,
@@ -215,6 +266,13 @@ class SpotLight(PointLight):
     """
 
     kind: ClassVar[int] = 3
+    _parameters: ClassVar[tuple[str, ...]] = (
+        *PointLight._parameters,
+        "angle",
+        "softness",
+        "toward",
+    )
+    _settings: ClassVar[tuple[str, ...]] = ("shadows",)
 
     def __init__(
         self,
@@ -302,6 +360,7 @@ class EnvironmentLight(Light):
 
     kind: ClassVar[int] = 4
     shared: ClassVar[frozenset[str]] = Light.shared | {"picture"}  # a value, read once
+    _settings: ClassVar[tuple[str, ...]] = ("picture", "shadows")
 
     def __init__(
         self,

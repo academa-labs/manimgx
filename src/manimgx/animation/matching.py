@@ -14,6 +14,7 @@ __all__ = [
     "TransformMatchingShapes",
     "TransformMatchingTex",
 ]
+from collections import defaultdict
 from collections.abc import Hashable, Mapping
 from typing import TYPE_CHECKING, Unpack
 
@@ -102,19 +103,20 @@ class TransformMatchingAbstractBase(AnimationGroup):
         fade_target = Group(
             *(part for key, part in target_map.items() if key not in source_map)
         )
-        fade_target_copy = fade_target.copy()
+        self.to_remove = [mobject]
         if transform_mismatches:
             kwargs.setdefault("replace_mobject_with_target_in_scene", True)
             anims.append(Transform(fade_source, fade_target, **kwargs))
         elif fade_transform_mismatches:
             anims.append(FadeTransformPieces(fade_source, fade_target, **kwargs))
         else:
+            fade_target_copy = fade_target.copy()
+            self.to_remove.append(fade_target_copy)
             anims.append(FadeOut(fade_source, target_position=fade_target, **kwargs))
             anims.append(
                 FadeIn(fade_target_copy, target_position=fade_target, **kwargs)
             )
         super().__init__(*anims)
-        self.to_remove = [mobject, fade_target_copy]
         self.to_add = target_mobject
 
     def get_shape_map(self, mobject: Mobject) -> dict[Hashable, Group]:
@@ -124,13 +126,10 @@ class TransformMatchingAbstractBase(AnimationGroup):
             For each key, in the order its first part comes, a group of the parts with
             that key, in order.
         """
-        groups: dict[Hashable, tuple[Group, list[Mobject]]] = {}
+        groups: defaultdict[Hashable, list[Mobject]] = defaultdict(list)
         for part in self.get_mobject_parts(mobject):
-            key = self.get_mobject_key(part)
-            if (bucket := groups.get(key)) is None:
-                groups[key] = bucket = Group(), []
-            bucket[1].append(part)
-        return {key: group.add(*parts) for key, (group, parts) in groups.items()}
+            groups[self.get_mobject_key(part)].append(part)
+        return {key: Group(*parts) for key, parts in groups.items()}
 
     def _end(self, i: int) -> None:
         # its parts leave the scene with the whole, as it finishes (`clean_up_from_scene`)

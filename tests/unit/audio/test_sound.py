@@ -1,7 +1,11 @@
 """Sound placement and edits, and speech timing, captions and sound."""
 
+import dataclasses
+import functools
 import re
+import tempfile
 import unicodedata
+from collections.abc import Callable
 from fractions import Fraction
 from itertools import pairwise
 from pathlib import Path
@@ -11,6 +15,9 @@ import numpy as np
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
+from tests.oracles import placement
+from tests.scenes import silence
+from tests.strategies import placed
 
 import manimgx as m
 from manimgx.animation import clock
@@ -578,7 +585,9 @@ class TestVoice:
 
 @pytest.mark.usefixtures("cache_here")
 class TestCache:
-    def test_function_identity_keeps_code_but_not_source_locations(self) -> None:
+    def test_function_identity_keeps_source_but_not_its_location(
+        self, tmp_path: Path
+    ) -> None:
         def voice(source: str, filename: str) -> m.Voice:
             scope: dict[str, object] = {
                 "__name__": "recorded_voice",
@@ -586,7 +595,9 @@ class TestCache:
                 "first_speaker": said,
                 "second_speaker": said,
             }
-            exec(compile(source, filename, "exec"), scope)
+            file = tmp_path / filename
+            file.write_text(source, encoding="utf-8")
+            exec(compile(source, str(file), "exec"), scope)
             return cast("m.Voice", scope["voice"])
 
         source = (
@@ -609,8 +620,10 @@ class TestCache:
         audio = _wav(samples)
         path = tmp_path / "source.wav"
         path.write_bytes(audio)
+        asked: list[str] = []
 
         def voice(text: str) -> Speech:
+            asked.append(text)
             source = samples if kind == "array" else audio if kind == "bytes" else path
             return (
                 Speech(
@@ -631,6 +644,7 @@ class TestCache:
 
         first = cached(voice, "hello", cache_here)
         again = cached(voice, "hello", cache_here)
+        assert asked == ["hello"]
         assert first.duration == again.duration == 0.35
         assert first.words == again.words
         np.testing.assert_array_equal(first.samples, again.samples)
@@ -963,3 +977,322 @@ class TestWords:
             if sum(1 + (unicodedata.east_asian_width(x) in "WF") for x in c) > 42
         ]
         assert all(len(_pieces(c)) == 1 for c in wide)  # unless it can't break
+
+
+# ── placement and scripts ────────────────────────────────────────────────────────────────
+@given(film=placed())
+def test_a_films_sound_is_its_clips_placed_at_their_starts_and_clipped_to_the_film(
+    film: tuple[Fraction, list[tuple[Fraction, np.ndarray]]],
+) -> None:
+    """Each clip sounds from the sample of its start, for as long as it lasts: what it would
+    play before the film begins is not heard, and nothing else is."""
+    length, clips = film
+    track = mix([Clip(m.Sound(s, rate=RATE), start) for start, s in clips], length)
+    assert track is not None
+    expected = placement(length, clips)
+    wrong = np.flatnonzero(np.any(track != expected, axis=1))
+    assert not len(wrong), (
+        f"{len(wrong)} samples differ, first at {wrong[0] / RATE:.4f} s of"
+        f" {float(length)} s (clips at {[float(start) for start, _ in clips]} s)"
+    )
+
+
+@st.composite
+def scripts(draw: st.DrawFn) -> tuple[str, int]:
+    """A script of plain parts and bracketed spans (empty ones too), and how many spans."""
+    parts = draw(st.lists(st.text("ab ", max_size=4), min_size=1, max_size=5))
+    spans = parts[1::2]
+    script = "".join(f"[{p}]" if i % 2 else p for i, p in enumerate(parts))
+    return script, len(spans)
+
+
+@given(script=scripts())
+@example(script=("[]", 1))
+def test_a_script_is_said_with_its_animations_wherever_its_brackets_stand(
+    script: tuple[str, int],
+) -> None:
+    """`say` takes one animation per bracketed span, wherever it stands and whatever it holds
+    (an empty `[]` starts its animation where it stands): the scene renders, and each
+    animation begins within the speech."""
+    text, spans = script
+    began: list[Fraction] = []
+
+    class Began(m.Animation):
+        def begin(self) -> None:
+            began.append(clock.now)
+
+    class Said(m.Scene):
+        voice = staticmethod(silence)
+
+        def construct(self) -> None:
+            self.say(text, *(Began(m.Mobject(), run_time=0.1) for _ in range(spans)))
+
+    with tempfile.TemporaryDirectory() as folder, pytest.MonkeyPatch.context() as patch:
+        patch.setattr("manimgx.scene._voice_folder", lambda scene: Path(folder))
+        Said().render()
+    assert len(began) == spans
+    assert all(0 <= t <= Fraction(1, 2) for t in began)
+
+
+# ── the speech cache ─────────────────────────────────────────────────────────────────────
+@st.composite
+def voice_sources(draw: st.DrawFn) -> str:
+    """A voice's source: a function of the text, with or without a docstring and an assertion
+    (neither changes what it says)."""
+    lines = ["def voice(text):"]
+    if draw(st.booleans()):
+        lines.append(
+            f'    """{draw(st.sampled_from(["Say it.", "A plain voice."]))}"""'
+        )
+    if draw(st.booleans()):
+        lines.append("    assert text")
+    said = draw(st.sampled_from(["text", "text.strip()", "' '.join(text.split())"]))
+    lines.append(f"    return speak({said})")
+    return "\n".join(lines) + "\n"
+
+
+def compiled(
+    source: str, optimize: int, asked: list[str], folder: Path
+) -> Callable[[str], Speech]:
+    """The voice `source` defines, compiled as Python compiles it at an optimization level
+    (`python`: 0, `python -O`: 1, `python -OO`: 2); what it is asked to say goes to `asked`."""
+
+    def speak(text: str) -> Speech:
+        asked.append(text)
+        return silence(text)
+
+    scope: dict[str, object] = {"__name__": "scene", "speak": speak}
+    file = folder / "scene.py"
+    file.write_text(source, encoding="utf-8")
+    exec(compile(source, str(file), "exec", optimize=optimize), scope)
+    return cast("Callable[[str], Speech]", scope["voice"])
+
+
+@given(
+    source=voice_sources(),
+    levels=st.lists(st.sampled_from([0, 1, 2]), min_size=2, max_size=3, unique=True),
+)
+def test_a_voice_is_named_by_its_source(source: str, levels: list[int]) -> None:
+    """The speech cache beside a scene is committed with it: one voice's source, however
+    Python compiles it (its version, `-O`, `-OO`), finds the speech it said, and the voice is
+    not asked again."""
+    asked: list[str] = []
+    with tempfile.TemporaryDirectory() as folder:
+        for level in levels:
+            cached(
+                compiled(source, level, asked, Path(folder)),
+                "hello there",
+                Path(folder),
+            )
+    assert len(asked) == 1, f"asked {len(asked)} times for one line, at levels {levels}"
+
+
+def _say(
+    text: str, voice_id: str = "", settings: dict[str, str] | None = None
+) -> Speech:
+    """A service's voice: each voice (an ID of up to six of the letters a to j) says the text
+    at a level of its own."""
+    chosen = voice_id or (settings or {}).get("voice_id", "")
+    number = sum((ord(c) - 96) * 11**k for k, c in enumerate(chosen))
+    return silence(text, level=0.05 + number / 2_000_000)
+
+
+def _closing_over(settings: dict[str, str]) -> Callable[[str], Speech]:
+    def voice(text: str) -> Speech:
+        return _say(text, settings=settings)
+
+    return voice
+
+
+class _Holding:
+    """A voice as an object holding its settings."""
+
+    def __init__(self, settings: dict[str, str]) -> None:
+        self.settings = settings
+
+    def __call__(self, text: str) -> Speech:
+        return _say(text, settings=self.settings)
+
+
+class _Slotted:
+    """A voice as an object of slots."""
+
+    __slots__ = ("voice_id",)
+
+    def __init__(self, voice_id: str) -> None:
+        self.voice_id = voice_id
+
+    def __call__(self, text: str) -> Speech:
+        return _say(text, voice_id=self.voice_id)
+
+
+HELD: dict[str, Callable[[str], Callable[[str], Speech]]] = {
+    "a partial": lambda v: functools.partial(_say, voice_id=v),
+    "a closure over a dict": lambda v: _closing_over({"voice_id": v}),
+    "an object holding a dict": lambda v: _Holding({"voice_id": v}),
+    "an object of slots": lambda v: _Slotted(v),
+}
+"""Ways to build a voice from a setting (a service's voice ID), as user code writes them."""
+voice_ids = st.text("abcdefghij", min_size=1, max_size=6)
+
+
+@given(
+    kind=st.sampled_from(sorted(HELD)),
+    ids=st.lists(voice_ids, min_size=2, max_size=2, unique=True),
+)
+def test_voices_that_hold_different_settings_are_told_apart(
+    kind: str, ids: list[str]
+) -> None:
+    """Two voices that differ in a setting they hold say different speech: the cache answers
+    each with what it says, never with what the other said."""
+    with tempfile.TemporaryDirectory() as folder:
+        for voice_id in ids:
+            voice = HELD[kind](voice_id)
+            kept = cached(voice, "hello there", Path(folder))
+            said = voice("hello there")
+            assert np.array_equal(kept.samples, said.samples), (
+                f"{kind} {voice_id!r} was answered with another voice's speech"
+            )
+
+
+@dataclasses.dataclass(frozen=True)
+class _Service:
+    """A voice as a dataclass of its settings."""
+
+    api_key: str
+
+    def __call__(self, text: str) -> Speech:
+        return silence(text)
+
+
+class _Client:
+    """A voice as a client object holding its key."""
+
+    def __init__(self, api_key: str) -> None:
+        self.api_key = api_key
+
+    def __call__(self, text: str) -> Speech:
+        return silence(text)
+
+
+def _keyed(api_key: str) -> Callable[[str], Speech]:
+    def voice(text: str) -> Speech:
+        assert api_key
+        return silence(text)
+
+    return voice
+
+
+def _defaulted(api_key: str) -> Callable[[str], Speech]:
+    def voice(text: str, key: str = api_key) -> Speech:
+        assert key
+        return silence(text)
+
+    return voice
+
+
+BUILT: dict[str, Callable[[str], Callable[[str], Speech]]] = {
+    "a dataclass": _Service,
+    "a client object": _Client,
+    "a closure": _keyed,
+    "a default": _defaulted,
+    "a bound method": lambda key: _Client(key).__call__,
+}
+"""Ways a voice holds its API key, as user code writes them."""
+secrets = st.from_regex(r"sk-[A-Za-z0-9]{16}", fullmatch=True)
+
+
+@given(kind=st.sampled_from(sorted(BUILT)), secret=secrets)
+def test_a_voices_committed_record_holds_no_value_it_was_built_with(
+    kind: str, secret: str
+) -> None:
+    """The speech cache is a folder beside the scene, committed with it: what a voice was built
+    with (its API key, its settings) is not written there, by name or in a record."""
+    with tempfile.TemporaryDirectory() as folder:
+        cached(BUILT[kind](secret), "hello there", Path(folder))
+        written = [p.name for p in Path(folder).iterdir()] + [
+            p.read_text(encoding="utf-8") for p in Path(folder).glob("*.json")
+        ]
+    leaked = [w[:80] for w in written if secret in w]
+    assert not leaked, f"{kind}'s key is written: {leaked}"
+
+
+LINES = ["hello there", "one more line", "the end"]
+
+
+@given(
+    lines=st.lists(st.sampled_from(LINES), min_size=1, max_size=3, unique=True),
+    which=st.integers(0, 2),
+    deleted=st.sampled_from(
+        [
+            ("audio",),
+            ("record",),
+            ("audio", "record"),
+            ("garbled audio",),
+            ("cut record",),
+        ]
+    ),
+)
+def test_the_speech_cache_speaks_again_whatever_of_it_is_deleted_or_broken(
+    lines: list[str], which: int, deleted: tuple[str, ...]
+) -> None:
+    """What the cache keeps of a line is its audio and its record: deleting either (to have
+    the line spoken again), or finding either broken (a garbled file, a cut one), makes the
+    voice say that line again, and only that line."""
+    asked: list[str] = []
+
+    def voice(text: str) -> Speech:
+        asked.append(text)
+        return silence(text)
+
+    with tempfile.TemporaryDirectory() as folder:
+        own: dict[str, list[Path]] = {}
+        for line in lines:
+            before = set(Path(folder).iterdir())
+            cached(voice, line, Path(folder))
+            own[line] = sorted(set(Path(folder).iterdir()) - before)
+        target = lines[which % len(lines)]
+        for path in own[target]:
+            kind = "record" if path.suffix == ".json" else "audio"
+            if kind in deleted:
+                path.unlink()
+            elif f"garbled {kind}" in deleted:
+                path.write_bytes(b"not a sound")
+            elif f"cut {kind}" in deleted:
+                path.write_bytes(path.read_bytes()[:20])
+        asked.clear()
+        for line in lines:
+            assert cached(voice, line, Path(folder)).text == line
+    assert asked == [target]
+
+
+def test_a_generated_voice_requires_an_explicit_identity(tmp_path: Path) -> None:
+    """Unavailable source cannot silently alias another generated function's speech."""
+    scope = {"__name__": "generated", "speak": silence}
+    exec(compile("def voice(text): return speak(text)", "<generated>", "exec"), scope)
+    with pytest.raises(ValueError, match="readable source"):
+        cached(cast("Callable[[str], Speech]", scope["voice"]), "hello", tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
+def test_builtin_callables_require_an_explicit_identity(tmp_path: Path) -> None:
+    """A callable without Python source produces a useful error, not recursion."""
+    with pytest.raises(ValueError, match="readable source"):
+        cached(cast("Callable[[str], Speech]", str), "hello", tmp_path)
+
+
+@given(voice_id=voice_ids)
+def test_mapping_order_and_inherited_slots_preserve_a_voices_identity(
+    voice_id: str,
+) -> None:
+    """Equal settings have equal keys whatever their mapping order or slot owner."""
+    from manimgx.audio.sound import _identity
+
+    class Child(_Slotted):
+        __slots__ = ()
+
+    assert _identity(Child(voice_id)) == _identity(Child(voice_id))
+    assert _identity(Child(voice_id)) != _identity(Child(voice_id + "a"))
+    assert _identity(_Holding({"voice_id": voice_id, "language": "en"})) == _identity(
+        _Holding({"language": "en", "voice_id": voice_id})
+    )

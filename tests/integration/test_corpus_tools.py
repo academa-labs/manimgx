@@ -47,6 +47,29 @@ from tests.typecheck import check
 STORED = Frames((("before", 2),), Fraction(1, 5), ((Fraction(0), 2),))
 
 
+def test_rendering_in_a_case_keeps_the_selected_python_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changing to a case's directory preserves relative Python import paths."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "selected_source.py").write_text("VALUE = 37\n", encoding="utf-8")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", "source")
+    result = subprocess.run(
+        [sys.executable, "-c", "from selected_source import VALUE; print(VALUE)"],
+        cwd=case_dir,
+        env=engines.environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "37"
+
+
 def test_render_deadlines_reap_the_child_and_report_without_killing_pytest(
     tmp_path: Path,
 ) -> None:

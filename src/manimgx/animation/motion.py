@@ -36,7 +36,7 @@ from manimgx.animation.timeline import (
     Key,
     LaggedStart,
     Succession,
-    _gathered,
+    _Gathered,
 )
 from manimgx.constants import (
     DEFAULT_POINTWISE_FUNCTION_RUN_TIME,
@@ -64,6 +64,8 @@ from manimgx.settings import config
 from manimgx.typing import Point3D, Point3DLike, Vector3DLike
 
 if TYPE_CHECKING:
+    from fractions import Fraction
+
     from manimgx.drawing.paint import Paint
     from manimgx.mobjects.numbers import DecimalNumber
     from manimgx.scene import Scene
@@ -447,7 +449,7 @@ class _Fade(Transform):
     ) -> None:
         if not mobjects:
             raise ValueError("At least one mobject must be passed.")
-        mobject = mobjects[0] if len(mobjects) == 1 else _gathered(*mobjects)
+        mobject = mobjects[0] if len(mobjects) == 1 else _Gathered(*mobjects)
         self.point_target = shift is None and target_position is not None
         if self.point_target:
             center = (
@@ -886,15 +888,6 @@ class Rotate(Transform):
         return mob.get_center()
 
     def derive(self, source: Mobject) -> None:
-        self._about(source)
-        super().derive(source)
-
-    def rederive(self) -> None:
-        if self.model is not None:
-            self._about(self.model)
-        super().rederive()
-
-    def _about(self, source: Mobject) -> None:
         # the pivot, unless given, is a point of the object: read from it as it is now (as
         # its updaters have it, while they run beneath), and the path turns about it
         self.about_point = self._pivot(source)
@@ -902,6 +895,7 @@ class Rotate(Transform):
             self._path_func = path_along_circles(
                 self.path_arc, self.about_point, self.path_arc_axis
             )
+        super().derive(source)
 
 
 class ReplacementTransform(Transform):
@@ -1082,15 +1076,20 @@ class MoveToTarget[M: Mobject = Mobject](Transform[M]):
         super().__init__(mobject, mobject.target, **kwargs)
 
 
-class _ApplyMethod(Transform):
-    """Transform a mobject into what a call of one of its methods makes of it: what
-    `ApplyMethod` and the animations that apply one method (`Restore`, …) are made of.
+@deprecated(
+    "ApplyMethod(mobject.method, *args) is mobject.animate.method(*args): use .animate",
+    category=None,
+)
+class ApplyMethod(Transform):
+    """Transform a mobject into what a call of one of its methods makes of it: Manim
+    CE's older way to write [`.animate`][manimgx.Mobject.animate].
+    `ApplyMethod(square.scale, 2)` is `square.animate.scale(2)`.
 
     The call is carried out when the animation begins, on the mobject as it is then. Its
     arguments are taken as written, when the animation is made: a mobject among them
     that is not part of this one is a copy of it as it was then. The method's keywords
     go in a dict after its positional arguments (the animation's own keywords are its
-    options): `_ApplyMethod(square.scale, 2, {"about_edge": DL})`.
+    options): `ApplyMethod(square.scale, 2, {"about_edge": DL})`.
 
     Args:
         method: A method of a mobject, not called: `square.scale`.
@@ -1120,22 +1119,7 @@ class _ApplyMethod(Transform):
         super().__init__(method.__self__, keys=(None, call), **kwargs)
 
 
-@deprecated(
-    "ApplyMethod(mobject.method, *args) is mobject.animate.method(*args): use .animate",
-    category=None,
-)
-class ApplyMethod(_ApplyMethod):
-    """Transform a mobject into what a call of one of its methods makes of it: Manim
-    CE's older way to write [`.animate`][manimgx.Mobject.animate].
-    `ApplyMethod(square.scale, 2)` is `square.animate.scale(2)`.
-
-    Args:
-        method: A method of a mobject, not called: `square.scale`.
-        *args: The method's arguments; a dict at the end holds its keywords.
-    """
-
-
-class ApplyPointwiseFunction(_ApplyMethod):
+class ApplyPointwiseFunction(ApplyMethod):
     """Transform a mobject into its image under a function of a point.
 
     Each point p travels in a straight line to `function(p)`, and a path's curves are
@@ -1182,7 +1166,7 @@ class ApplyPointwiseFunction(_ApplyMethod):
     "FadeToColor(mobject, color) is mobject.animate.set_color(color): use .animate",
     category=None,
 )
-class FadeToColor(_ApplyMethod):
+class FadeToColor(ApplyMethod):
     """Change a mobject's color, gradually: `mobject.animate.set_color(color)`.
 
     Args:
@@ -1203,7 +1187,7 @@ class FadeToColor(_ApplyMethod):
     "ScaleInPlace(mobject, k) is mobject.animate.scale(k): use .animate",
     category=None,
 )
-class ScaleInPlace(_ApplyMethod):
+class ScaleInPlace(ApplyMethod):
     """Scale a mobject about its center: `mobject.animate.scale(scale_factor)`.
 
     Args:
@@ -1217,7 +1201,7 @@ class ScaleInPlace(_ApplyMethod):
         super().__init__(mobject.scale, scale_factor, **kwargs)
 
 
-class ShrinkToCenter(_ApplyMethod):
+class ShrinkToCenter(ApplyMethod):
     """Shrink a mobject to nothing at its center.
 
     It stays in the scene, shrunk to a point: pass `remover=True` to take it out when
@@ -1248,7 +1232,7 @@ class ShrinkToCenter(_ApplyMethod):
         super().__init__(mobject.scale, 0, **kwargs)
 
 
-class Restore(_ApplyMethod):
+class Restore(ApplyMethod):
     """Transform a mobject back into the state it saved.
 
     Save the state first with [`save_state`][manimgx.Mobject.save_state]; the animation
@@ -1313,10 +1297,7 @@ class ApplyFunction(Transform):
         **kwargs: Unpack[TransformOptions],
     ) -> None:
         self.function = function
-        super().__init__(mobject, keys=(None, self._apply), **kwargs)
-
-    def _apply(self, copy: Mobject) -> Mobject:
-        return self.function(copy)
+        super().__init__(mobject, keys=(None, function), **kwargs)
 
 
 class ApplyMatrix(ApplyPointwiseFunction):
@@ -1365,7 +1346,7 @@ class ApplyMatrix(ApplyPointwiseFunction):
         )
 
 
-class ApplyComplexFunction(_ApplyMethod):
+class ApplyComplexFunction(ApplyMethod):
     """Transform a mobject into its image under a function of a complex number.
 
     Each point (x, y, z) is taken as x + iy and travels in a straight line to its image
@@ -1432,7 +1413,7 @@ class CyclicReplace(Transform):
         self.group = (
             mobjects[0]
             if len(mobjects) == 1 and isinstance(mobjects[0], Group)
-            else _gathered(*mobjects)
+            else _Gathered(*mobjects)
         )
         kwargs.setdefault("path_arc", 90 * DEGREES)
         super().__init__(self.group, keys=(None, self._cycled), **kwargs)
@@ -1654,7 +1635,9 @@ class UpdateFromFunc[M: Mobject = Mobject](Animation[M]):
     """Call a function on a mobject at every frame, for the animation's run time.
 
     The function gets the mobject, not the progress: use it to keep a mobject up to date
-    while other animations play. The mobject's own updaters act on it directly
+    while other animations play. It runs once a frame, as a per-frame updater does (with
+    the frame's other relations, once what takes time is there), and once more as the
+    animation ends. The mobject's own updaters act on it directly
     (`suspend_mobject_updating` is False).
 
     Args:
@@ -1693,7 +1676,12 @@ class UpdateFromFunc[M: Mobject = Mobject](Animation[M]):
         super().__init__(mobject, **kwargs)
 
     def interpolate_mobject(self, alpha: float) -> None:
-        self.update_function(self.mobject)
+        pass  # its function runs at its frames and its end, as a relation (`_relate`)
+
+    def _relate(self, t: Fraction) -> None:
+        # once a frame (its end is one): on the mobject as it is, beneath any play holding it
+        mobject = self.mobject
+        mobject._beneath(lambda: self.update_function(mobject))
 
 
 class UpdateFromAlphaFunc[M: Mobject = Mobject](Animation[M]):
@@ -1745,7 +1733,8 @@ class MaintainPositionRelativeTo(Animation):
     """Keep a mobject at the same offset from another's center, at every frame.
 
     The offset is the one between their centers when the animation is made; play it
-    together with the animations that move `tracked_mobject`.
+    together with the animations that move `tracked_mobject`. It keeps it at its frames and
+    its end, once the instant shows everything else, whatever order the play lists them in.
 
     Args:
         mobject: The mobject to keep in place.
@@ -1783,8 +1772,14 @@ class MaintainPositionRelativeTo(Animation):
         super().__init__(mobject, **kwargs)
 
     def interpolate_mobject(self, alpha: float) -> None:
-        self.mobject.shift(
-            self.tracked_mobject.get_center() - self.mobject.get_center() + self.diff
+        pass  # it keeps its place at its frames and its end, as a relation (`_relate`)
+
+    def _relate(self, t: Fraction) -> None:
+        mobject, tracked = self.mobject, self.tracked_mobject
+        mobject._beneath(
+            lambda: mobject.shift(
+                tracked.get_center() - mobject.get_center() + self.diff
+            )
         )
 
 
@@ -1817,7 +1812,7 @@ class Rotating(Rotate):
     """
 
     # timed as CE's Rotating (5 s, linear, a full turn): a tween along circles, not a
-    # procedure (perth-e9's)
+    # procedure
     defaults: ClassVar[AnimationOptions] = {"run_time": 5.0, "rate_func": linear}
 
     def __init__(
@@ -1837,8 +1832,12 @@ class MoveAlongPath(Transform):
 
     Its center travels along `path` from the path's start to its end, at an even speed
     along its length (as eased by the rate function), and the mobject keeps its shape.
-    It starts at the path's start, wherever it was. Its own updaters act on it directly
-    while it moves (`suspend_mobject_updating` is False).
+    It starts at the path's start, wherever it was. The path is read as it is at each
+    frame: a path that moves, turns or changes while the mobject travels along it (another
+    animation listed before it, or its updaters) carries the mobject with it, and the
+    mobject ends at the path's end as it is then. Past the path's ends (a rate function
+    that overshoots or backs up), its end curves run on. Its own updaters act on it
+    directly while it moves (`suspend_mobject_updating` is False).
 
     Args:
         mobject: The mobject to move.
@@ -1860,24 +1859,55 @@ class MoveAlongPath(Transform):
         ```
     """
 
-    # a tween whose path is the curve itself, not a procedure (perth-e9's)
+    # a tween along the curve itself: its updaters run on the mobject itself, as CE's do
     defaults: ClassVar[AnimationOptions] = {"suspend_mobject_updating": False}
 
     def __init__(
         self, mobject: Mobject, path: VMobject, **kwargs: Unpack[TransformOptions]
     ) -> None:
         self.path = path
-        kwargs["path_func"] = Path(steps=(path.point_from_proportion,))
+        kwargs["path_func"] = Path(steps=(self._along,))
         super().__init__(
             mobject,
             keys=tuple(
-                (
-                    lambda m, end=end: m.move_to(path.point_from_proportion(end))
-                    for end in (0, 1)
-                )
+                (lambda m, end=end: m.move_to(self._along(end))) for end in (0, 1)
             ),
             **kwargs,
         )
+
+    def _along(self, alpha: float) -> Point3D:
+        """The point a proportion `alpha` of the way along the path, by its length, as the
+        path is now; past its ends, on its end curves run on, at the pace of their ends."""
+        path = self.path
+        if 0 <= alpha <= 1:
+            return path.point_from_proportion(alpha)
+        curves = path.get_num_curves()
+        s, u = path._geometry.pace()
+        if alpha > 1:
+            at = u[-1] + (alpha - 1) * (u[-1] - u[-2]) / (s[-1] - s[-2])
+            return path.get_nth_curve_function(curves - 1)(at - (curves - 1))
+        return path.get_nth_curve_function(0)(u[0] + alpha * (u[1] - u[0]) / s[1])
+
+    def _follows(self) -> list[Mobject]:
+        return [*super()._follows(), self.path]
+
+    def derive(self, source: Mobject) -> None:
+        self._placed()
+        super().derive(source)
+
+    def _placed(self) -> None:
+        """Read the path as it is now: its motion is along it from now on (G(1) afresh)."""
+        self._path_func = Path(steps=(self._along,))
+        self.__dict__.pop("motion", None)
+
+    def _refollow(self) -> None:
+        # the path as it is now (another part listed before moved it, or its updaters): its
+        # keyframes and its rest are placed on it again, and its motion with them
+        self._placed()
+        for frame, end in zip(self.frames, (0, 1), strict=True):
+            frame.move_to(self._along(end))
+        if self._rest is not None and (end := self._resting_at(1)) is not None:
+            self._rest.move_to(self._along(end))  # the end its last frame shows
 
 
 class Homotopy(Animation):
@@ -2204,6 +2234,10 @@ class Wiggle(Animation):
         )
         super().__init__(mobject, **kwargs)
 
+    @classmethod
+    def _shows(cls) -> bool:
+        return True  # its frames are of its first keyframe: a view of the mobject
+
     def interpolate_mobject(self, alpha: float) -> None:
         # the pivot: the whole's center as it began, once a frame (not the center of a
         # mobject half of whose parts this frame has wiggled already)
@@ -2423,7 +2457,7 @@ class ShowSubmobjectsOneByOne(ShowIncreasingSubsets):
         int_func: Callable[[float], float] = np.ceil,
         **kwargs: Unpack[AnimationOptions],
     ) -> None:
-        super().__init__(_gathered(*group), int_func=int_func, **kwargs)
+        super().__init__(_Gathered(*group), int_func=int_func, **kwargs)
 
     def update_submobject_list(self, index: int) -> None:
         self._hidden = [m for i, m in enumerate(self.all_submobs) if i != index - 1]
@@ -2564,8 +2598,6 @@ class TypeWithCursor(AddTextLetterByLetter):
     def begin(self) -> None:
         self.y_cursor = self.cursor.get_y()
         self.cursor_start = self.mobject.get_center()
-        if self.keep_cursor_y:
-            self.cursor.set_y(self.y_cursor)
         self.mobject.add(self.cursor)
         super().begin()
 
@@ -2675,6 +2707,10 @@ class SpiralIn(Animation):
     ) -> None:
         self.scale_factor, self.fade_in_fraction = scale_factor, fade_in_fraction
         super().__init__(shapes, **kwargs)
+
+    @classmethod
+    def _shows(cls) -> bool:
+        return True  # its frames are of its first keyframe: a view of the mobject
 
     def interpolate_mobject(self, alpha: float) -> None:
         alpha = self.rate_func(alpha)

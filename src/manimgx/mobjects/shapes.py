@@ -46,7 +46,6 @@ from manimgx.drawing.geometry import (
     _to_path,
     angle_between_vectors,
     angle_of_vector,
-    cartesian_to_spherical,
     defined,
     line_intersection,
     normalize,
@@ -74,6 +73,7 @@ from manimgx.mobject import (
     VGroup,
     VMobject,
     _append_path,
+    _unscaled,
     prototype,
     style_defaults,
 )
@@ -268,8 +268,6 @@ class TipableVMobject(VMobject):
             `stroke_color` are the path's color unless given here.
     """
 
-    _tip_positioned = False
-
     tip: ArrowTip
     """The tip at the path's end, once [add_tip][manimgx.TipableVMobject.add_tip] has
     made one."""
@@ -429,12 +427,19 @@ class TipableVMobject(VMobject):
             The tip, in place.
         """
         anchor = self.get_start() if at_start else self.get_end()
-        angles = cartesian_to_spherical(self._toward(at_start) - anchor)
-        turn = rotation_matrix(angles[1] - PI - tip.tip_angle, OUT)
-        if not self._tip_positioned:
-            axis = np.array([np.sin(angles[1]), -np.cos(angles[1]), 0])
-            turn = rotation_matrix(-angles[2] + PI / 2, axis) @ turn
-            self._tip_positioned = True
+
+        def frame(vector: np.ndarray) -> np.ndarray:
+            # a direction, a side of it level with the plane (up, for a vertical one), and
+            # their cross: the frame a turn maps the tip's onto the path's with
+            axis = normalize(vector)
+            x, y = axis[:2]
+            length = float(np.hypot(x, y))
+            side = np.array([-y / length, x / length, 0]) if length else UP
+            return np.column_stack((axis, side, np.cross(axis, side)))
+
+        turn = (
+            frame(anchor - self._toward(at_start)) @ frame(tip.tip_point - tip.base).T
+        )
         # one rigid map, x ↦ R(x − tip point) + anchor: the tip turns to point along the curve,
         # and its tip point, a point of its own, lands on the curve's end (CE's turns about the
         # center and its move are this map)
@@ -1972,34 +1977,23 @@ class Rectangle(Polygon):
         """The lines of its grid: a group of the vertical lines, then one of the
         horizontal lines, those it has; a submobject, unless it is empty (without a
         grid)."""
-        if grid_xstep:
-            grid_xstep = abs(grid_xstep)
-            count = int(width / grid_xstep)
-            grid = VGroup(
-                *(
-                    Line(
-                        v[1] + i * grid_xstep * RIGHT,
-                        v[1] + i * grid_xstep * RIGHT + height * DOWN,
-                        color=line_color,
+        for step, span, along, length, across in (
+            (grid_xstep, width, RIGHT, height, DOWN),
+            (grid_ystep, height, DOWN, width, RIGHT),
+        ):
+            if step:
+                step = abs(step)
+                grid = VGroup(
+                    *(
+                        Line(
+                            v[1] + i * step * along,
+                            v[1] + i * step * along + length * across,
+                            color=line_color,
+                        )
+                        for i in range(1, int(span / step))
                     )
-                    for i in range(1, count)
                 )
-            )
-            self.grid_lines.add(grid)
-        if grid_ystep:
-            grid_ystep = abs(grid_ystep)
-            count = int(height / grid_ystep)
-            grid = VGroup(
-                *(
-                    Line(
-                        v[1] + i * grid_ystep * DOWN,
-                        v[1] + i * grid_ystep * DOWN + width * RIGHT,
-                        color=line_color,
-                    )
-                    for i in range(1, count)
-                )
-            )
-            self.grid_lines.add(grid)
+                self.grid_lines.add(grid)
         if self.grid_lines:
             self.add(self.grid_lines)
 
@@ -3406,6 +3400,9 @@ class Arrow(Line):
         """
         if self.get_length() == 0:
             return self
+        if _unscaled(scale_factor):  # nothing moves; its width is set from its length
+            self._set_stroke_width_from_length()
+            return self
         if scale_tips:
             super().scale(scale_factor, scale_stroke, **kwargs)
             self._set_stroke_width_from_length()
@@ -3414,13 +3411,13 @@ class Arrow(Line):
         order = list(self.submobjects)  # the tips come back to their places among them
         old_tips = self.pop_tips()
         super().scale(scale_factor, scale_stroke, **kwargs)
-        self._set_stroke_width_from_length()
         for tip, at_start in zip(
             old_tips, (False, True) if has_tip else (True,), strict=False
         ):
             self.add_tip(tip=tip, at_start=at_start)
         place = {id(m): i for i, m in enumerate(order)}
         self.submobjects.sort(key=lambda m: place.get(id(m), len(order)))
+        self._set_stroke_width_from_length()
         return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)

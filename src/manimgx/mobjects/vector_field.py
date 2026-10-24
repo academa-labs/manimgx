@@ -13,11 +13,13 @@ __all__ = ["ArrowVectorField", "StreamLines", "VectorField"]
 import itertools as it
 import random
 from collections.abc import Callable, Sequence
+from fractions import Fraction
 from math import ceil, floor, isfinite
 from typing import TYPE_CHECKING, Self, Unpack
 
 import numpy as np
 
+from manimgx.animation import clock
 from manimgx.animation.easing import ease_out_sine, linear
 from manimgx.animation.motion import (
     Create,
@@ -454,7 +456,16 @@ class StreamLine(VMobject):
     """One stream line and its current phase, in the field's time."""
 
     anim: Animation
-    time: float
+    _phase: Fraction  # exact: the flow comes to one phase however its time is split
+
+    @property
+    def time(self) -> float:
+        """Its current phase, in the field's time."""
+        return float(self._phase)
+
+    @time.setter
+    def time(self, value: float) -> None:
+        self._phase = clock.rational(value)
 
 
 class StreamLines(VectorField):
@@ -717,6 +728,7 @@ class StreamLines(VectorField):
             for line in self.stream_lines:
                 line.anim.finish()
         kwargs.setdefault("rate_func", linear)
+        speed = clock.rational(flow_speed)
         for line in self.stream_lines:
             line.anim = line_animation_class(
                 line,
@@ -729,11 +741,12 @@ class StreamLines(VectorField):
             self.add(line.anim.mobject)
 
         def updater(mob: StreamLines, dt: float) -> None:
+            step, cycle = clock.exact(dt) * speed, clock.rational(mob.virtual_time)
             for line in mob.stream_lines:
-                line.time += dt * flow_speed
-                if line.time >= mob.virtual_time:
-                    line.time %= mob.virtual_time
-                line.anim.interpolate(max(line.time, 0) / mob.virtual_time)
+                line._phase += step
+                if line._phase >= cycle:
+                    line._phase %= cycle
+                line.anim.interpolate(float(max(line._phase, 0) / cycle))
 
         self.add_updater(flow(updater), call_updater=True)
         self.flow_animation = updater

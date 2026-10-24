@@ -246,15 +246,17 @@ def test_a_simulation_does_not_depend_on_the_frame_rate(
 
 
 class Tracing(m.Scene):
-    """A dot a tween carries round an arc, and the path it traces; at every instant, how far
-    the path's end is from the dot."""
+    """A dot two tweens carry round an arc, a quarter turn a second, and the path it traces; at
+    every instant, how far the path's end is from the dot."""
 
     def construct(self) -> None:
         self.gaps: list[float] = []
         self.dot = m.Dot(m.RIGHT * 2)
         self.trace = m.TracedPath(self.dot.get_center)
         self.add(self.dot, self.trace)
-        self.play(m.Rotate(self.dot, m.PI, about_point=m.ORIGIN), rate_func=m.linear)
+        for _ in range(2):
+            turn = m.Rotate(self.dot, m.PI / 2, about_point=m.ORIGIN)
+            self.play(turn, rate_func=m.linear)
 
     def _instant(
         self,
@@ -272,16 +274,56 @@ class Tracing(m.Scene):
 def test_a_traced_path_is_the_same_at_any_frame_rate(
     fps: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The path a point traces holds where it was at every tick — the same points at any frame
-    rate — and at a frame between two ticks runs on to where it is: never behind it."""
+    """The path a point traces holds where it was at every tick, once (the same points at any
+    frame rate, where one play ends and the next begins too), and at a frame between two ticks
+    runs on to where it is: never behind it."""
     monkeypatch.setattr(config, "frame_rate", fps)
     scene = Tracing()
     scene.render()
     assert max(scene.gaps) < 1e-12
     h = 1 / config.simulation_rate
-    angles = np.pi * np.arange(config.simulation_rate + 1) * h
+    angles = np.pi / 2 * np.arange(2 * config.simulation_rate + 1) * h
     ticks = np.stack([2 * np.cos(angles), 2 * np.sin(angles)], axis=1)
     assert scene.trace.points[3::4, :2] == pytest.approx(ticks, abs=1e-12)
+
+
+class Restyled(m.Scene):
+    """A dot an updater carries right, a unit a second, and the path it traces; a play
+    restyles the path while the dot goes on (the animation runs the path's updaters on a
+    copy), or nothing plays it."""
+
+    def __init__(self, played: bool, dissipating_time: float | None) -> None:
+        super().__init__()
+        self.played, self.dissipating_time = played, dissipating_time
+
+    def construct(self) -> None:
+        dot = m.Dot().add_updater(lambda d, dt: d.shift(m.RIGHT * dt))
+        self.trace = m.TracedPath(
+            dot.get_center, dissipating_time=self.dissipating_time
+        )
+        self.add(dot, self.trace)
+        if self.played:
+            self.play(self.trace.animate.set_stroke(width=6))
+        else:
+            self.wait(1)
+        self.wait(0.25)  # (what dissipates keeps what was traced as the play ended)
+
+
+@pytest.mark.parametrize("dissipating_time", [None, 0.5])
+@pytest.mark.parametrize("fps", [10, 24, 25, 30, 60])
+def test_a_traced_path_traces_on_beneath_a_play_of_it(
+    fps: int, dissipating_time: float | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While a play animates a traced path, the copy that runs its updaters traces the same
+    point, once everything else is at each tick, and hands back what it traced and when: the
+    path holds exactly what it holds when nothing plays it, dissipating too."""
+    monkeypatch.setattr(config, "frame_rate", fps)
+    paths = []
+    for played in (True, False):
+        scene = Restyled(played, dissipating_time)
+        scene.render()
+        paths.append(scene.trace.points)
+    np.testing.assert_array_equal(paths[0], paths[1])
 
 
 class Lifting(m.Scene):

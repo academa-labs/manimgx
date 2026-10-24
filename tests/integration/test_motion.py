@@ -17,6 +17,7 @@ Each story is told with every frame computed, and probed at every instant the sc
 import math
 from collections.abc import Callable
 from fractions import Fraction
+from itertools import pairwise
 
 import numpy as np
 import pytest
@@ -90,8 +91,7 @@ def test_animate_chain_turns_about_its_moving_center() -> None:
 CORNERS = (m.UL, m.UR, m.DR, m.DL)
 
 
-@pytest.mark.parametrize("fast", [False, True])
-def test_animate_takes_its_arguments_as_written(fast: bool) -> None:
+def test_animate_takes_its_arguments_as_written() -> None:
     """Four dots on the corners, each moved to the next one's corner in turn."""
     dots = [m.Dot(corner) for corner in CORNERS]
 
@@ -101,7 +101,7 @@ def test_animate_takes_its_arguments_as_written(fast: bool) -> None:
         moves = (dot.animate.move_to(to) for dot, to in zip(dots, after, strict=True))
         scene.play(m.Succession(*moves), run_time=1)
 
-    scenes.record(cycle, fast=fast)
+    scenes.record(cycle)
     for dot, corner in zip(dots, CORNERS[1:] + CORNERS[:1], strict=True):
         assert dot.get_center() == pytest.approx(corner, abs=1e-9)
 
@@ -157,8 +157,10 @@ def test_a_fade_and_a_move_compose() -> None:
         assert (x, opacity) == pytest.approx((float(t), float(t)), abs=1e-9)
 
 
-def test_a_tween_that_begins_later_takes_the_object_over() -> None:
-    """The turn begins halfway through the shift: from then on the square turns where it is."""
+def test_a_tween_that_begins_later_composes_with_the_one_running() -> None:
+    """The turn begins halfway through the shift: from then on the square turns as it moves
+    on, about its center; it ends moved and turned, whatever the lag (with none, the two are
+    played together)."""
     seen = told(
         lambda s: [
             m.LaggedStart(
@@ -168,11 +170,15 @@ def test_a_tween_that_begins_later_takes_the_object_over() -> None:
         pose,
     )
     poses = [seen[t] for t in sorted(seen)]
-    turning = [p for p in poses if abs(p[3] - 180) > 1e-6]
-    assert turning, "the square turns"
-    for x, y, side, _ in turning:
-        assert (x, y, side) == pytest.approx((turning[0][0], 0, 2), abs=1e-9)
-    assert poses[-1][3] == pytest.approx(270, abs=1e-6)
+    xs, turns = [p[0] for p in poses], [p[3] for p in poses]
+    assert all(a <= b + 1e-12 for a, b in pairwise(xs)), "it moves on, never back"
+    assert all(a <= b + 1e-9 for a, b in pairwise(turns)), "it turns on, never back"
+    assert any(x < 2 - 1e-6 and turn > 180 + 1e-6 for x, _, _, turn in poses), (
+        "it turns while it moves"
+    )
+    for _, y, side, _ in poses:
+        assert (y, side) == pytest.approx((0, 2), abs=1e-9)
+    assert poses[-1] == pytest.approx((2, 0, 2, 270), abs=1e-6)
 
 
 def stroke(square: m.Square) -> tuple[float, ...]:

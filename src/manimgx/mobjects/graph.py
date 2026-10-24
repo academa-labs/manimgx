@@ -61,11 +61,6 @@ def _nx_layout(
     return {k: np.asarray(p, dtype=float) for k, p in layout(graph, **kwargs).items()}
 
 
-def _make(maker: Maker, config_: Config) -> Mobject:
-    """A vertex or edge from its class and its config (the class checks the keywords)."""
-    return maker(**config_)
-
-
 class TipConfig(TypedDict, total=False):
     """The tip of a [DiGraph][manimgx.DiGraph]'s edge, given as `"tip_config"` in its
     `edge_config`: for every edge, or an edge's own (see
@@ -578,7 +573,7 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
                 else {}
             )
         if labels_by_vertex and vertex_type is Dot:
-            vertex_type = LabeledDot
+            vertex_type = cast("Maker", LabeledDot)
         self.default_vertex_config, own = _split(vertex_config, vertices)
         vertex_configs: dict[V, Config] = {
             v: own.get(v, copy(self.default_vertex_config)) for v in vertices
@@ -586,7 +581,7 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
         for v, label in labels_by_vertex.items():
             vertex_configs[v]["label"] = label
         self.vertices: dict[V, Mobject] = {
-            v: _make(vertex_type, vertex_configs[v]) for v in vertices
+            v: vertex_type(**vertex_configs[v]) for v in vertices
         }
         """The vertices' mobjects, by vertex."""
         self.vertices.update(vertex_mobjects or {})
@@ -599,10 +594,12 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
             root_vertex=root_vertex,
         )
         self.default_edge_config, own_edges = _split(edge_config, edges)
-        self._edge_config: dict[Edge[V], Config] = {
-            e: own_edges.get(e, copy(self.default_edge_config)) for e in edges
+        self.edges = {
+            (u, v): self._make_edge(
+                edge_type, u, v, own_edges.get((u, v), self.default_edge_config)
+            )
+            for u, v in edges
         }
-        self._populate_edge_dict(edges, edge_type)
         self.add(*self.vertices.values())
         self.add(*self.edges.values())
         self.add_updater(self.update_edges)
@@ -627,12 +624,6 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
         """
         raise NotImplementedError("To be implemented in concrete subclasses")
 
-    def _populate_edge_dict(self, edges: Iterable[Edge[V]], edge_type: Maker) -> None:
-        self.edges = {
-            (u, v): self._make_edge(edge_type, u, v, self._edge_config[u, v])
-            for u, v in edges
-        }
-
     def __getitem__(  # ty: ignore[invalid-method-override]  # CE: a graph is indexed by vertex and edge, not position
         self, k: V | Edge[V]
     ) -> Mobject:
@@ -642,58 +633,7 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
             return self.edges[cast("Edge[V]", k)]
         raise ValueError(f"Could not find {k} in vertices or edges")
 
-    def _create_vertex(
-        self,
-        vertex: V,
-        position: Point3DLike | None = None,
-        label: bool | Mobject = False,
-        label_fill_color: ParsableManimColor = BLACK,
-        vertex_type: Maker = Dot,
-        vertex_config: Config | None = None,
-        vertex_mobject: Mobject | None = None,
-    ) -> tuple[V, Point3D, Mobject]:
-        np_position: Point3D = (
-            self.get_center() if position is None else np.asarray(position, dtype=float)
-        )
-        if vertex in self.vertices:
-            raise ValueError(
-                f"Vertex identifier '{vertex}' is already used for a vertex in this"
-                " graph."
-            )
-        if label is True:
-            label_mob: Mobject | None = MathTex(str(vertex), color=label_fill_color)
-        else:
-            label_mob = label if isinstance(label, Mobject) else None
-        config_ = copy(self.default_vertex_config) | (vertex_config or {})
-        if label_mob is not None:
-            config_["label"] = label_mob
-            if vertex_type is Dot:
-                vertex_type = LabeledDot
-        mob = (
-            vertex_mobject
-            if vertex_mobject is not None
-            else _make(vertex_type, config_)
-        )
-        mob.move_to(np_position)
-        return vertex, np_position, mob
-
-    def _add_created_vertex(
-        self,
-        vertex: V,
-        position: Point3DLike,
-        vertex_mobject: Mobject,
-    ) -> Mobject:
-        if vertex in self.vertices:
-            raise ValueError(
-                f"Vertex identifier '{vertex}' is already used for a vertex in this"
-                " graph."
-            )
-        self.vertices[vertex] = vertex_mobject
-        vertex_mobject.move_to(position)
-        self.add(vertex_mobject)
-        return vertex_mobject
-
-    def _create_vertices(
+    def _add_vertices(
         self,
         *vertices: V,
         positions: Mapping[V, Point3DLike] | None = None,
@@ -702,27 +642,33 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
         vertex_type: Maker = Dot,
         vertex_config: Configs | None = None,
         vertex_mobjects: Mapping[V, Mobject] | None = None,
-    ) -> list[tuple[V, Point3D, Mobject]]:
+    ) -> Group:
         graph_center = self.get_center()
-        places = {v: (positions or {}).get(v, graph_center) for v in vertices}
-        marks = {
-            v: labels if isinstance(labels, bool) else labels.get(v, False)
-            for v in vertices
-        }
         shared, own = _split(vertex_config, vertices)
-        base = copy(self.default_vertex_config) | shared
-        return [
-            self._create_vertex(
-                v,
-                position=places[v],
-                label=marks[v],
-                label_fill_color=label_fill_color,
-                vertex_type=vertex_type,
-                vertex_config=own.get(v, copy(base)),
-                vertex_mobject=(vertex_mobjects or {}).get(v),
-            )
-            for v in vertices
-        ]
+        added = []
+        for v in vertices:
+            if v in self.vertices:
+                raise ValueError(
+                    f"Vertex identifier '{v}' is already used for a vertex in this"
+                    " graph."
+                )
+            label = labels if isinstance(labels, bool) else labels.get(v, False)
+            if label is True:
+                label = MathTex(str(v), color=label_fill_color)
+            config_ = self.default_vertex_config | own.get(v, shared)
+            maker = vertex_type
+            if isinstance(label, Mobject):
+                config_["label"] = label
+                if maker is Dot:
+                    maker = cast("Maker", LabeledDot)
+            mob = (vertex_mobjects or {}).get(v)
+            if mob is None:
+                mob = maker(**config_)
+            mob.move_to((positions or {}).get(v, graph_center))
+            self.vertices[v] = mob
+            self.add(mob)
+            added.append(mob)
+        return Group(*added)
 
     def add_vertices(self, *vertices: V, **kwargs: Unpack[VertexOptions[V]]) -> Group:
         """Add vertices to the graph, without edges.
@@ -760,12 +706,7 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
                     self.play(m.Create(graph.add_edges((1, 4), (3, 4))))
             ```
         """
-        return Group(
-            *(
-                self._add_created_vertex(*v)
-                for v in self._create_vertices(*vertices, **kwargs)
-            )
-        )
+        return self._add_vertices(*vertices, **kwargs)
 
     def _remove_vertex(self, vertex: V) -> Group:
         if vertex not in self.vertices:
@@ -773,8 +714,6 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
                 f"The graph does not contain a vertex with identifier '{vertex}'"
             )
         edge_tuples = [e for e in self.edges if vertex in e]
-        for e in edge_tuples:
-            self._edge_config.pop(e)
         to_remove = [self.edges.pop(e) for e in edge_tuples]
         to_remove.append(self.vertices.pop(vertex))
         self.remove(*to_remove)
@@ -811,17 +750,6 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
         """
         return Group(*(m for v in vertices for m in self._remove_vertex(v).submobjects))
 
-    def _add_edge(
-        self, edge: Edge[V], edge_type: Maker = Line, edge_config: Config | None = None
-    ) -> Group:
-        u, v = edge
-        config_ = self.default_edge_config.copy() | (edge_config or {})
-        self._edge_config[u, v] = config_
-        edge_mobject = self._make_edge(edge_type, u, v, config_)
-        self.edges[u, v] = edge_mobject
-        self.add(edge_mobject)
-        return Group(edge_mobject)
-
     def add_edges(
         self,
         *edges: Edge[V],
@@ -849,24 +777,22 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
             A new group of the new mobjects, the vertices added and then the edges.
         """
         shared, own = _split(edge_config, edges)
-        base = self.default_edge_config.copy() | shared
+        base = self.default_edge_config | shared
         new_vertices = [
             v for v in dict.fromkeys(it.chain(*edges)) if v not in self.vertices
         ]
         added = list(self.add_vertices(*new_vertices, **kwargs))
-        for edge in edges:
-            added.extend(
-                self._add_edge(
-                    edge, edge_type=edge_type, edge_config=base | own.get(edge, {})
-                )
-            )
+        for u, v in edges:
+            edge = self._make_edge(edge_type, u, v, base | own.get((u, v), {}))
+            self.edges[u, v] = edge
+            self.add(edge)
+            added.append(edge)
         return Group(*added)
 
     def _remove_edge(self, edge: Edge[V]) -> Mobject:
         if edge not in self.edges:
             raise ValueError(f"The graph does not contain a edge '{edge}'")
         edge_mobject = self.edges.pop(edge)
-        self._edge_config.pop(edge, None)
         self.remove(edge_mobject)
         return edge_mobject
 
@@ -1011,15 +937,6 @@ class GenericGraph[V: Hashable = Hashable](VMobject):
             self[v].move_to(padded[v])
         return self
 
-    def _edge_ends(self, edge: Edge[V]) -> tuple[float, float]:
-        """An edge's buffer and bend, as its config sets them (CE read them from the wrong
-        dictionary, so edges lost both at the first update)."""
-        config_ = self._edge_config.get(edge, {})
-        buff, path_arc = config_.get("buff", 0), config_.get("path_arc", 0)
-        return (buff if isinstance(buff, (int, float)) else 0), (
-            path_arc if isinstance(path_arc, (int, float)) else 0
-        )
-
 
 class Graph[V: Hashable = Hashable](GenericGraph[V]):
     """An undirected graph: vertices joined by edges, laid out automatically or by hand;
@@ -1067,12 +984,11 @@ class Graph[V: Hashable = Hashable](GenericGraph[V]):
     def update_edges(self, graph: Mobject) -> Self:
         for (u, v), edge in self.edges.items():
             if isinstance(edge, Line):
-                buff, path_arc = self._edge_ends((u, v))
                 edge.set_points_by_ends(
                     self[u].get_center(),
                     self[v].get_center(),
-                    buff=buff,
-                    path_arc=path_arc,
+                    buff=edge.buff,
+                    path_arc=edge.path_arc,
                 )
         return self
 
@@ -1134,7 +1050,8 @@ class DiGraph[V: Hashable = Hashable](GenericGraph[V]):
         for (u, v), edge in self.edges.items():
             if isinstance(edge, Line):
                 tip = edge.pop_tips()[0]
-                buff, path_arc = self._edge_ends((u, v))
-                edge.set_points_by_ends(self[u], self[v], buff=buff, path_arc=path_arc)
+                edge.set_points_by_ends(
+                    self[u], self[v], buff=edge.buff, path_arc=edge.path_arc
+                )
                 edge.add_tip(tip)
         return self

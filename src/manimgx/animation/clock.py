@@ -11,6 +11,10 @@ from collections.abc import Callable
 from fractions import Fraction
 from itertools import pairwise
 from math import inf, nextafter, ulp
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from manimgx.mobject import Mobject
 
 
 def _rounding_cell(value: float) -> tuple[Fraction, Fraction, bool]:
@@ -62,8 +66,29 @@ stepping: bool = True
 """Do simulated updaters (time-based, not flows) step at `now`? At every instant — unless the
 scene is simulating: then at the ticks of its simulation clock and at its events only."""
 framing: bool = True
-"""Do per-frame updaters run at `now`? At frames and events — not at a tick between frames: an
-updater that takes no time is called once a frame, whatever else the scene simulates."""
+"""Do per-frame updaters run at `now`? In a frame's (or an end's) relations (`relating`), and
+between instants; not where time alone is brought (a tick, an event, a frame's first phase):
+an updater that takes no time is called once a frame, whatever else the scene simulates."""
+relating: bool = False
+"""Is the instant being computed in its relations, a frame's (or an end's) second phase, where
+the per-frame updaters run and nothing that takes time does?"""
+step: Fraction | None = None
+"""The time a time-based updater is being brought forward by, exactly (its `dt` is this, as a
+float), while the scene brings it on scene time; None otherwise (a warped clock's step, an
+updater run by hand)."""
+
+
+def exact(dt: float) -> Fraction:
+    """The time an updater was handed as `dt`, exactly: the step it is being brought forward by,
+    where the scene knows it; else the simplest rational the float is (see `rational`)."""
+    return step if step is not None else rational(dt)
+
+
+recorders: "dict[tuple[int, int, int], tuple[Mobject, Callable[..., object]]] | None" = None
+"""Where the instant being computed gathers the recorders it brings to `now`, each once (by the
+ids of the mobject and the recorder, and which of its entries in the mobject's updaters it
+is), to run them once everything else is there; None: a recorder brought to `now` runs at
+once, as the simulated updater it is."""
 
 
 class Clock:
@@ -101,11 +126,9 @@ class Clock:
                 local += b - a
             else:
                 start, duration, span, progress = ruling
-                if duration > 0:
-                    local += span * (
-                        progress((b - start) / duration)
-                        - progress((a - start) / duration)
-                    )
+                local += span * (
+                    progress((b - start) / duration) - progress((a - start) / duration)
+                )
         return local
 
 
@@ -114,6 +137,6 @@ speed = Clock()
 
 def reset() -> None:
     """A new scene: its clock at 0, no warps."""
-    global now, stepping, framing
-    now, stepping, framing = Fraction(0), True, True
+    global now, stepping, framing, relating
+    now, stepping, framing, relating = Fraction(0), True, True, False
     speed.warps.clear()

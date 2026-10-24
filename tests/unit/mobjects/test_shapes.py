@@ -8,7 +8,7 @@
   other.
 - A tip points along the path at the end it is on, its point on that end: in the plane of the
   screen however the path bends, in space where it ends straight, and where the path's last
-  handle has no length too.
+  handle has no length too; a line's tips at both its ends, in space too.
 - A line's ends, length, vector and angle are its own; `put_start_and_end_on` puts a line's or
   an arrow's ends anywhere, a segment turned back on itself too. An arrow's tip point is where
   it ends, its shaft stops at the tip's base, and scaled, its tip keeps its size.
@@ -37,6 +37,27 @@ import manimgx as m
 from manimgx.mobjects.shapes import TipableVMobject
 
 radii = st.floats(0.1, 10)
+
+
+@pytest.mark.parametrize("xstep", [None, 0, -1, 1])
+@pytest.mark.parametrize("ystep", [None, 0, -0.5, 0.5])
+def test_rectangle_grid_spans_the_interior_in_column_then_row_order(
+    xstep: float | None, ystep: float | None
+) -> None:
+    rectangle = m.Rectangle(
+        width=4, height=2, grid_xstep=xstep, grid_ystep=ystep, color=m.GREEN
+    )
+    expected = []
+    if xstep:
+        expected.extend(([x, 1, 0], [x, -1, 0]) for x in [-1, 0, 1])
+    if ystep:
+        expected.extend(([-2, y, 0], [2, y, 0]) for y in [0.5, 0, -0.5])
+    lines = [line for group in rectangle.grid_lines for line in group]
+    assert len(rectangle.grid_lines) == bool(xstep) + bool(ystep)
+    for line, (start, end) in zip(lines, expected, strict=True):
+        np.testing.assert_allclose(line.get_start(), start)
+        np.testing.assert_allclose(line.get_end(), end)
+        assert line.get_color() == m.GREEN
 
 
 turns = st.floats(0.05, 2 * np.pi).flatmap(lambda a: st.sampled_from([a, -a]))
@@ -241,6 +262,15 @@ def test_an_arrows_tip_is_where_it_ends(ends: np.ndarray) -> None:
     assert arrow.tip.length == pytest.approx(length, rel=1e-9)
 
 
+def test_scaling_an_arrow_in_space_keeps_its_tips_direction() -> None:
+    arrow = m.Arrow(m.ORIGIN, [2, 1, 3], buff=0)
+    direction = arrow.tip.vector / arrow.tip.length
+    arrow.scale(2)
+    np.testing.assert_allclose(
+        arrow.tip.vector / arrow.tip.length, direction, atol=1e-12
+    )
+
+
 @given(
     ends=arrays((2, 3), 10),
     path_arc=st.floats(-3, 3).map(lambda a: a if abs(a) >= 0.1 else 0.0),
@@ -407,3 +437,18 @@ def test_rounding_cuts_each_corner_with_an_arc_tangent_to_its_sides(
             np.testing.assert_allclose(
                 remainder[3], nearby[1] - cut * outgoing, atol=1e-9
             )
+
+
+@given(ends=arrays((2, 3), 10))
+def test_a_lines_tips_point_along_it_at_both_its_ends(ends: np.ndarray) -> None:
+    start, end = ends
+    assume(np.linalg.norm(end - start) > 1)
+    line = m.Line(start, end)
+    line.add_tip()
+    line.add_tip(at_start=True)
+    along = (end - start) / np.linalg.norm(end - start)
+    for tip, toward in ((line.tip, along), (line.start_tip, -along)):
+        pointing = tip.tip_point - tip.base
+        np.testing.assert_allclose(
+            pointing / np.linalg.norm(pointing), toward, atol=1e-9
+        )

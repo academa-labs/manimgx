@@ -13,6 +13,8 @@
 - A target that moves (its updaters, which the scene does not run) moves from when the
   transform begins.
 - A Rotate turns about the mobject's center as its updaters carry it: it is `.animate.rotate`.
+- MaintainPositionRelativeTo keeps its offset from the tracked mobject as each frame shows it,
+  listed before or after what moves it.
 - PhaseFlow carries points along a field as the field's own flow does.
 - A procedure copies its mobject for its updaters (a model) only if it has updaters it
   suspends; a starting keyframe it is given is a snapshot, which a subclass can interpolate
@@ -29,7 +31,13 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from tests.scenes import Recorder, assert_same_frames, record
+from tests.scenes import (
+    Recorder,
+    assert_same_frames,
+    assert_same_instants,
+    instants,
+    record,
+)
 
 import manimgx as m
 from manimgx.animation import clock
@@ -100,8 +108,8 @@ class TestShowIncreasingSubsets:
             )
             s.play(*((other, reveal) if before else (reveal, other)))
 
-        played = record(tell, fast=False)
-        assert drawn(played) == drawn(record(lambda s: tell(s, False), fast=False))
+        played = record(tell)
+        assert drawn(played) == drawn(record(lambda s: tell(s, False)))
         expected = parts().shift(m.UP) if change == "move" else parts().set_color(m.RED)
         np.testing.assert_allclose(played.stage[0].points, expected.points)
         assert paints(played.stage[0]) == paints(expected)
@@ -111,14 +119,14 @@ class TestShowIncreasingSubsets:
             s.stage = [parts()]
             s.play(m.Succession(m.Wait(0.5), m.ShowIncreasingSubsets(s.stage[0])))
 
-        assert drawn(record(tell, fast=False))[:6] == [0] * 6
+        assert drawn(record(tell))[:6] == [0] * 6
 
     def test_words_are_typed_one_after_another(self) -> None:
         def tell(s: Recorder) -> None:
             s.stage = [m.VGroup(parts(), parts().shift(m.DOWN))]
             s.play(m.AddTextWordByWord(s.stage[0], time_per_char=0.2))
 
-        count = drawn(record(tell, fast=False))
+        count = drawn(record(tell))
         assert count == sorted(count)  # no word before its turn, nor taken back
         assert (count[0], count[-1]) == (0, 8)
 
@@ -137,7 +145,7 @@ class TestShowIncreasingSubsets:
             s.play(m.ShowSubmobjectsOneByOne(s.stage[0]))
             s.wait(0.2)
 
-        played = record(tell, fast=False)
+        played = record(tell)
         assert drawn(played)[-1] == 1
         assert shown(played.stage[0]) == [False, False, False, True]
         assert paints(played.stage[0])[3] == paints(parts())[3]
@@ -149,7 +157,7 @@ class TestShowIncreasingSubsets:
             s.play(m.RemoveTextLetterByLetter(s.stage[0]))
             s.play(m.AddTextLetterByLetter(s.stage[0]))
 
-        played = record(tell, fast=False)
+        played = record(tell)
         assert paints(played.stage[0]) == paints(parts())
         assert drawn(played)[-1] == 4
 
@@ -161,7 +169,7 @@ class TestShowIncreasingSubsets:
             s.stage = [parts()]
             s.play(m.TypeWithCursor(s.stage[0], cursor))
 
-        record(tell, fast=False)
+        record(tell)
         assert cursor.get_fill_opacity() == pytest.approx(fill)
         assert cursor.get_stroke_opacity() == 1
 
@@ -178,6 +186,107 @@ def test_a_moving_target_moves_from_when_the_transform_begins() -> None:
     square, target = record(tell).stage
     assert target.get_x() == pytest.approx(-1)  # a second of its time: the transform's
     assert square.get_x() == pytest.approx(-1)
+
+
+@pytest.mark.parametrize("carrier", ["drift", "orbit"])
+def test_a_target_the_scene_moves_is_read_as_it_is_at_each_instant(
+    carrier: str,
+) -> None:
+    """A transform reads a target that its updaters move (the scene running them) as it is at
+    each instant, once it is brought there: the world at an instant is the same at every frame
+    rate, and the mobject ends on the target where it is then."""
+
+    def tell(s: Recorder) -> None:
+        square, circle = m.Square(1.2), m.Circle(0.7).shift(1.5 * m.RIGHT)
+        for mob in (square, circle):
+            if carrier == "drift":
+                m.always_shift(mob, m.UP, 0.5)
+            else:
+                m.always_rotate(mob, 0.5, about_point=m.ORIGIN)
+        s.stage = [square, circle]
+        s.add(square, circle)
+        s.play(m.Transform(square, circle))
+
+    slow, fast = record(tell, 10), record(tell, 30)
+    assert_same_instants(slow, fast)
+    square, circle = fast.stage
+    np.testing.assert_allclose(square.get_center(), circle.get_center(), atol=1e-9)
+
+
+@pytest.mark.parametrize(
+    "fps", [pytest.param(f, marks=pytest.mark.config(frame_rate=f)) for f in (10, 30)]
+)
+def test_a_groups_updater_moves_the_members_its_plays_hold(fps: int) -> None:
+    """A group's updater moves its members whatever plays hold them: members fading in, one
+    after another, drift with their group as it drifts, at every frame rate."""
+    group = m.VGroup(m.Square(0.5), m.Circle(0.3).shift(m.RIGHT))
+    m.always_shift(group, m.UP, 0.5)
+
+    def tell(s: m.Scene) -> None:
+        s.add(group)
+        s.play(m.LaggedStartMap(m.FadeIn, group, rate_func=rf.linear))
+
+    for t, y in instants(tell, lambda s: float(group[0].get_y())).items():
+        assert y == pytest.approx(0.5 * float(t), abs=1e-9), (fps, t)
+
+
+@pytest.mark.parametrize("play", ["recolor", "nothing"])
+@pytest.mark.parametrize(
+    "owner", ["the scene", "another mobject", "another, per frame"]
+)
+def test_any_updater_moves_what_plays_hold(owner: str, play: str) -> None:
+    """Whatever updater moves a mobject plays hold (the scene's own, another mobject's, one run
+    once a frame) moves it as it moves one no play holds: a square goes where a wait leaves it
+    while a play recolors it, or plays nothing of it."""
+
+    def told(played: bool) -> float:
+        def tell(s: Recorder) -> None:
+            square, dot = m.Square(), m.Dot(3 * m.DOWN)
+            s.stage = [square]
+            s.add(square, dot)
+            if owner == "the scene":
+                s.add_updater(lambda dt: square.shift(0.5 * dt * m.RIGHT))
+            elif owner == "another mobject":
+                dot.add_updater(lambda d, dt: square.shift(0.5 * dt * m.RIGHT))
+            else:
+                dot.add_updater(lambda d: square.shift(0.05 * m.RIGHT))
+            if not played:
+                s.wait()
+            elif play == "recolor":
+                s.play(square.animate.set_color(m.RED), rate_func=rf.linear)
+            else:
+                s.play(square.animate.shift(m.ORIGIN))
+
+        (square,) = record(tell).stage
+        return float(square.get_x())
+
+    assert told(True) == pytest.approx(told(False), abs=1e-9)
+    assert told(False) > 0.4  # (the updater moves it)
+
+
+def test_a_part_beginning_between_frames_reads_what_a_group_moved_there() -> None:
+    """A part that begins at an instant no frame shows reads the world as it is then: a target
+    its group's updater moves is read where the group has carried it by that instant, at every
+    frame rate."""
+
+    def tell(s: Recorder) -> None:
+        square, target = (
+            m.Square(0.5).shift(2 * m.LEFT),
+            m.Circle(0.3).shift(2 * m.RIGHT),
+        )
+        group = m.VGroup(target, m.Dot(2 * m.DOWN))
+        m.always_shift(group, m.UP, 0.5)
+        s.stage = [square]
+        s.add(square, group)
+        s.play(  # the transform's window opens at 0.25 s, between frames
+            m.AnimationGroup(
+                m.Wait(0.25), m.Transform(square, target, run_time=0.5), lag_ratio=1.0
+            )
+        )
+
+    for fps in (10, 30):
+        (square,) = record(tell, fps).stage
+        assert square.get_y() == pytest.approx(0.5 * 0.25, abs=1e-9), fps
 
 
 @settings(max_examples=30)  # two films an example: the area's slowest test at 100
@@ -273,7 +382,7 @@ def _procedural_animation(name: str, suspend: bool = False) -> m.Animation:
 
 
 class TestProceduralKeyframes:
-    """Procedures keep requested keyframes and necessary updater models only."""
+    """Procedures keep requested keyframes only, and copy nothing for their updaters."""
 
     @pytest.fixture(autouse=True)
     def _reset_clock(self) -> Iterator[None]:
@@ -284,14 +393,16 @@ class TestProceduralKeyframes:
     @pytest.mark.parametrize("name", _PROCEDURAL_FAMILIES)
     @pytest.mark.parametrize("suspend", [False, True])
     @pytest.mark.parametrize("updating", [False, True])
-    def test_procedure_copies_only_a_needed_updater_model(
+    def test_a_procedure_copies_nothing_and_holds_nothing(
         self, name: str, suspend: bool, updating: bool, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A procedure acts on its mobject as it is: it copies nothing and holds nothing,
+        so the scene runs the mobject's updaters on the mobject itself, as anyone's, and
+        bringing the procedure to a time brings nothing."""
         animation = _procedural_animation(name, suspend)
         obj = animation.mobject
         if updating:
             obj.add_updater(lambda mob, dt: mob.shift(dt * m.RIGHT))
-        originals = {id(member) for member in obj.get_family()}
         copied: list[int] = []
         deepcopy = m.Mobject.__deepcopy__
 
@@ -301,27 +412,11 @@ class TestProceduralKeyframes:
 
         monkeypatch.setattr(m.Mobject, "__deepcopy__", counted)
         animation.begin()
-        if suspend and updating:
-            assert sorted(
-                identity for identity in copied if identity in originals
-            ) == sorted(originals)
-            assert len(copied) == len(set(copied))
-        else:
-            assert not copied
-        model = animation.model
-        assert (model is not None) == (suspend and updating)
-        if model is not None:
-            assert model is not obj
-            assert all(
-                (
-                    a is not b
-                    for a, b in zip(obj.get_family(), model.get_family(), strict=True)
-                )
-            )
-            copied.clear()
-            animation.advance(Fraction(1, 4))
-            assert not copied
-            assert obj.get_x() == pytest.approx(model.get_x())
+        x = obj.get_x()
+        animation.advance(Fraction(1, 4))
+        assert not copied
+        assert all(member._hold is None for member in obj.get_family())
+        assert obj.get_x() == pytest.approx(x)
 
     @pytest.mark.parametrize("name", _PROCEDURAL_FAMILIES)
     def test_explicit_starting_keyframe_still_takes_an_independent_snapshot(
@@ -388,3 +483,23 @@ class TestProceduralKeyframes:
         assert cursor.get_y() == pytest.approx(0.75)
         animation.finish()
         assert (cursor in text.submobjects) == leave
+
+
+@pytest.mark.parametrize("first", [False, True])
+def test_a_kept_position_follows_the_tracked_mobject_as_the_frame_shows_it(
+    first: bool,
+) -> None:
+    leader, follower = m.Square(), m.Circle().shift(2 * m.RIGHT)
+    offset = follower.get_center() - leader.get_center()
+
+    def construct(s: m.Scene) -> None:
+        s.add(leader, follower)
+        parts = [
+            leader.animate.shift(3 * m.UP),
+            m.MaintainPositionRelativeTo(follower, leader),
+        ]
+        s.play(*(parts[::-1] if first else parts))
+
+    seen = instants(construct, lambda s: follower.get_center() - leader.get_center())
+    for at, kept in seen.items():
+        np.testing.assert_allclose(kept, offset, rtol=0, atol=1e-12, err_msg=f"{at}")

@@ -15,10 +15,7 @@ when the process that opened it closes it, or ends.
 
 import contextlib
 import json
-import queue
-import subprocess
 import sys
-import threading
 from collections.abc import Sequence
 from types import TracebackType
 from typing import Self
@@ -45,6 +42,10 @@ class Window:
     """
 
     def __init__(self, title: str = "ManimGX", *, time: float = 0.0) -> None:
+        import queue
+        import subprocess
+        import threading
+
         self._process = subprocess.Popen(
             [
                 sys.executable,
@@ -122,6 +123,8 @@ class Window:
 
     def wait(self, timeout: float | None = None) -> bool:
         """Wait until the window is closed, at most `timeout` seconds; whether it was."""
+        import subprocess
+
         try:
             self._process.wait(timeout)
         except subprocess.TimeoutExpired:
@@ -156,15 +159,10 @@ class Window:
         assert self._process.stdout is not None
         with self._process.stdout as lines:
             for line in lines:
-                try:
-                    said = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(said, dict):
-                    continue
-                if isinstance(scene := said.get("scene"), str):
+                said: dict[str, str] = json.loads(line)
+                if (scene := said.get("scene")) is not None:
                     self._asked.put(scene)
-                if isinstance(failure := said.get("failure"), str):
+                if (failure := said.get("failure")) is not None:
                     self.failure = failure
 
 

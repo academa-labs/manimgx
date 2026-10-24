@@ -1,7 +1,8 @@
 """A field's color queries follow its color; stream line colors run from start to end.
 
-A flow has one field-time phase: speed changes time once, steps compose across cycles,
-restarting replaces its own updater, and ending restores whole lines in their own paint.
+A flow has one field-time phase: speed changes time once, steps compose across cycles (to
+the bit: the flow ends at one instant whatever the frame rate), restarting replaces its own
+updater, and ending restores whole lines in their own paint.
 """
 
 import numpy as np
@@ -9,6 +10,7 @@ import pytest
 from tests.scenes import scene
 
 import manimgx as m
+from manimgx.settings import config
 from manimgx.typing import Point3D
 
 
@@ -113,6 +115,33 @@ def test_ending_continues_the_current_phase_without_changing_its_speed(
     finish.interpolate(0.5)
     assert_phase(lines, (0.375 + 1) / 2)
     finish.finish()
+
+
+@pytest.mark.parametrize("speed", [0.5, 1.5])
+def test_a_flow_ends_at_one_instant_at_every_frame_rate(
+    speed: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its end finishes each line's cycle, from the phase the flow came to: steps of a tenth
+    of a second or of a thirtieth come to the same phase, exactly."""
+    monkeypatch.setattr("random.random", lambda: 0.3)
+    ends = []
+    for fps in (10, 30):
+        lines = flowing()
+
+        def construct(s: m.Scene, lines: m.StreamLines = lines) -> None:
+            s.add(lines)
+            lines.start_animation(warm_up=False, flow_speed=speed)
+            s.wait(1)
+            s.play(lines.end_animation())
+
+        saved, config.frame_rate = config.frame_rate, fps
+        try:
+            made = scene(construct)
+            made.render()
+        finally:
+            config.frame_rate = saved
+        ends.append(made.clock)
+    assert ends[0] == ends[1]
 
 
 @pytest.mark.parametrize("warm_up", [False, True])

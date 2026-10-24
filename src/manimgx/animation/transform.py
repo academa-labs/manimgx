@@ -1,24 +1,33 @@
 """Transforms: keyframe evaluation, recorded method calls, and concurrent leaf composition.
 
 A Transform moves geometry and paint between states; Animate derives those states
-from recorded calls. The play's compositor combines transforms sharing a leaf."""
+from recorded calls. Transforms that a play holds a leaf with compose over its own value."""
 
 from __future__ import annotations
 
 import functools
 import inspect
+import operator
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Literal, Never, Protocol, Self, Unpack, overload
+from typing import (
+    TYPE_CHECKING,
+    NamedTuple,
+    Never,
+    Protocol,
+    Self,
+    Unpack,
+    overload,
+)
 from warnings import deprecated
 
 import numpy as np
 
-from manimgx.animation import clock
 from manimgx.animation.timeline import (
     Animation,
     AnimationOptions,
     Key,
     _AnimationOptions,
+    _library,
     _updating,
     keyframe_at,
 )
@@ -32,7 +41,14 @@ from manimgx.drawing.geometry import (
     path_along_arc,
     path_along_circles,
 )
-from manimgx.mobject import Group, Mobject, VMobject, _animate_plays
+from manimgx.mobject import (
+    Group,
+    Mobject,
+    VMobject,
+    _animate_plays,
+    _made_of,
+    _snapshot,
+)
 from manimgx.typing import (
     PathFunc,
     Point3DLike,
@@ -41,8 +57,6 @@ from manimgx.typing import (
 )
 
 if TYPE_CHECKING:
-    from fractions import Fraction
-
     from manimgx.constants import DEFAULT_MOBJECT_TO_MOBJECT_BUFFER, RIGHT
     from manimgx.mobject import Beside
     from manimgx.mobjects.numbers import DecimalNumber
@@ -243,8 +257,6 @@ class Transform[M: Mobject = Mobject](Animation[M]):
 
     # each leaf moves between its keyframes along `path_func`: from the object to a target
     # of its own, or between states a preset derives (`keys`)
-    _moving: Mobject | Literal[False] | None = None  # `moving_target`, once decided
-
     def __init__(
         self,
         mobject: M,
@@ -273,7 +285,7 @@ class Transform[M: Mobject = Mobject](Animation[M]):
                 self.target_mobject = Mobject()
             keys = (None, self.target_mobject)
         self.keys: Sequence[Key] = keys
-        self.shared: set[int] = set()  # its leaves other tweens drive too (`compose`)
+        self._wrote: dict[Mobject, _Wrote] = {}  # what it last wrote to each leaf
         super().__init__(mobject, **kwargs)
 
     @property
@@ -303,38 +315,27 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         if value is not None:
             self._path_func = value
 
-    def begin(self) -> None:
-        # the base begin (the keyframes and the object; a tween acts only when
-        # interpolated), whether the target moves decided afresh: a target that moves runs
-        # from now, its updaters live from when the animation begins to run them
-        self._moving = None
-        super().begin()
-        if (target := self.moving_target()) is not None:
-            target._stamp(clock.now)
-
     def take(self) -> None:
-        # take the object; in a play, join the tweens driving its leaves
+        self._wrote = {}
         super().take()
-        self.__dict__.pop("motion", None)
-        self.shared = set()
-        if (compositor := self._compositor()) is not None:
-            compositor.join(self)
 
-    def finish(self) -> None:
-        # it rests as it ends, where it alone drove its leaves; where others drove them too,
-        # they compose, and one that ends as given leaves what the others did
-        super().finish()
-        compositor = self._compositor()
-        if compositor is None or not self.shared:
+    def _settle(self) -> None:
+        # alone on its leaves, it rests as it ends: as a keyframe, as derived, or as its
+        # mobject was given; with others, its end goes on showing among their changes (one
+        # that ends as given takes its change away)
+        if self._alone():
             if self._rest is not None:
                 self.mobject.become(self._rest)
         elif self._ends_as_given():
-            compositor.leave(self)
-        if compositor is not None:
-            compositor.finished.add(id(self))
+            self._wrote = {}
+            for leaf in self.mobject.family_members_with_points():
+                _composed(leaf)
 
-    def _compositor(self) -> Compositor | None:
-        return None if self._scene is None else self._scene.compositor
+    def _alone(self) -> bool:
+        """Does it drive its leaves alone (no other tween a play holds them with)?"""
+        return all(
+            len(_tweens(leaf)) < 2 for leaf in self.mobject.family_members_with_points()
+        )
 
     @functools.cached_property
     @deprecated("ManimGX's machinery: the play calls it", category=None)
@@ -353,45 +354,11 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         steps = path.steps or ((moved,) if np.any(moved) else ())
         return steps, np.linalg.inv(carried((step, 1.0) for step in steps))
 
-    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
-    def moving_target(self) -> Mobject | None:
-        """The target, if it moves while the animation plays; None if it doesn't.
-
-        It moves when it is a mobject of its own with updaters that the scene does not
-        run: the animation runs them (`advance`), and the keyframes follow it. Decided
-        once, when first asked.
-        """
-        # decided once: not a walk of the scene per animation, nor of the target per
-        # frame
-        moving = self._moving
-        if moving is None:
-            target = self.keys[-1]
-            moving = False
-            if (
-                isinstance(target, Mobject)
-                and _updating(target)
-                and (
-                    self._scene is None
-                    or not any(
-                        target is m for m in self._scene.get_mobject_family_members()
-                    )
-                )
-            ):
-                moving = target
-            self._moving = moving
-        return None if moving is False else moving
-
-    def advance(self, t: Fraction) -> None:
-        # the object's updaters, brought to scene time `t` on its model, a moving target's
-        # too; then the keyframes follow
-        moving = self.moving_target()
-        if self.model is None and moving is None:
-            return
-        if self.model is not None:
-            self.model.advance(t)
-        if moving is not None:
-            moving.advance(t)
-        self.rederive()
+    def _follows(self) -> list[Mobject]:
+        # a target that moves, its updaters run by the scene or (one it does not hold) by
+        # this animation: read as it is at every instant, after it is brought there
+        target = self.keys[-1]
+        return [target] if isinstance(target, Mobject) and _updating(target) else []
 
     def _ends_as_given(self) -> bool:
         """Whether it leaves its mobject as it was given, whatever its last frame shows: a
@@ -402,12 +369,12 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         # as it was given, if it ends so; else, when its frames blend its keyframes, the
         # keyframe its last frame shows, as derived
         if self._ends_as_given():
-            return source.copy()
+            return _snapshot(source)
         at = self._resting_at(len(own) - 1)
         if at is None:
             return None
         frame = own[at]
-        return (source if frame is None else frame).copy()
+        return _snapshot(source if frame is None else frame)
 
     def _resting_at(self, steps: int) -> int | None:
         # the keyframe the last frame shows: none, for frames of a class's own making (not
@@ -423,43 +390,50 @@ class Transform[M: Mobject = Mobject](Animation[M]):
         return i + int(t) if t in (0.0, 1.0) else None
 
     def rederive(self) -> None:
-        # the keyframes again (from the model, if the object updates; own objects copied
-        # afresh), aligned with the object; and what it rests as, from them
-        model = self.model
+        # the keyframes again, and what it rests as: from what it holds, as `derive` makes
+        # them; holding nothing (its mobject's updating not suspended), the keyframes of a
+        # target that moves, copied afresh; its motion follows them
+        self.__dict__.pop("motion", None)
+        if self._on:
+            self.derive(self.mobject)
+            return
         self.frames = [
-            (
-                key.copy()
-                if isinstance(key, Mobject)
-                else (
-                    frame
-                    if model is None
-                    else model.copy()
-                    if key is None
-                    else key(model.copy())
-                )
-            )
+            self._frame_copy(key) if isinstance(key, Mobject) else frame
             for key, frame in zip(self.keys, self.frames, strict=True)
         ]
-        if self._ends_as_given():
-            if model is not None:  # as its updaters have it now
-                self._rest = model.copy()
-        elif (at := self._resting_at(len(self.frames) - 1)) is not None and (
-            model is not None or isinstance(self.keys[at], Mobject)
+        if (at := self._resting_at(len(self.frames) - 1)) is not None and isinstance(
+            key := self.keys[at], Mobject
         ):  # a keyframe derived afresh, not yet aligned
-            self._rest = self.frames[at].copy()
-        for _ in range(2):
-            for frame in self.frames:
-                self.mobject.align_data(frame)
+            self._rest = _snapshot(key)
+        for frame in self.frames:
+            self.mobject.align_data(frame)
 
     def interpolate_keyframes(
         self, submobject: Mobject, keys: Sequence[Mobject], alpha: float
     ) -> None:
         i, t = keyframe_at(len(keys) - 1, alpha)  # past its ends, it runs on
-        a, b = keys[i], keys[i + 1]
-        shared = self.shared and id(submobject) in self.shared
-        compositor = self._compositor() if shared else None
-        if compositor is None or not compositor.write(submobject, self, a, b, t):
-            submobject.interpolate(a, b, t, self.path_func)
+        a, b, path = keys[i], keys[i + 1], self.path_func
+        wrote = self._wrote.get(submobject)
+        if self in (tweens := _tweens(submobject)) and len(tweens) > 1:
+            # holding it with others: their changes over its own value (a tween that does
+            # not hold it, as one an updater beneath them plays, acts on that value itself)
+            self._wrote[submobject] = _Wrote(keys[0], a, b, t, path, ())
+            if _composed(submobject):
+                self._wrote[submobject] = _Wrote(
+                    keys[0], a, b, t, path, _made_of(submobject)
+                )
+                return
+        elif (  # what it wrote, from the same path and keyframes, is there still
+            wrote is not None
+            and wrote.t == t
+            and wrote.a is a
+            and wrote.b is b
+            and wrote.path is path
+            and all(map(operator.is_, wrote.look, _made_of(submobject)))
+        ):
+            return
+        submobject.interpolate(a, b, t, path)
+        self._wrote[submobject] = _Wrote(keys[0], a, b, t, path, _made_of(submobject))
 
     def clean_up_from_scene(self, scene: Scene) -> None:
         super().clean_up_from_scene(scene)
@@ -520,107 +494,152 @@ _FIELDS = (  # every paint field a tween changes but the sheen's direction
 )
 
 
-class Compositor:
-    """A play's leaves, and the tweens driving each (`Scene.play` makes one per play)."""
+class _Wrote(NamedTuple):
+    """What a tween last wrote to a leaf: from its first keyframe `start`, the leaf between
+    keyframes `a` and `b` at `t` along `path` (what `_composed` adds of it, among others),
+    leaving it made of `look` (`_made_of`). Values are immutable, and keyframes change in
+    place only as the mobject is aligned with them (its leaves with them) or as a path is
+    laid anew: while all of these are the same objects, the leaf shows it still."""
 
-    def __init__(self) -> None:
-        self.leaves: dict[int, _Leaf] = {}
-        self.finished: set[int] = set()  # the tweens that have finished
+    start: Mobject
+    a: Mobject
+    b: Mobject
+    t: float
+    path: PathFunc
+    look: tuple[object, ...]
 
-    def join(self, tween: Transform) -> None:
-        """`tween` begins: it joins the tweens on a leaf they have not moved since they began (the leaf
-        is then shared), and takes over any other leaf."""
-        for leaf in tween.mobject.family_members_with_points():
-            entry = self.leaves.get(id(leaf))
-            if entry is not None and entry.found(leaf):
-                entry.parts.append(_Part(tween))
-                for part in entry.parts:
-                    part.tween.shared.add(id(leaf))
+
+def _tweens(leaf: Mobject) -> list[Transform]:
+    """The tweens that drive a leaf together: the transforms among the plays holding it."""
+    hold = leaf._hold
+    return [] if hold is None else [p for p in hold.plays if isinstance(p, Transform)]
+
+
+def _composed(leaf: Mobject, among: Sequence[Animation] | None = None) -> bool:
+    """Show a leaf as the tweens driving it have it (or those `among` the plays holding it),
+    by level: those of the deepest mobject holding it (it, or its nearest group) as siblings,
+    their changes over its own value, each from its own first keyframe, their motions carried
+    one by the other; then each group's around it in turn, its map carrying what is within
+    (a turn of a group turns its members as their own tweens move them); each paint field the
+    last changer's, the outer last. False, leaving it as it was: their keyframes do not match
+    it point for point (the last to write shows itself), or one of `among` is not a tween
+    that wrote it."""
+    hold = leaf._hold
+    assert hold is not None  # (`_tweens` found it held)
+    base, paint = hold.own._geometry, hold.own.paint
+    tweens = _tweens(leaf) if among is None else among
+    parts = [
+        (tween, w)
+        for tween in tweens
+        if isinstance(tween, Transform) and (w := tween._wrote.get(leaf))
+    ]
+    n = base.n
+    if len(parts) < len(tweens) or any(
+        k._geometry.n != n for _, w in parts for k in (w.a, w.b)
+    ):
+        return False
+    # a level is a mobject holding the leaf, by the size of its family: the leaf's own (or
+    # its group's) first, each group around it larger
+    sizes = sorted({len(tween._on) for tween, _ in parts})
+    levels = [[(t, w) for t, w in parts if len(t._on) == size] for size in sizes]
+    geometry, sheen = base, paint.sheen_direction
+    for depth, level in enumerate(levels):
+        if depth and (carrying := _level_map(level)) is not None:
+            map_, turn = carrying
+            geometry, sheen = geometry.transformed(map_), turn @ sheen
+        else:  # (the leaf's own level, or one with no map: its changes, added)
+            geometry, sheen = _siblings(geometry, sheen, level)
+    changed: dict[str, object] = {}
+    for _, w in (part for level in levels for part in level):
+        mixed = paint.mixed(w.a.paint, w.b.paint, w.t)
+        for name in _FIELDS:
+            if (value := getattr(mixed, name)) is getattr(paint, name):
                 continue
-            for part in entry.parts if entry is not None else ():
-                if id(part.tween) not in self.finished:
-                    part.tween.shared.add(id(leaf))
-            self.leaves[id(leaf)] = _Leaf(leaf, tween)
-
-    def leave(self, tween: Transform) -> None:
-        """`tween` ends, leaving its mobject as it was given: each leaf it drove with others
-        is as they have it, and one it drove alone as they all found it."""
-        for leaf in tween.mobject.family_members_with_points():
-            entry = self.leaves.get(id(leaf))
-            if entry is None or all(p.tween is not tween for p in entry.parts):
-                continue
-            entry.parts = [p for p in entry.parts if p.tween is not tween]
-            if entry.parts:
-                entry.compose()
-            else:
-                leaf._geometry, leaf.paint = entry.geometry, entry.paint
-
-    def write(
-        self, leaf: Mobject, tween: Transform, a: Mobject, b: Mobject, t: float
-    ) -> bool:
-        """Write a shared `leaf` as `tween` has it — between keyframes a and b, at t — with
-        the other tweens driving it. False: the tween writes it itself."""
-        entry = self.leaves[id(leaf)]
-        part = next((p for p in entry.parts if p.tween is tween), None)
-        if part is None:  # the leaf was taken over from it
-            return True
-        part.keys, part.t = (a, b), t
-        return entry.compose()
+            if name in _BRUSHES and name in changed:
+                value = _channels(changed[name], value, getattr(paint, name))
+            changed[name] = value
+    changed["sheen_direction"] = sheen
+    leaf._geometry = geometry
+    leaf.paint = paint.but(**changed)
+    return True
 
 
-class _Part:
-    def __init__(self, tween: Transform) -> None:
-        self.tween = tween
-        self.keys: tuple[Mobject, Mobject] | None = None  # once it has written
-        self.t = 0.0
+def _siblings(
+    geometry: Blend, sheen: Floats, level: list[tuple[Transform, _Wrote]]
+) -> tuple[Blend, Floats]:
+    """A leaf's geometry, and its sheen's direction, as tweens at one level have it: their
+    changes added, each from its own first keyframe, their motions carried one by the
+    other."""
+    steps: list[tuple[Step, float]] = []
+    for tween, w in level:
+        start, a, b, t = w.start, w.a, w.b, w.t
+        if tween.motion is None:  # not a motion: the leaf as the tween has it
+            rest = _between(tween.path_func, a, b, t)
+        else:  # its chord in the frame its motion carries
+            own, undo = tween.motion
+            steps += [(step, t) for step in own]
+            coefficients = ((1 - t) * _EYE, t * undo[:3, :3], t * undo[:3, 3])
+            rest = Blend.mix(a._geometry, b._geometry, coefficients)
+        geometry = Blend.mix(geometry, rest, (_EYE, _EYE, _ZERO))
+        geometry = Blend.mix(geometry, start._geometry, (_EYE, -_EYE, _ZERO))
+    motion = carried(steps)
+    return geometry.transformed(motion[:3]), motion[:3, :3] @ sheen
 
 
-class _Leaf:
-    """A leaf as its tweens found it when they began, and those tweens."""
+def _between(path: PathFunc, a: Mobject, b: Mobject, t: float) -> Blend:
+    """A leaf between two keyframes at `t`, along a path."""
+    if isinstance(path, Path):
+        return path.mix(a._geometry, b._geometry, t)
+    return Blend.of(path(a.points, b.points, t))
 
-    def __init__(self, leaf: Mobject, tween: Transform) -> None:
-        self.leaf, self.geometry, self.paint = leaf, leaf._geometry, leaf.paint
-        self.parts = [_Part(tween)]
 
-    def found(self, leaf: Mobject) -> bool:
-        """Is the leaf as its tweens found it (none of them has moved it)?"""
-        return leaf._geometry is self.geometry and leaf.paint is self.paint
+def _level_map(level: list[tuple[Transform, _Wrote]]) -> tuple[Floats, Floats] | None:
+    """The map (3×4) a group's tweens carry what is within it by, at the progresses they
+    wrote, and the turn of their motions (3×3): as siblings, each tween's change from its
+    first keyframe (its map, `_affine`, along its path) added, their motions carried one by
+    the other. None if one of them has no map (a morph, a path that is not a rule)."""
+    steps: list[tuple[Step, float]] = []
+    linear, offset = _EYE.copy(), _ZERO.copy()
+    for tween, w in level:
+        fitted, path, t = _affine(tween), tween.path_func, w.t
+        if fitted is None or not isinstance(path, Path):
+            return None
+        if tween.motion is None:  # along its path
+            ls, le, k = path.coefficients(t)
+        else:  # its chord in the frame its motion carries
+            own, undo = tween.motion
+            steps += [(step, t) for step in own]
+            ls, le, k = (1 - t) * _EYE, t * undo[:3, :3], t * undo[:3, 3]
+        linear += ls + le @ fitted[:, :3] - _EYE
+        offset += le @ fitted[:, 3] + k
+    motion = carried(steps)
+    turn = motion[:3, :3]
+    return np.hstack([turn @ linear, (turn @ offset + motion[:3, 3])[:, None]]), turn
 
-    def compose(self) -> bool:
-        parts = [(p.tween, p.keys, p.t) for p in self.parts if p.keys is not None]
-        n = self.geometry.n
-        if any(k._geometry.n != n for _, keys, _ in parts for k in keys):
-            return False
-        steps: list[tuple[Step, float]] = []
-        body, paint = self.geometry, self.paint
-        changed: dict[str, object] = {}
-        for tween, (a, b), t in parts:
-            if tween.motion is None:  # not a motion: the leaf as the tween has it
-                path = tween.path_func
-                rest = (
-                    Blend.mix(a._geometry, b._geometry, path.coefficients(t))
-                    if isinstance(path, Path)
-                    else Blend.of(path(a.points, b.points, t))
-                )
-            else:  # its chord in the frame its motion carries
-                own, undo = tween.motion
-                steps += [(step, t) for step in own]
-                coefficients = ((1 - t) * _EYE, t * undo[:3, :3], t * undo[:3, 3])
-                rest = Blend.mix(a._geometry, b._geometry, coefficients)
-            body = Blend.mix(body, rest, (_EYE, _EYE, _ZERO))
-            body = Blend.mix(body, self.geometry, (_EYE, -_EYE, _ZERO))
-            mixed = paint.mixed(a.paint, b.paint, t)
-            for name in _FIELDS:
-                if (value := getattr(mixed, name)) is getattr(paint, name):
-                    continue
-                if name in _BRUSHES and name in changed:
-                    value = _channels(changed[name], value, getattr(paint, name))
-                changed[name] = value
-        motion = carried(steps)
-        changed["sheen_direction"] = motion[:3, :3] @ paint.sheen_direction
-        self.leaf._geometry = body.transformed(motion[:3])
-        self.leaf.paint = paint.but(**changed)
-        return True
+
+def _affine(tween: Transform) -> Floats | None:
+    """The affine map (3×4) taking a tween's first keyframe to its last, its whole mobject
+    (a move, a turn, a scaling, a recolor), fitted once to all their points; None for a
+    morph or more keyframes. A direction the points leave free (a flat mobject's depth) the
+    map leaves as it is."""
+    frames = tween.frames
+    known = tween.__dict__.get("_affine_of")
+    if known is not None and known[0] is frames:
+        return known[1]
+    fitted = None
+    if len(frames) == 2:
+        a = [m.points for m in frames[0].family_members_with_points()]
+        b = [m.points for m in frames[1].family_members_with_points()]
+        if a and len(a) == len(b) and all(len(x) == len(y) for x, y in zip(a, b)):
+            start, end = np.concatenate(a), np.concatenate(b)
+            design = np.hstack([start, np.ones((len(start), 1))])
+            change = np.linalg.lstsq(design, end - start, rcond=None)[0]
+            if np.abs(design @ change - (end - start)).max() <= 1e-9 * (
+                1 + np.abs(end).max()
+            ):
+                fitted = np.hstack([_EYE, np.zeros((3, 1))]) + change.T
+    tween.__dict__["_affine_of"] = (frames, fitted)
+    return fitted
 
 
 def _channels(before: object, value: np.ndarray, own: np.ndarray) -> np.ndarray:
@@ -928,7 +947,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
     def __init__(self, mobject: M) -> None:
         self._target = mobject.generate_target()
         self._override: Animation | None = None
-        self._chaining = False
         self._anim_args: TransformOptions = {}
         self.methods: list[_Call] = []
         super().__init__(mobject, self._target)
@@ -958,7 +976,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
         Returns:
             This animation, for chaining.
         """
-        if self._chaining and anim_args:
+        if (self.methods or self._override is not None) and anim_args:
             raise ValueError(
                 "Animation arguments must be passed before accessing methods and can"
                 " only be passed once"
@@ -983,7 +1001,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
                     "Method chaining is currently not supported for overridden animations"
                 )
             self._record(function, (), {})
-            self._chaining = True
         return self
 
     def _record(
@@ -1006,7 +1023,7 @@ class Animate[M: Mobject](Transform[M], _Methods):
         override = (
             _animate_plays.get(method.__func__) if inspect.ismethod(method) else None
         )
-        if (self._chaining and override is not None) or self._override is not None:
+        if (self.methods and override is not None) or self._override is not None:
             raise NotImplementedError(
                 "Method chaining is currently not supported for overridden animations"
             )
@@ -1021,7 +1038,6 @@ class Animate[M: Mobject](Transform[M], _Methods):
             self._record(method.__func__, args, kwargs)
             return self
 
-        self._chaining = True
         return record
 
     if (
@@ -1055,10 +1071,16 @@ class Animate[M: Mobject](Transform[M], _Methods):
         self._path_func = self._chosen = Path(steps=tuple(steps))
         return target
 
-    def finish(self) -> None:
-        for item in self.methods:
-            item(self.mobject)
-        super().finish()
+    def _opaque(self) -> bool:
+        return not all(_library(item) for item in self.methods)
+
+    def _settle(self) -> None:
+        # alone on its leaves, its calls are made on the mobject itself (so what they add
+        # and remove are its members), which then rests as its end keyframe
+        if self._alone():
+            for item in self.methods:
+                item(self.mobject)
+        super()._settle()
 
     def build(self) -> Animation:
         return self if self._override is None else self._override
@@ -1068,7 +1090,8 @@ def _turn(
     item: _Call,
 ) -> tuple[float, Floats, Callable[[Mobject], Floats]] | None:
     """(angle, axis, pivot) of a recorded call that turns the object (`rotate`, `flip`,
-    `rotate_about_origin`), the pivot as the call finds it; None for any other call."""
+    `rotate_about_origin`), the pivot as the call finds it; None for any other call, and
+    for a turn by 0 (no turn: the object stays as it is)."""
     func = item.function
     name = getattr(func, "__name__", "")
     if name not in ("rotate", "flip", "rotate_about_origin"):
@@ -1080,6 +1103,8 @@ def _turn(
         angle = PI if name == "flip" else float(given["angle"])
         axis = np.asarray(given["axis"], dtype=np.float64)
     except (TypeError, KeyError, ValueError):
+        return None
+    if angle == 0:
         return None
     point = ORIGIN if name == "rotate_about_origin" else given.get("about_point")
     edge = given.get("about_edge")

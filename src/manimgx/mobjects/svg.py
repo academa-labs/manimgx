@@ -9,14 +9,12 @@ letters). Ported from Manim CE 0.21 (MIT)."""
 from __future__ import annotations
 
 import io
-import logging
 import os
 from collections.abc import Sequence
 from copy import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, Unpack
 from warnings import deprecated
-from xml.etree import ElementTree as ET
 
 import numpy as np
 
@@ -28,10 +26,11 @@ from manimgx.mobject import VGroup, VMobject, copied
 from manimgx.mobjects.shapes import Circle, Line, Polygon, Rectangle, RoundedRectangle
 
 if TYPE_CHECKING:  # svgelements loads when an SVG is read (few scenes read one)
+    from xml.etree import ElementTree as ET
+
     import svgelements as se
 
 __all__ = ["SVGMobject", "VMobjectFromSVGPath"]
-logger = logging.getLogger("manimgx")
 
 _DRAWINGS: Memo[tuple[object, ...], tuple[list[VMobject], dict[str, VGroup]]] = Memo(
     1 << 8
@@ -169,6 +168,8 @@ class SVGMobject(VMobject):
         """Read the file and add its shapes as parts, flipped so that y points up (SVG's
         points down). Existing geometry turns with the newly read shapes.
         """
+        from xml.etree import ElementTree as ET
+
         import svgelements as se
 
         element_tree = ET.parse(self.get_file_path())
@@ -224,6 +225,8 @@ class SVGMobject(VMobject):
             A new tree.
         """
         root = element_tree.getroot()
+        from xml.etree import ElementTree as ET
+
         new_root = ET.Element(root.tag, self.generate_config_style_dict() | root.attrib)
         new_root.extend(root)
         return ET.ElementTree(new_root)
@@ -302,7 +305,11 @@ class SVGMobject(VMobject):
                         for parent_name in vgroup_stack[:-1]:
                             vgroups[parent_name].add(mob)
             except Exception as e:
-                logger.error(f"Exception occurred in 'get_mobjects_from'. Details: {e}")
+                import logging
+
+                logging.getLogger("manimgx").error(
+                    f"Exception occurred in 'get_mobjects_from'. Details: {e}"
+                )
         return (result, vgroups)
 
     @deprecated("Manim CE's machinery: the constructor calls it", category=None)
@@ -333,7 +340,11 @@ class SVGMobject(VMobject):
         elif isinstance(shape, se.Text):
             mob = self.text_to_mobject(shape)
         else:
-            logger.warning(f"Unsupported element type: {type(shape)}")
+            import logging
+
+            logging.getLogger("manimgx").warning(
+                f"Unsupported element type: {type(shape)}"
+            )
             mob = None
         if mob is None or not mob.has_points():
             return None
@@ -496,7 +507,9 @@ class SVGMobject(VMobject):
         Returns:
             None.
         """
-        logger.warning(f"Unsupported element type: {type(text)}")
+        import logging
+
+        logging.getLogger("manimgx").warning(f"Unsupported element type: {type(text)}")
         return None
 
     @deprecated("Manim CE's machinery: the constructor calls it", category=None)

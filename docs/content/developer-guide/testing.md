@@ -126,7 +126,7 @@ simplest one that still does. The properties that do the work:
   cold (a test marked `cold` starts and ends with nothing remembered);
 - for time, random stories told on a headless scene
   ([`tests/scenes.py`](https://github.com/academa-labs/manimgx/blob/main/tests/scenes.py)):
-  a play computed ahead of time shows what the same play computed frame by frame shows,
+  a play that changes nothing is a wait, an observer changes nothing it does not draw,
   and the world at an instant is the same at every frame rate.
 
 [`tests/conftest.py`](https://github.com/academa-labs/manimgx/blob/main/tests/conftest.py)

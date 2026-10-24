@@ -5,10 +5,16 @@ together on one mobject compose; a replacement leaves its target in its mobject'
   mobject as it is when the animation begins. A function given to `.animate` is a call too:
   tried at once, and carried out with them.
 - An animation's `keys` (functions of the mobject) are applied when it begins, to a copy.
+- A tween shows each part from its keyframes at every frame: whatever changed a part since
+  (an updater the tween does not suspend) is written over, however long the part stays at one
+  progress. One to the value its mobject holds (a scale by 1, a turn by 0, a move by nothing)
+  shows it as it is, to the bit, as a wait does.
 - A mobject's override (`override_animation`) plays in place of the animation it overrides,
   the animation given in a list or a generator too.
 - Moves compose: shifts and turns, and a scaling about the mobject's center, played together
-  end where applying them one after another puts it, whatever their order. (Changes of shape
+  end where applying them one after another puts it, whatever their order. A group's tween
+  carries what its members' own tweens do: a group turned or scaled while a member moves
+  shows, at every frame, the member moved so far, then the group's map so far. (Changes of shape
   add: two scalings played together add their changes, as two morphs do; a scaling is not a
   step of a motion, as a turn is.)
 - Paint composes channel by channel: a fade and a recolor played together both happen, the
@@ -42,13 +48,30 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from tests import oracles
-from tests.scenes import Recorder, assert_same_frames, record, scene
+from tests.scenes import Recorder, assert_same_frames, instants, record, scene
 from tests.strategies import vectors
 
 import manimgx as m
 from manimgx.animation import easing as rf
 from manimgx.animation.transform import TransformOptions
 from manimgx.drawing.paint import mix_rgba
+
+
+def test_a_tween_writes_over_what_changed_a_part_staying_at_one_progress() -> None:
+    """The second square waits for the first (it stays at progress 0 for half the play): at
+    every frame it is shown from its keyframes, then its updater moves it, by one step."""
+    squares = m.VGroup(m.Square(0.5), m.Square(0.5).shift(m.RIGHT))
+    start = squares[1].get_center()[0]
+
+    def construct(s: m.Scene) -> None:
+        squares[1].add_updater(lambda mob: mob.shift(0.1 * m.RIGHT))
+        s.add(squares)
+        s.play(m.Create(squares, lag_ratio=1, suspend_mobject_updating=False))
+
+    seen = instants(construct, lambda s: squares[1].get_center()[0])
+    during = [x for t, x in seen.items() if 0 < t < 1]
+    assert len(during) > 2
+    np.testing.assert_allclose(during, start + 0.1, rtol=0, atol=1e-12)
 
 
 @pytest.mark.parametrize("form", ["animate", "positional", "keyword"])
@@ -205,10 +228,7 @@ def test_a_part_that_ends_as_given_leaves_what_the_others_did(name: str) -> None
     assert oracles.value(square)[0][1:] == oracles.value(moved)[0][1:]  # all its paint
 
 
-@pytest.mark.parametrize("fast", [True, False])
-def test_a_transform_from_a_copy_is_the_copy_turning_into_the_target(
-    fast: bool,
-) -> None:
+def test_a_transform_from_a_copy_is_the_copy_turning_into_the_target() -> None:
     options: TransformOptions = {
         "rate_func": rf.rush_into,
         "path_arc": 1.0,
@@ -230,7 +250,7 @@ def test_a_transform_from_a_copy_is_the_copy_turning_into_the_target(
                 else m.ReplacementTransform(source.copy(), target, **options)
             )
 
-        return record(story, fast=fast), target, given
+        return record(story), target, given
 
     copied, target, given = tell(from_copy=True)
     replaced, _, _ = tell(from_copy=False)
@@ -406,3 +426,74 @@ def test_animate_types_every_method_that_returns_the_mobject() -> None:
                     f"{cls.__name__}.{name}: typed with {first.__name__}'s parameters"
                 )
     assert not problems, "\n".join(problems)
+
+
+STILL: dict[str, Callable[[m.Mobject], m.Animation]] = {
+    "scale by 1": lambda mob: mob.animate.scale(1.0),
+    "turn by 0": lambda mob: mob.animate.rotate(0.0),
+    "move by nothing": lambda mob: mob.animate.shift(m.ORIGIN),
+}
+
+
+@pytest.mark.parametrize("change", sorted(STILL))
+@pytest.mark.parametrize(
+    "make",
+    [lambda: m.Axes(), lambda: m.Arrow(m.LEFT, m.RIGHT), lambda: m.Text("ab")],
+    ids=["axes", "arrow", "text"],
+)
+def test_a_tween_to_the_value_held_shows_it_as_it_is(
+    change: str, make: Callable[[], m.Mobject]
+) -> None:
+    mob = make()
+
+    def look(_: m.Scene) -> list[tuple[object, ...]]:
+        return [
+            (leaf.points.tobytes(), oracles.value(leaf))
+            for leaf in mob.family_members_with_points()
+        ]
+
+    before = look(scene(lambda s: None))
+
+    def construct(s: m.Scene) -> None:
+        s.add(mob)
+        s.play(STILL[change](mob), run_time=0.3)
+
+    seen = instants(construct, look)
+    assert len(seen) > 2
+    for at, shown in seen.items():
+        assert shown == before, f"at {at} s"
+
+
+@pytest.mark.parametrize(
+    ("change", "carry"),
+    [
+        (
+            lambda g: g.animate.rotate(1.0),
+            lambda t, x: x.rotate(t * 1.0, about_point=m.ORIGIN),
+        ),
+        (
+            lambda g: g.animate.scale(0.5),
+            lambda t, x: x.scale(1 - 0.5 * t, about_point=m.ORIGIN),
+        ),
+    ],
+    ids=["turned", "scaled"],
+)
+def test_a_groups_tween_carries_its_members_own(
+    change: Callable[[m.VGroup], m.Animation],
+    carry: Callable[[float, m.Mobject], m.Mobject],
+) -> None:
+    member = m.Square(0.5).shift(m.RIGHT)
+    group = m.VGroup(member, m.Square(0.5).shift(m.LEFT))
+    start = member.copy()
+
+    def construct(s: m.Scene) -> None:
+        s.add(group)
+        s.play(
+            member.animate.shift(m.UP), change(group), run_time=1, rate_func=rf.linear
+        )
+
+    seen = instants(construct, lambda s: member.points.copy())
+    for at, points in seen.items():
+        t = min(float(at), 1.0)
+        wanted = carry(t, start.copy().shift(t * m.UP)).points
+        np.testing.assert_allclose(points, wanted, atol=1e-9, err_msg=f"at {at} s")

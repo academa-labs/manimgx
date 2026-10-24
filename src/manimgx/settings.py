@@ -80,16 +80,28 @@ class Config:
         aspect ratio (about 14.2 at 16:9, 8 at 9:16)."""
         return self.frame_height * self.pixel_width / self.pixel_height
 
+    @frame_width.setter
+    def frame_width(self, value: float) -> None:
+        self.frame_height = value * self.pixel_height / self.pixel_width
+
     @property
     def frame_x_radius(self) -> float:
         """Half the frame's width, in scene units: the x of its right edge."""
         return self.frame_width / 2
+
+    @frame_x_radius.setter
+    def frame_x_radius(self, value: float) -> None:
+        self.frame_width = 2 * value
 
     @property
     def frame_y_radius(self) -> float:
         """Half the frame's height, in scene units (4 for a wide video): the y of its top
         edge."""
         return self.frame_height / 2
+
+    @frame_y_radius.setter
+    def frame_y_radius(self, value: float) -> None:
+        self.frame_height = 2 * value
 
     @property
     def top(self) -> "Point3D":
@@ -162,7 +174,14 @@ class Config:
     @overload
     def __setitem__(
         self,
-        key: Literal["frame_rate", "frame_height", "background_opacity"],
+        key: Literal[
+            "frame_rate",
+            "frame_height",
+            "frame_width",
+            "frame_x_radius",
+            "frame_y_radius",
+            "background_opacity",
+        ],
         value: float,
     ) -> None: ...
     @overload

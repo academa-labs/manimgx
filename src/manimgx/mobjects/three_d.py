@@ -689,7 +689,6 @@ class _DirectedSurface(Surface):
             @ rotation_matrix(theta - self._current_theta, Y_AXIS)
             @ rotation_about_z(-self._current_phi)
         )
-        self._rotate_direction_state(turn)
         self._apply_linear(turn, ORIGIN)
         self._current_theta, self._current_phi = theta, phi
         return self

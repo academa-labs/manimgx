@@ -5,8 +5,9 @@ Scene chooses the instants; an animation tree evaluates what acts at each instan
 
 from __future__ import annotations
 
+import operator
 import weakref
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from fractions import Fraction
 from itertools import pairwise
 from typing import (
@@ -20,7 +21,6 @@ from typing import (
 )
 from warnings import deprecated
 
-import numpy as np
 from typing_extensions import TypedDict
 
 from manimgx.animation import clock
@@ -28,9 +28,15 @@ from manimgx.animation.easing import linear, smooth
 from manimgx.caches import Memo
 from manimgx.drawing.geometry import integer_interpolate
 from manimgx.mobject import (
+    _HELD,
     Group,
     Mobject,
+    _Hold,
+    _own,
     _per_frame,
+    _put_family,
+    _same,
+    _snapshot,
     flow,
     remove_list_redundancies,
     simulated,
@@ -203,7 +209,12 @@ class Animation[M: Mobject = Mobject]:
     """The options this class sets by default, only those it changes from its base
     classes' (they cascade down the class hierarchy)."""
     keys: Sequence[Key] = (None,)  # the base part-by-part hook's starting state
-    _held: Sequence[Mobject] = ()  # the members whose updating it suspended (`take`)
+    _alpha = 0.0  # the progress it last showed (`interpolate`), shown again (`_reshow`)
+    _on: Sequence[Mobject] = ()  # the members it holds, beside any other play (`take`)
+    _owns: Sequence[Mobject] = ()  # their own values it last derived from (`_reshown`)
+    _done = False  # it ended (`finish`), its end still showing where a play runs (`_release`)
+    _brings: Sequence[Mobject] = ()  # what it follows that it brings to time (`take`)
+    _followed: Sequence[Mobject] = ()  # their values it last derived from (`_follow`)
 
     def __new__(cls, *args: object, **kwargs: object) -> Self:
         """Construction makes the class it names (so it type-checks like any call), keeping the
@@ -224,8 +235,11 @@ class Animation[M: Mobject = Mobject]:
         self.lag_ratio = o.get("lag_ratio", 0.0)
         self.use_override = o.get("use_override", True)
         self.frames: list[Mobject] = []  # the keyframes, as derived (`derive`)
+        # the parts of the mobject and of each keyframe, matched up, for these keyframes
+        # and the mobject's parts (`get_all_families_zipped`)
+        self._zipped: tuple[list[Mobject], list[Mobject], list[tuple[Mobject, ...]]]
+        self._zipped = ([], [], [])
         self._rest: Mobject | None = None  # what its mobject is once it ends (`derive`)
-        self._model: M | None = None
         self._scene: Scene | None = None  # the scene it plays in (`_setup_scene`)
         self._mobject = mobject
 
@@ -234,19 +248,6 @@ class Animation[M: Mobject = Mobject]:
     def mobject(self) -> M:
         """The mobject the animation changes."""
         return self._mobject
-
-    @property
-    @deprecated(
-        "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
-        category=None,
-    )
-    def model(self) -> M | None:
-        """The mobject as its updaters have it while the animation plays.
-
-        A copy they run on, taken when the animation begins; None if the mobject has no
-        updaters, or they act on it directly (`suspend_mobject_updating` False).
-        """
-        return self._model
 
     @property
     @deprecated(
@@ -327,25 +328,119 @@ class Animation[M: Mobject = Mobject]:
     def take(self) -> None:
         """Take the mobject as it is now, changing nothing.
 
-        If the mobject has updaters, the animation takes a copy for them to run on (its
-        model), and the mobject's own updating is suspended while the animation plays
-        (unless `suspend_mobject_updating` is False). So animations that begin together
-        all begin from the world as it was before any of them acted. `begin` calls it.
+        An animation whose frames it shows from its keyframes (a view of the mobject, as
+        every transform is) holds the mobject while it plays: each member of it keeps its
+        own value (its points, shape, paint and members) aside, which every play holding it
+        shows itself over (their changes add); its updaters keep running on that value,
+        where the scene brings it to each instant, beneath those plays, which then show
+        themselves over what they made of it. A play that ends goes on showing its end there
+        while another play on the member still runs; once none does, the member keeps the
+        value it shows. Unless `suspend_mobject_updating` is False: then the updaters run on
+        what the plays show, and the animation holds nothing. One that acts on the mobject
+        as it is (a procedure, as `UpdateFromFunc` is) holds nothing: its updaters run on
+        it as on any mobject; nor does one played outside a scene's plays (by an updater).
+        `begin` calls it.
         """
-        if _updating(
-            self.mobject
-        ):  # as it is now: its time-based updaters brought here
-            framing, clock.framing = clock.framing, False  # (its per-frame ones ran)
-            self.mobject.advance(clock.now)
-            clock.framing = framing
-        if self.suspend_mobject_updating and _updating(self.mobject):
-            self._model = self.mobject.copy()
-        if self.suspend_mobject_updating:
-            # what it suspends it resumes when it finishes: not what was suspended already
-            self._held = [
-                m for m in self.mobject.get_family() if not m.updating_suspended
-            ]
-            self.mobject.suspend_updating()
+        self._done = False
+        # what it follows that the scene does not bring to its instants: it brings it, its
+        # updaters run from now
+        follows = self._follows()
+        if follows and self._scene is not None:
+            held = {id(m) for m in self._scene.get_mobject_family_members()}
+            follows = [f for f in follows if id(f) not in held]
+        self._brings = follows
+        for mob in follows:
+            mob._stamp(clock.now)
+        self._followed = self._values()
+        if not (
+            self._shows() and self.suspend_mobject_updating and self._scene is not None
+        ):  # (an animation an updater plays, outside the scene's plays, holds nothing)
+            return
+        holding = {
+            id(p): p
+            for m in self.mobject.get_family()
+            if (h := m._hold) is not None
+            for p in h.plays
+        }
+        self._join()
+        self._owns = [m._hold.own for m in self._on if m._hold is not None]
+        if (
+            holding
+        ):  # derived from the own values beneath them, they show themselves again
+            self._owns = []
+            self._reshown()
+            for play in holding.values():
+                play._reshow()
+
+    def _follows(self) -> list[Mobject]:
+        """The mobjects it reads at every instant it plays, besides its own (a path it moves
+        along, a target that moves): its keyframes follow them, and one the scene does not
+        hold it brings to each instant itself."""
+        return []
+
+    def _opaque(self) -> bool:
+        """Does deriving its keyframes run a function of the user's, which may read anything
+        (not only its mobject and the mobjects it names)? Then whatever drives anything is
+        brought to where it begins."""
+        return any(
+            callable(key) and not isinstance(key, Mobject) and not _library(key)
+            for key in self.keys
+        )
+
+    def _values(self) -> list[Mobject]:
+        """The values of what it follows, as they are now."""
+        return [_own(m) for f in self._follows() for m in f.get_family()]
+
+    def _follow(self, t: Fraction) -> bool:
+        """Bring what it follows to `t`, where the scene does not; and, if any of it changed
+        since it last derived from it, derive from it again (`_refollow`). Did it?"""
+        for mob in self._brings:
+            mob.advance(t)
+        if not self._followed:
+            return False
+        now = [m for f in self._follows() for m in f.get_family()]
+        if len(now) == len(self._followed) and all(
+            _same(m, was) for m, was in zip(now, self._followed, strict=True)
+        ):
+            return False
+        self._refollow()
+        self._followed = self._values()
+        return True
+
+    def _refollow(self) -> None:
+        """What it follows changed: its keyframes, and what it rests as, from it now."""
+        self._owns = []
+        self._reshown()
+
+    @classmethod
+    def _shows(cls) -> bool:
+        """Is it a view: are its frames a function of its mobject's value and its progress,
+        shown from keyframes part by part (or, for a class of the library that says so, by
+        its own hooks)? Else it is a procedure, acting on the mobject as it is."""
+        return (
+            cls.interpolate is Animation.interpolate
+            and cls.interpolate_mobject is Animation.interpolate_mobject
+        )
+
+    def _join(self) -> None:
+        """Hold each member of the mobject as it is now, beside the plays that hold it
+        already: one own value per member, which every one of them shows itself over (a
+        member new to the mobject, as an updater beneath it made it, holds its value as it
+        is); one that has left the mobject is let go."""
+        on: list[Mobject] = []
+        for member in self.mobject.get_family():
+            hold = member._hold
+            if hold is None:
+                member._hold = _Hold((self,), _own(member))
+                _HELD[id(member)] = weakref.ref(member)
+            elif all(play is not self for play in hold.plays):
+                member._hold = hold._replace(plays=(*hold.plays, self))
+            on.append(member)
+        kept = {id(member) for member in on}
+        for member in self._on:
+            if id(member) not in kept:
+                _let_go(member, self)
+        self._on = on
 
     @deprecated(
         "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
@@ -355,18 +450,19 @@ class Animation[M: Mobject = Mobject]:
         """Derive the animation's keyframes from `source` as it is now, and align the
         mobject with every one of them.
 
-        `begin` calls it on the mobject, and `rederive` on its model.
+        `begin` calls it on the mobject as it begins, and `rederive` on the mobject as its
+        updaters have it.
 
         Args:
-            source: The mobject, or its model.
+            source: The mobject.
         """
         own = [
             (
                 None
                 if key is None
-                else key.copy()
+                else self._frame_copy(key)
                 if isinstance(key, Mobject)
-                else key(source.copy())
+                else self._frame_copy(key(source.copy().clear_updaters()))
             )
             for key in self.keys
         ]
@@ -374,7 +470,18 @@ class Animation[M: Mobject = Mobject]:
         for frame in own:
             if frame is not None:
                 self.mobject.align_data(frame)
-        self.frames = [source.copy() if frame is None else frame for frame in own]
+        self.frames = [
+            self._frame_copy(source) if frame is None else frame for frame in own
+        ]
+
+    def _frame_copy(self, source: Mobject) -> Mobject:
+        """A keyframe: a value to draw (no updaters to run, no history), as the library's
+        animations read it; a class of one's own gets a whole copy, without updaters."""
+        return (
+            _snapshot(source)
+            if _library(type(self))
+            else source.copy().clear_updaters()
+        )
 
     def _resting(self, source: Mobject, own: list[Mobject | None]) -> Mobject | None:
         """What the mobject is once the animation ends, as `become` makes it: None, for an
@@ -387,20 +494,68 @@ class Animation[M: Mobject = Mobject]:
         category=None,
     )
     def finish(self) -> None:
-        """End the animation: show progress 1, and resume the updaters it suspended
-        (those suspended before it began stay so).
+        """End the animation: show progress 1, over what it holds as its last instant left
+        it, and let go of it.
 
         [`Scene.play`][manimgx.Scene.play] calls it at the animation's end; a part of a
-        composition, when its window closes.
+        composition, when its window closes. The updaters of what it held run at that
+        instant after it, once, as anyone's.
         """
+        if self._moves() and not self._follow(clock.now):
+            self._reshown()  # its keyframes from what it holds, as the instant left it
         self.interpolate(1)
+        self._done = True
+        self._settle()
         self._release()
 
+    def _settle(self) -> None:
+        """Make the mobject exactly what the animation ends with, where nothing else drives
+        it (a transform rests as a keyframe); the base's last frame is that."""
+
+    def _reshown(self) -> None:
+        """Put back the own value of each member it holds, hold its members as they are then,
+        and derive its keyframes from them, unless they are the values it derived them from
+        last; what deriving made of a member (aligned with the keyframes, the same shape)
+        is its own value from then on."""
+        if self._on:  # its family as the own values hold it, then held as it is then
+            _put_family(self.mobject)
+            self._join()
+        owns = [member._hold.own for member in self._on if member._hold is not None]
+        if len(owns) == len(self._owns) and all(
+            a is b for a, b in zip(owns, self._owns, strict=True)
+        ):
+            return
+        self.rederive()
+        for member in self._on:
+            if (hold := member._hold) is not None and not _same(member, hold.own):
+                member._hold = hold._replace(own=_own(member))
+        self._owns = [
+            member._hold.own for member in self._on if member._hold is not None
+        ]
+
+    def _reshow(self) -> None:
+        """Show itself again over what it holds, as it is now (its relations ran, or a
+        recorder beneath it changed it), at the progress it last showed."""
+        if self._moves():
+            self._reshown()
+            self.interpolate(self._alpha)
+
     def _release(self) -> None:
-        """Resume the updating it suspended when it began."""
-        if self.suspend_mobject_updating:
-            for member in self._held:
-                member.resume_updating(recursive=False)
+        """Let go of what it holds, where no play holding it still runs: such a member keeps
+        the value it shows, every play on it ended there. One that a play still running
+        holds stays held, by this one too: its end goes on showing over the member's own
+        value, beside what the others show (their changes add, and none goes on from
+        another's end)."""
+        kept: list[Mobject] = []
+        for member in self._on:
+            hold = member._hold
+            if hold is None:
+                continue
+            if any(p is not self and not p._done for p in hold.plays):
+                kept.append(member)
+            else:
+                _unhold(member)
+        self._on = kept
 
     @deprecated(
         "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
@@ -434,10 +589,18 @@ class Animation[M: Mobject = Mobject]:
             For each part with points of the mobject, a tuple of it and the same part of
             each of the animation's keyframes.
         """
-        families = [
-            m.family_members_with_points() for m in (self.mobject, *self.frames)
-        ]
-        if any(len(f) != len(families[0]) for f in families[1:]):
+        # the keyframes change structure only as they are derived anew (another list) or
+        # aligned here: they are matched up again only when the mobject's parts change
+        mine = self.mobject.family_members_with_points()
+        frames, parts, zipped = self._zipped
+        if (
+            frames is self.frames
+            and len(parts) == len(mine)
+            and all(map(operator.is_, parts, mine))
+        ):
+            return zipped
+        families = [mine, *(m.family_members_with_points() for m in self.frames)]
+        if any(len(f) != len(mine) for f in families[1:]):
             # another tween that began with this one restructured the mobject (aligning it
             # with its own keyframes): these follow, as alignment only adds parts
             for frame in self.frames:
@@ -445,42 +608,36 @@ class Animation[M: Mobject = Mobject]:
             families = [
                 m.family_members_with_points() for m in (self.mobject, *self.frames)
             ]
-        return zip(*families, strict=True)
+        zipped = list(zip(*families, strict=True))
+        self._zipped = (self.frames, families[0], zipped)
+        return zipped
 
     @deprecated(
         "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def advance(self, t: Fraction) -> None:
-        """Bring the mobject's updaters to scene time `t`, on its model.
-
-        Then it derives what the animation shows from the model again (`rederive`). The
-        scene calls it at every instant it computes while the animation plays, before
-        `interpolate`. At the end of the play, before `finish`, time alone brings the
-        model there: the per-frame updaters then run once, on the mobject itself.
+        """Bring to scene time `t` what the animation follows that the scene does not (a
+        target that moves), and follow it. The scene calls it at every instant it computes while the animation
+        plays, before `interpolate`; what it holds the scene brings there itself, beneath it
+        (see `take`).
 
         Args:
             t: The scene time, in seconds, as an exact fraction.
         """
-        if self.model is not None:
-            self.model.advance(t)
-            self.rederive()
+        self._follow(t)
 
     @deprecated(
         "Manim CE's machinery: ManimGX calls it itself (a custom animation overrides interpolate_mobject)",
         category=None,
     )
     def rederive(self) -> None:
-        """Derive the animation's keyframes again, from the mobject's model as it is now.
-
-        The mobject then shows the model, and the animation acts on it: an animation acts
-        on the mobject as its updaters have it at that frame. `advance` calls it.
+        """Derive the animation's keyframes again, from the mobject as its updaters have it
+        now: an animation acts on the mobject as its updaters have it at that frame.
+        `advance` calls it.
         """
-        model = self.model
-        if model is None:
-            return
-        self.mobject.become(model)
-        self.derive(model)
+        if self._on:
+            self.derive(self.mobject)
 
     # ── the per-frame function ────────────────────────────────────────────
     @deprecated(
@@ -497,7 +654,20 @@ class Animation[M: Mobject = Mobject]:
             alpha: The animation's progress, from 0 at its start to 1 at its end, not
                 yet eased by the rate function.
         """
+        self._alpha = alpha
         self.interpolate_mobject(alpha)
+
+    def _moves(self) -> bool:
+        """Does it derive again as it plays: does it hold or follow anything?"""
+        return bool(self._on) or bool(self._followed)
+
+    def _relate(self, t: Fraction) -> None:
+        """A frame's relations of its own: what it follows, as their relations left it (a
+        procedure has its own, as `UpdateFromFunc` has). The scene calls it at every frame
+        while the animation plays, after the updaters that take time and before the
+        per-frame ones."""
+        if self._follow(t):
+            self.interpolate(self._alpha)
 
     def interpolate_mobject(self, alpha: float) -> None:
         """Set the whole mobject at a progress of the animation.
@@ -618,32 +788,45 @@ class Animation[M: Mobject = Mobject]:
         return self.introducer
 
 
-def _lacks(mob: Mobject, members: list[Mobject]) -> bool:
-    """Do a scene's members lack a mobject with anything to draw or to run?"""
-    return mob not in members and any(
-        m.has_points() or m.updaters for m in mob.get_family()
-    )
-
-
-_GATHERED: weakref.WeakSet[Mobject] = weakref.WeakSet()
-
-
-def _gathered(*mobjects: Mobject) -> Group:
+class _Gathered(Group):
     """A group an animation makes of the mobjects it is given, to act on them as one: no
     scene holds it (`_held`)."""
-    group = Group(*mobjects)
-    _GATHERED.add(group)
-    return group
 
 
 def _held(mob: Mobject) -> list[Mobject]:
     """What a scene holds of a mobject an animation acts on: the mobject, or the members
     of a group the animation gathered them in, each where it is or by itself."""
-    return list(mob.submobjects) if mob in _GATHERED else [mob]
+    return list(mob.submobjects) if isinstance(mob, _Gathered) else [mob]
 
 
 def _updating(mob: Mobject) -> bool:
     return any(m.updaters for m in mob.get_family())
+
+
+def _library(function: object) -> bool:
+    """Is a function (or a class) the library's own: a key that reads only the mobject it is
+    given, an animation whose keyframes are values?"""
+    inner = getattr(function, "function", function)  # (a recorded call: its method)
+    return getattr(inner, "__module__", "").startswith("manimgx.")
+
+
+def _let_go(member: Mobject, play: Animation) -> None:
+    """A play lets go of a member it holds: the plays still holding it go on (the first of
+    them brings it to time); held by none, it keeps the value it shows."""
+    hold = member._hold
+    if hold is None:
+        return
+    plays = tuple(p for p in hold.plays if p is not play)
+    if plays:
+        member._hold = hold._replace(plays=plays)
+    else:
+        _unhold(member)
+
+
+def _unhold(member: Mobject) -> None:
+    """No play holds a member any more: it keeps the value it shows."""
+    del member._hold
+    _HELD.pop(id(member), None)
 
 
 def _flatten(items: Iterable[object]) -> list[object]:
@@ -782,7 +965,7 @@ class Add(Animation[Mobject]):
 
     def __init__(self, *mobjects: Mobject, **kwargs: Unpack[AnimationOptions]) -> None:
         super().__init__(
-            mobjects[0] if len(mobjects) == 1 else _gathered(*mobjects), **kwargs
+            mobjects[0] if len(mobjects) == 1 else _Gathered(*mobjects), **kwargs
         )
 
     def begin(self) -> None: ...
@@ -804,10 +987,10 @@ DEFAULT_LAGGED_START_LAG_RATIO: float = 0.05
 _0, _1 = Fraction(0), Fraction(1)
 
 
-type Phase = Literal["run", "begin", "fresh"]
+type Phase = Literal["run", "close", "begin", "fresh"]
 
 
-_PHASES: tuple[Phase, ...] = ("run", "begin", "fresh")
+_PHASES: tuple[Phase, ...] = ("run", "close", "begin", "fresh")
 
 
 class Window(NamedTuple):
@@ -834,39 +1017,6 @@ type Placed = tuple[float, float, bool, Fraction, Fraction]
 ends exactly."""
 
 
-def warp(rate_func: RateFunc, alpha: np.ndarray) -> np.ndarray:
-    """Apply a rate function to several progresses at once.
-
-    Args:
-        rate_func: The rate function.
-        alpha: The progresses; NaN for a part that has not begun, which stays so.
-
-    Returns:
-        The eased progresses.
-    """
-    # the scalar function itself, so a frame computed alone gets the same bits
-    return np.fromiter(
-        (rate_func(float(a)) if a == a else np.nan for a in alpha), float, len(alpha)
-    )
-
-
-def stagger(time: np.ndarray, start: float, end: float) -> np.ndarray:
-    """Return a part's progress through its window at several times of its group.
-
-    Args:
-        time: The group's times, as fractions of its run.
-        start: Where the part's window opens, as a fraction of the group's run.
-        end: Where it closes.
-
-    Returns:
-        The part's progress at each time; NaN (not begun) before its window, and held
-        at 1 after it.
-    """
-    if end <= start:
-        return np.where(time < start, np.nan, 1.0)
-    return np.where(time < start, np.nan, np.clip((time - start) / (end - start), 0, 1))
-
-
 def _through(time: float, start: float, end: float) -> float:
     """A begun part's progress through its window at a time of its group: held at 0
     before it (the group's time came back), at 1 after it."""
@@ -875,53 +1025,7 @@ def _through(time: float, start: float, end: float) -> float:
     return min(max((time - start) / (end - start), 0.0), 1.0)
 
 
-def schedule(
-    anim: Animation, alpha: np.ndarray
-) -> Iterator[tuple[Animation, np.ndarray, np.ndarray]]:
-    """Find every animation under `anim` that acts on its mobjects itself.
-
-    Args:
-        anim: The animation, a composition or not.
-        alpha: Progresses of `anim`.
-
-    Yields:
-        Each such animation, with its progress at each of those of `anim` (NaN before its
-        window opens), and whether its window has closed there: it has finished, and left
-        the scene as it leaves it.
-    """
-    for node, progress, closed in walk(anim, alpha):
-        if not isinstance(node, AnimationGroup):
-            yield node, progress, closed
-
-
-def walk(
-    anim: Animation,
-    time: np.ndarray,
-    start: Fraction = Fraction(0),
-    end: Fraction = Fraction(1),
-    closed: np.ndarray | None = None,
-) -> Iterator[tuple[Animation, np.ndarray, np.ndarray]]:
-    """Every animation under `anim`, itself first, as `AnimationGroup.interpolate` plays it.
-
-    Args:
-        anim: The animation.
-        time: The times it is given.
-        start: Where its window opens in that time.
-        end: Where it closes.
-        closed: Where it has closed; None for nowhere.
-
-    Yields:
-        Each animation, with its progress at each time (NaN before its window), and
-        whether its window has closed there.
-    """
-    closed = np.zeros(len(time), bool) if closed is None else closed
-    progress = stagger(time, float(start), float(end))
-    yield anim, progress, closed
-    if isinstance(anim, AnimationGroup):
-        eased, spans = anim._spans_in(start, end)
-        own = warp(anim.rate_func, progress) if eased else time
-        for part, (_, fb, early, a, b) in zip(anim.animations, spans, strict=True):
-            yield from walk(part, own, a, b, closed | ((own >= fb) & early))
+_SAMPLES = 64  # progresses a window's opening is looked for at, before halving
 
 
 def windows(anim: Animation) -> list[Window]:
@@ -941,13 +1045,18 @@ def windows(anim: Animation) -> list[Window]:
     found: list[Window] = []
 
     def first(time_of: Callable[[float], float], at: float) -> Fraction:
-        # the first progress of the whole at which a group's time reaches `at` (its time
-        # going forward), to the float
+        # the first progress of the whole at which a group's time reaches `at`, to the
+        # float: the first of evenly spread progresses to reach it, then by halves (a time
+        # that goes back, as `there_and_back` eases, may reach it long before it ends)
         if time_of(0.0) >= at:
             return _0
-        if time_of(1.0) < at:
+        lo = 0.0
+        for k in range(1, _SAMPLES + 1):
+            if time_of(hi := k / _SAMPLES) >= at:
+                break
+            lo = hi
+        else:
             return _1
-        lo, hi = 0.0, 1.0
         while lo < (mid := (lo + hi) / 2) < hi:
             if time_of(mid) >= at:
                 hi = mid
@@ -1209,22 +1318,6 @@ class AnimationGroup(Animation):
         if self.scene is not None:
             self.animations[i].clean_up_from_scene(self.scene)
 
-    @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
-    def begin_all(self) -> None:
-        """Begin every part at once, for a play the scene computes ahead of time.
-
-        In such a play no part's mobjects change before its window opens, so each part
-        takes what it would take then. Beginning changes no look (a tween acts only when
-        interpolated; aligning a mobject with its keyframes restructures it invisibly), so
-        each mobject shows its state from before the play until its window opens. The
-        scene calls it.
-        """
-        for i, anim in enumerate(self.animations):
-            if i not in self.begun:
-                self._begin(i)
-            if isinstance(anim, AnimationGroup):
-                anim.begin_all()
-
     def interpolate(self, alpha: float) -> None:
         for phase in _PHASES:
             self._at(alpha, _0, _1, phase)
@@ -1239,10 +1332,11 @@ class AnimationGroup(Animation):
     ) -> None:
         """The group at a time it is given, in which its window is [start, end], in one of
         an instant's phases (in order, each over the whole tree): "run", the parts running
-        are brought to it (and those whose windows close, closed); "begin", those whose
-        windows open begin, taking the world as it is then (so those beginning together
-        all find it as it was); "fresh", those are brought to it. `only`: the parts an
-        instant concerns, the others left as they are; None for all."""
+        are brought to it (those whose windows close there, to their ends); "close", once
+        the world is there, those finish and let go; "begin", those whose windows open
+        begin, taking the world as it is then (so those beginning together all find it as
+        it was); "fresh", those are brought to it. `only`: the parts an instant concerns,
+        the others left as they are; None for all."""
         eased, spans = self._spans_in(start, end)
         time = (
             self.rate_func(_through(given, float(start), float(end)))
@@ -1261,13 +1355,26 @@ class AnimationGroup(Animation):
                     self._begin(i)
                 if _nested(anim):
                     anim._at(time, a, b, phase, inner)
-            elif (i in self._fresh) == (phase == "fresh") and i in self.begun:
+            elif phase == "close":
+                if i not in self.begun or i in self._fresh:
+                    continue
                 if time >= fb and early:  # its window closed before the group's end
+                    self._end(i)
+                elif _nested(anim):
+                    anim._at(time, a, b, phase, inner)
+            elif (i in self._fresh) == (phase == "fresh") and i in self.begun:
+                if (
+                    phase == "fresh" and time >= fb and early
+                ):  # it opened and closed here
                     self._end(i)
                 elif _nested(anim):
                     anim._at(time, a, b, phase, inner)
                 else:
                     anim.interpolate(_through(time, fa, fb))
+                    if phase == "fresh" and clock.framing:
+                        # opened at a frame, past its relations: it has them there, as a
+                        # part running there has
+                        anim._relate(clock.now)
             elif _nested(anim) and i in self.begun:  # running: what opens in it
                 anim._at(time, a, b, phase, inner)
         if phase == "fresh":
@@ -1275,15 +1382,16 @@ class AnimationGroup(Animation):
 
     def _step(self, alpha: float, only: Route | None = None) -> Callable[[], None]:
         """An instant of the group, as a scene computes it: the parts running (of `only`, if
-        given) are brought to it now; the returned function begins the parts whose windows
-        open, once the world is at that instant."""
+        given) are brought to it now; the returned function, once the world is at that
+        instant, finishes the parts whose windows close and begins those whose windows
+        open."""
         self._at(alpha, _0, _1, "run", only)
 
-        def opening() -> None:
-            self._at(alpha, _0, _1, "begin", only)
-            self._at(alpha, _0, _1, "fresh", only)
+        def later() -> None:
+            for phase in _PHASES[1:]:
+                self._at(alpha, _0, _1, phase, only)
 
-        return opening
+        return later
 
     def finish(self) -> None:
         # the group's time where its rate function ends it: a part whose window it has
@@ -1307,12 +1415,25 @@ class AnimationGroup(Animation):
             self.done.add(i)
             self.animations[i]._release()
 
+    def _relate(self, t: Fraction) -> None:
+        for anim, _ in self._running(None):
+            anim._relate(t)
+
+    def _running(self, only: Route | None) -> list[tuple[Animation, Route | None]]:
+        """Its begun parts not done (of `only`, if given), with the route into each."""
+        return [
+            (self.animations[i], None if only is None else only[i])
+            for i in sorted(
+                self.begun - self.done if only is None else only.keys() - self.done
+            )
+            if i in self.begun or isinstance(self.animations[i], AnimationGroup)
+        ]
+
     def advance(self, t: Fraction, only: Route | None = None) -> None:
-        for i in self.begun - self.done if only is None else only.keys() - self.done:
-            anim, inner = self.animations[i], None if only is None else only[i]
+        for anim, inner in self._running(only):
             if isinstance(anim, AnimationGroup):
                 anim.advance(t, inner)
-            elif i in self.begun:
+            else:
                 anim.advance(t)
 
     def clean_up_from_scene(self, scene: Scene) -> None:
@@ -1581,7 +1702,7 @@ class ChangeSpeed(AnimationGroup):
                 a `dt` of 0.
         """
         if not _per_frame(update_function):
-            on_clock = _OnClock(update_function, clock.speed)
+            on_clock = _OnClock(update_function)
             update_function = on_clock if simulated(update_function) else flow(on_clock)
         mobject.add_updater(update_function, index=index, call_updater=call_updater)
 
@@ -1596,13 +1717,17 @@ class ChangeSpeed(AnimationGroup):
 
 
 class _OnClock:
-    """A time-based updater that lives on another clock than scene time."""
+    """A time-based updater on the speed clock."""
 
-    def __init__(
-        self, function: Callable[[Mobject, float], object], on: clock.Clock
-    ) -> None:
+    clock = clock.speed
+
+    def __init__(self, function: Callable[[Mobject, float], object]) -> None:
         self.function = function
-        self.clock = on
 
     def __call__(self, mob: Mobject, dt: float) -> object:
         return self.function(mob, dt)
+
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
+        return (
+            self  # a function on the scene's clock: a copy runs it too, as a function
+        )

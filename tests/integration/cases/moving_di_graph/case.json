@@ -6,21 +6,21 @@
     "duration": 2.0,
     "frames": [
       ["7ced5cdc8cabcbd2", 1],
-      ["f56d94fb00067e7c", 1],
-      ["8669da43c253887f", 1],
-      ["adba716b881081ff", 1],
-      ["4007d3dd7cc4ad3b", 1],
-      ["7cb38bc6806278ba", 1],
-      ["c93a6f4bc9c705ea", 1],
-      ["198759f80d451971", 1],
-      ["3172ab4cae9fd6c4", 1],
-      ["854511b7ccd6c84b", 1],
-      ["8d224f57b23e9a00", 11]
+      ["f6374060363ae3a4", 1],
+      ["4b82d77ce04054c3", 1],
+      ["8f3052ab8e7d15a5", 1],
+      ["92b5c9aedbeb8452", 1],
+      ["bf3558b1bd466643", 1],
+      ["b5ccd6c81b2a530a", 1],
+      ["813d07eacc5ecbae", 1],
+      ["5ccec532b7bafc15", 1],
+      ["dcd79222b469c748", 1],
+      ["893db54fd15cb78d", 11]
     ],
     "timeline": [
       [0.0, 21]
     ],
-    "id": "sha256:4f4c9b9dcccf6b6d088de804bada8e33faca62231c9b3b8d54c05f4e79dc0a6f"
+    "id": "sha256:f363106e3f4812c080f47bca6ad47243e76a9a3ff8a60a2d02245a7f86e447a4"
   },
   "ce": {
     "manim": "0.21.0",

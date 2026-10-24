@@ -21,6 +21,7 @@ import sys
 import types
 import weakref
 from collections.abc import Iterable
+from fractions import Fraction
 from itertools import pairwise
 from typing import cast
 
@@ -205,8 +206,10 @@ def drawn_box(mob: object) -> np.ndarray | None:
     assert isinstance(mob, Mobject)
     boxes = []
     for leaf in mob.family_members_with_points():
+        if kind(leaf) == "Mobject":
+            continue
         points = leaf.points
-        whole = len(points) - len(points) % 4 if leaf._curves else 0  # a path's curves
+        whole = len(points) - len(points) % 4 if kind(leaf) == "VMobject" else 0
         if whole:
             boxes.append(curve_box(points[:whole]))
         if len(points) > whole:  # points of their own: a lone anchor, a cloud, a mesh
@@ -471,3 +474,64 @@ def assert_replica(original: object, replica: object) -> None:
     assert not {id(y) for y in [*images, *rebuilt]} & set(mine), (
         "the replica holds parts of the original"
     )
+
+
+_LMS = np.array(
+    [
+        [0.4122214708, 0.5363325363, 0.0514459929],
+        [0.2119034982, 0.6806995451, 0.1073969566],
+        [0.0883024619, 0.2817188376, 0.6299787005],
+    ]
+)
+_LAB = np.array(
+    [
+        [0.2104542553, 0.7936177850, -0.0040720468],
+        [1.9779984951, -2.4285922050, 0.4505937099],
+        [0.0259040371, 0.7827717662, -0.8086757660],
+    ]
+)
+
+
+def oklab(rgb: np.ndarray, dtype: type = np.float64) -> np.ndarray:
+    """sRGB to OKLab, by the specified matrices in `dtype`."""
+    c = rgb.astype(dtype)
+    linear = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    return (np.cbrt(linear @ _LMS.T.astype(dtype))) @ _LAB.T.astype(dtype)
+
+
+def srgb(lab: np.ndarray, dtype: type = np.float64) -> np.ndarray:
+    """OKLab to sRGB, clipped to the gamut, in `dtype`."""
+    lms = (lab.astype(dtype) @ np.linalg.inv(_LAB).T.astype(dtype)) ** 3
+    linear = np.clip(lms @ np.linalg.inv(_LMS).T.astype(dtype), 0, 1)
+    return np.where(
+        linear <= 0.0031308, 12.92 * linear, 1.055 * linear ** (1 / 2.4) - 0.055
+    )
+
+
+def premultiplied_mix(
+    a: np.ndarray, b: np.ndarray, t: float, dtype: type = np.float64
+) -> np.ndarray:
+    """The convex combination of two colors in premultiplied OKLab, un-premultiplied (straight
+    where the opacity vanishes) and clipped to the sRGB gamut; exactly the ends at 0 and 1."""
+    if t <= 0:
+        return a
+    if t >= 1:
+        return b
+    wa, wb = a[3] * (1 - t), b[3] * t
+    la, lb = oklab(a[:3], dtype), oklab(b[:3], dtype)
+    opacity = wa + wb
+    lab = (la * wa + lb * wb) / opacity if opacity > 1e-9 else la * (1 - t) + lb * t
+    return np.array([*srgb(lab, dtype), opacity], dtype=float)
+
+
+def placement(length: Fraction, clips: list[tuple[Fraction, np.ndarray]]) -> np.ndarray:
+    """The clips' samples, each from the sample of its start on, what lies outside the film
+    left out."""
+    total = round(length * 48000)
+    out = np.zeros((total, max(s.shape[1] for _, s in clips)), np.float32)
+    for start, samples in clips:
+        at = round(start * 48000)
+        first, last = max(0, -at), min(len(samples), total - at)
+        if last > first:
+            out[at + first : at + last] += samples[first:last]
+    return out

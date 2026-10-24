@@ -18,8 +18,8 @@
   by default, it is set at its calibrated height.
 - A typeset mobject made to a width or a height is that size, and its font size is what the
   size makes it; a text's font size is the size asked for; resized, it reads back what it was
-  set to. Its rules' widths scale with it unless set; fitted before coloring, a text keeps its
-  ligatures' shapes.
+  set to. Its rules (a fraction's bar) are the shapes they cover, filled, and scale with it;
+  fitted before coloring, a text keeps its ligatures' shapes.
 - A title's color is its underline's too.
 - `opacity` is every part's fill and stroke opacity, where `fill_opacity` or
   `stroke_opacity` doesn't give one, in each of Typst's front ends.
@@ -37,7 +37,7 @@ from hypothesis import strategies as st
 
 import manimgx as m
 from manimgx.drawing import typesetting as tc
-from manimgx.mobjects.text import _split_braces
+from manimgx.mobjects.text import TypstGlyph, _split_braces
 
 
 def _pitch(first: m.Mobject, second: m.Mobject) -> float:
@@ -377,37 +377,39 @@ def test_a_typeset_mobject_made_to_a_size_is_that_size(
     assert text.font_size == pytest.approx(48 * 0.8 / reference.height)
 
 
-@pytest.mark.parametrize("fixed_stroke", [None, 3])
-@pytest.mark.parametrize(("width", "height"), [(2, None), (None, 1.5), (2, 1.5)])
-def test_fitted_typeset_rules_scale_unless_stroke_width_is_explicit(
-    fixed_stroke: float | None, width: float | None, height: float | None
-) -> None:
-    reference = m.Typst("$ frac(a,b) $", stroke_width=fixed_stroke)
-    text = m.Typst(
-        "$ frac(a,b) $", stroke_width=fixed_stroke, width=width, height=height
-    )
-    originals = [
-        part
-        for part in reference.family_members_with_points()
-        if part.get_stroke_width() > 0
-    ]
-    rules = [
+def _bar(text: m.Typst) -> m.Mobject:
+    """A fraction's bar: the part that is not a glyph."""
+    (bar,) = (
         part
         for part in text.family_members_with_points()
-        if part.get_stroke_width() > 0
-    ]
-    assert len(originals) == len(rules) > 0
-    scale = text.height / reference.height if fixed_stroke is None else 1
-    for before, after in zip(originals, rules, strict=True):
-        assert after.get_stroke_width() == pytest.approx(
-            before.get_stroke_width() * scale
-        )
-    widths = [part.get_stroke_width() for part in rules]
+        if not isinstance(part, TypstGlyph)
+    )
+    return bar
+
+
+@pytest.mark.parametrize("copied", [False, True])
+@pytest.mark.parametrize(("width", "height"), [(2, None), (None, 1.5), (2, 1.5)])
+def test_fitted_typeset_rules_keep_their_share_of_the_text(
+    copied: bool, width: float | None, height: float | None
+) -> None:
+    """A rule Typst strokes is the shape it covers, filled: however the text is fitted,
+    copied or resized, its thickness keeps its share of the text's height."""
+    reference = m.Typst("$ frac(a,b) $")
+    text = m.Typst("$ frac(a,b) $", width=width, height=height)
+    if copied:
+        text = text.copy()
+    share = _bar(reference).height / reference.height
+    assert _bar(text).height / text.height == pytest.approx(share)
+    assert _bar(text).get_stroke_width() == 0
     text.font_size = text.font_size * 1.3
-    for part, width in zip(rules, widths, strict=True):
-        assert part.get_stroke_width() == pytest.approx(
-            width * (1.3 if fixed_stroke is None else 1)
-        )
+    assert _bar(text).height / text.height == pytest.approx(share)
+
+
+def test_an_explicit_stroke_width_strokes_every_part_alike() -> None:
+    text = m.Typst("$ frac(a,b) $", stroke_width=3)
+    text.font_size = text.font_size * 1.3
+    widths = {part.get_stroke_width() for part in text.family_members_with_points()}
+    assert widths == {3}
 
 
 def test_fitting_text_before_coloring_ligatures_preserves_their_geometry() -> None:

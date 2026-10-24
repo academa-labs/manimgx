@@ -41,7 +41,6 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from isosurfaces import plot_isoline
 from typing_extensions import TypedDict
 
 from manimgx.constants import (
@@ -647,6 +646,8 @@ class ImplicitFunction(VMobject):
             np.array([self.x_range[0], self.y_range[0]]),
             np.array([self.x_range[1], self.y_range[1]]),
         )
+        from isosurfaces import plot_isoline
+
         curves = plot_isoline(
             fn=lambda u: self.function(u[0], u[1]),
             pmin=p_min,

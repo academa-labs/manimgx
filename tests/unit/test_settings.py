@@ -12,7 +12,7 @@
 import ast
 import dataclasses
 from pathlib import Path
-from typing import assert_type
+from typing import Literal, assert_type
 
 import pytest
 from hypothesis import given
@@ -97,3 +97,33 @@ def test_nothing_reads_the_configuration_when_manimgx_is_imported() -> None:
         found.visit(ast.parse(path.read_text(encoding="utf-8")))
         reads += [f"{path.relative_to(package)}:{line}" for line in found.lines]
     assert not reads, f"read before a scene's file can set the video: {reads}"
+
+
+SIDES = ("frame_width", "frame_height", "frame_x_radius", "frame_y_radius")
+"""The writable frame dimensions."""
+
+
+@given(
+    side=st.sampled_from(SIDES),
+    value=st.floats(0.5, 100),
+    width=st.integers(16, 4096),
+    height=st.integers(16, 4096),
+    item=st.booleans(),
+)
+def test_every_side_of_the_frame_can_be_set_and_the_frame_keeps_the_videos_shape(
+    side: Literal["frame_width", "frame_height", "frame_x_radius", "frame_y_radius"],
+    value: float,
+    width: int,
+    height: int,
+    item: bool,
+) -> None:
+    """Code sets the frame by any of its sides (`config.frame_width = 16`,
+    `config["frame_y_radius"] = 5`): the side reads back what was set, and the frame has the
+    video's proportions."""
+    c = Config(pixel_width=width, pixel_height=height)
+    if item:
+        c[side] = value
+    else:
+        setattr(c, side, value)
+    assert getattr(c, side) == pytest.approx(value)
+    assert c.frame_width / c.frame_height == pytest.approx(width / height)

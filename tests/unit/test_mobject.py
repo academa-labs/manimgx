@@ -105,7 +105,15 @@ from hypothesis.stateful import (
 )
 from tests import oracles
 from tests.oracles import assert_replica, look, reachable, reaches
-from tests.scenes import frames, scene
+from tests.scenes import (
+    SHAPES,
+    Recorder,
+    assert_same_shots,
+    frames,
+    instants,
+    record,
+    scene,
+)
 from tests.strategies import (
     MOBJECTS,
     angles,
@@ -123,8 +131,9 @@ from manimgx.animation import clock
 from manimgx.animation.easing import linear
 from manimgx.drawing.geometry import bezier, partial_bezier_points
 from manimgx.drawing.paint import Style
-from manimgx.mobject import GridArrangement, ValueTracker, prototype
+from manimgx.mobject import GridArrangement, ValueTracker, _snapshot, prototype
 from manimgx.mobjects.shapes import LineOptions
+from manimgx.settings import config
 
 DIRECTIONS = [m.RIGHT, m.LEFT, m.UP, m.DOWN, m.UR, m.UL, m.DR, m.DL]
 
@@ -844,6 +853,15 @@ class TestBecome:
         group.become(group.submobjects[1])
         assert oracles.drawing(group) == expected
 
+    def test_gained_members_keep_their_authoring_behavior(self) -> None:
+        source = m.Group[m.ValueTracker](m.ValueTracker(4))
+        gained = m.Group().become(source)[0]
+        tracker = cast("m.ValueTracker", gained)
+        assert tracker.get_value() == 4
+        tracker.increment_value(2)
+        assert tracker.get_value() == 6
+        assert source[0].get_value() == 4
+
     def test_a_redrawn_mobject_that_empties_and_comes_back_is_what_it_draws(
         self,
     ) -> None:
@@ -1147,6 +1165,12 @@ def test_a_replica_is_an_independent_isomorphic_copy(name: str, how: str) -> Non
     family = [x for x in original.get_family() if id(x) not in keys]
     replica = REPLICATIONS[how](original)
     assert look(replica) == look(original)
+    if how != "copy":
+        # Authoring snapshots copy the current family, excluding its previous snapshots.
+        for member in original.get_family():
+            member.target = None
+            if hasattr(member, "saved_state"):
+                member.saved_state = None
     assert_replica(original, replica)
     assert not reaches(replica, family), "the replica reaches its original"
     before = look(original)
@@ -2631,6 +2655,15 @@ class TestRefining:
             part.get_end(), at(b), atol=1e-9 * (1 + np.abs(mob.points).max())
         )
 
+    @given(mob=paths(), a=unit, b=unit)
+    def test_a_path_can_be_cut_in_place(
+        self, mob: m.VMobject, a: float, b: float
+    ) -> None:
+        a, b = min(a, b), max(a, b)
+        expected = mob.copy().pointwise_become_partial(mob, a, b)
+        mob.pointwise_become_partial(mob, a, b)
+        np.testing.assert_array_equal(mob.points, expected.points)
+
 
 FUNCTIONS = {
     "waves": lambda p: p + 0.5 * np.array([np.sin(p[1]), np.sin(p[0]), 0]),
@@ -2848,3 +2881,481 @@ def test_get_height_is_height_as_get_width_is_width() -> None:
     rectangle = m.Rectangle(width=3.0, height=1.25)
     assert rectangle.get_width() == rectangle.width == pytest.approx(3.0)
     assert rectangle.get_height() == rectangle.height == pytest.approx(1.25)
+
+
+@pytest.mark.config(frame_rate=8)
+@given(angle=st.sampled_from([np.pi, -np.pi, 2 * np.pi, -2 * np.pi, 1.0]))
+def test_a_turning_tween_turns_the_sheen_direction(angle: float) -> None:
+    """A sheen follows the motion throughout a turn, without shrinking or passing through zero."""
+    from tests.scenes import instants
+
+    mob = m.Square().set_fill([m.RED, m.BLUE], 1)
+    direction = mob.paint.sheen_direction.copy()
+
+    def construct(scene: m.Scene) -> None:
+        scene.add(mob)
+        scene.play(
+            m.Rotate(mob, angle, about_point=m.ORIGIN), run_time=1, rate_func=m.linear
+        )
+
+    shown = instants(construct, lambda _: mob.paint.sheen_direction.copy())
+    for t, actual in shown.items():
+        np.testing.assert_allclose(
+            actual, m.rotation_matrix(angle * float(t), m.OUT) @ direction, atol=1e-12
+        )
+
+
+# ── family values ────────────────────────────────────────────────────────────────────────
+pytestmark = pytest.mark.filterwarnings("error")
+
+NAMES = sorted(MOBJECTS)
+
+
+def kinds(mob: m.Mobject) -> frozenset[str]:
+    """How a mobject's family draws: the kinds of its members with points."""
+    return frozenset(oracles.kind(x) for x in mob.get_family() if x.has_points())
+
+
+def _by_kinds() -> dict[str, list[str]]:
+    """The registry's classes by how their families draw ("Mobject": a point drawn by nothing)."""
+    out: dict[str, list[str]] = {}
+    for name in NAMES:
+        out.setdefault(
+            " ".join(sorted(kinds(MOBJECTS[name]()))) or "nothing", []
+        ).append(name)
+    return out
+
+
+BY_KINDS = _by_kinds()
+named = st.sampled_from(sorted(BY_KINDS)).flatmap(
+    lambda k: st.sampled_from(BY_KINDS[k])
+)
+"""A registry class's name, its kind of drawing drawn first: every kind is as likely."""
+
+
+def played(construct: Callable[[m.Scene], None], fps: int = 5) -> None:
+    """Run a scene with no video and no pixels: its frames are counted, not drawn."""
+    saved, config.frame_rate = config.frame_rate, fps
+    try:
+        scene(construct).render()
+    finally:
+        config.frame_rate = saved
+
+
+# ── any mobject transforms into any other ───────────────────────────────────────────────────
+@example(source="Mobject", target="ComplexValueTracker")
+@example(source="PGroup", target="Point")
+@example(source="Dot3D", target="ConvexHull3D")
+@example(source="AmbientLight", target="TracedPath")
+@example(source="Dot3D", target="EnvironmentLight")
+@example(source="Dot3D", target="SpotLight")
+@example(source="Dot3D", target="SunLight")
+@example(source="ThreeDAxes", target="ComplexValueTracker")
+@given(source=named, target=named)
+def test_any_mobject_transforms_into_any_other(source: str, target: str) -> None:
+    """A transform matches the two families' parts and points up one to one, whatever they are:
+    it plays, and a source with no subsequent updater ends drawing what the other draws."""
+    a = MOBJECTS[source]().clear_updaters()
+    b = MOBJECTS[target]().shift(m.UR)
+
+    def construct(scene: m.Scene) -> None:
+        scene.add(a)
+        scene.play(m.Transform(a, b), run_time=0.4)
+
+    played(construct)
+    assert oracles.drawing(a) == oracles.drawing(b)
+
+
+def test_a_value_holds_the_box_a_gradient_frame_outside_it_spans() -> None:
+    """A gradient's frame outside a value (an axis piece taken alone, its frame the whole
+    axis) is held as the box the frame spans, as it is then: the value draws its gradient as
+    the piece does, and holds nothing more of the frame."""
+    axes = m.ThreeDAxes()
+    piece = next(
+        p
+        for p in axes.family_members_with_points()
+        if isinstance(p, m.VMobject) and p.gradient_frame not in (None, p)
+    )
+    assert isinstance(piece, m.VMobject)
+    assert piece.gradient_frame is not None
+    value = _snapshot(piece, alone=True)
+    assert isinstance(value, m.VMobject)
+    assert value.gradient_frame is not None
+    assert len(value.gradient_frame.get_family()) == 1
+    np.testing.assert_array_equal(
+        value.gradient_frame.boundary_box(), piece.gradient_frame.boundary_box()
+    )
+    np.testing.assert_array_equal(
+        value.get_gradient_start_and_end_points(),
+        piece.get_gradient_start_and_end_points(),
+    )
+
+
+# ── equal maps give equal looks ─────────────────────────────────────────────────────────────
+def _turn(angle: float, axis: np.ndarray) -> np.ndarray:
+    return m.rotation_matrix(angle, axis)
+
+
+MAPS: dict[
+    str,
+    tuple[
+        Callable[[m.Mobject, float, np.ndarray, np.ndarray], object],
+        Callable[[m.Mobject, float, np.ndarray, np.ndarray], object],
+    ],
+] = {
+    # each map, applied two ways about one point (`a`: an angle or a factor, `v`: an axis)
+    "turn: rotate, apply_matrix": (
+        lambda x, a, v, p: x.rotate(a, v, about_point=p),
+        lambda x, a, v, p: x.apply_matrix(_turn(a, v), about_point=p),
+    ),
+    "half turn: flip, rotate": (
+        lambda x, a, v, p: x.flip(v, about_point=p),
+        lambda x, a, v, p: x.rotate(np.pi, v, about_point=p),
+    ),
+    "stretch: stretch, apply_matrix": (
+        lambda x, a, v, p: x.stretch(a, 0, about_point=p),
+        lambda x, a, v, p: x.apply_matrix(np.diag([a, 1.0, 1.0]), about_point=p),
+    ),
+    "scale: scale, scale per axis": (
+        lambda x, a, v, p: m.Mobject.scale(x, a, about_point=p),
+        lambda x, a, v, p: m.Mobject.scale(x, [a, a, a], about_point=p),
+    ),
+    "scale: scale, apply_matrix": (
+        lambda x, a, v, p: m.Mobject.scale(x, a, about_point=p),
+        lambda x, a, v, p: x.apply_matrix(a * np.eye(3), about_point=p),
+    ),
+    "turn: apply_matrix, apply_function": (
+        lambda x, a, v, p: x.apply_matrix(_turn(a, v), about_point=p),
+        lambda x, a, v, p: x.apply_function(lambda q: _turn(a, v) @ q, about_point=p),
+    ),
+}
+
+
+def assert_alike(x: m.Mobject, y: m.Mobject) -> None:
+    """The same members, at the same points, painted the same, to rounding."""
+    fx, fy = x.get_family(), y.get_family()
+    assert len(fx) == len(fy)
+    for i, (a, b) in enumerate(zip(fx, fy, strict=True)):
+        scale = 1 + np.abs(a.points).max(initial=0)
+        assert a.points.shape == b.points.shape, f"member {i}: points"
+        assert np.allclose(a.points, b.points, rtol=0, atol=1e-9 * scale), (
+            f"member {i}: points"
+        )
+        for name in ("fill", "stroke", "background", "sheen_direction"):
+            pa, pb = getattr(a.paint, name), getattr(b.paint, name)
+            assert np.allclose(pa, pb, rtol=0, atol=1e-9), f"member {i}: {name}"
+        assert a.paint.stroke_width == pytest.approx(b.paint.stroke_width)
+
+
+@given(
+    name=named,
+    way=st.sampled_from(sorted(MAPS)),
+    amount=st.sampled_from([0.5, 1.0, np.pi / 2, -1.0, 2.0]),
+    axis=st.sampled_from([m.OUT, m.RIGHT, m.UP, np.array([1.0, 1.0, 1.0])]),
+    about=arrays(3, 5),
+)
+def test_equal_maps_give_equal_looks(
+    name: str, way: str, amount: float, axis: np.ndarray, about: np.ndarray
+) -> None:
+    """A map is a map, whichever method applies it: given a sheen, a mobject turned (mirrored,
+    stretched, scaled) one way looks as it does turned the other way: the same points, and the
+    same paint, the direction its colors lighten toward too."""
+    one = MOBJECTS[name]().set_sheen(0.5, m.UL)
+    other = one.copy()
+    first, second = MAPS[way]
+    first(one, amount, axis, about)
+    second(other, amount, axis, about)
+    assert_alike(one, other)
+
+
+# ── a group's box is what its family draws ──────────────────────────────────────────────────
+@given(
+    names=st.lists(named, min_size=1, max_size=3),
+    shifts=st.lists(arrays(3, 4), min_size=3, max_size=3),
+)
+def test_a_groups_box_is_what_its_family_draws(
+    names: list[str], shifts: list[np.ndarray]
+) -> None:
+    """A box is around what a family draws, and nothing else: a member that draws nothing (a
+    tracker, whose number is a point) does not widen the box of a group that holds it."""
+    group = m.Group(*(MOBJECTS[n]().shift(v) for n, v in zip(names, shifts)))
+    expected, box = oracles.drawn_box(group), group.boundary_box()
+    if expected is None:
+        assert box is None
+        return
+    assert box is not None
+    tolerance = 1e-9 * (1 + np.abs(expected).max())
+    assert np.allclose(box, expected, rtol=0, atol=tolerance)
+
+
+# ── a play begins where the scene was ───────────────────────────────────────────────────────
+def _shape(name: str, i: int) -> m.Mobject:
+    return SHAPES[name]().shift([1.5 * i - 2.0, 0.0, 0.0])
+
+
+@given(
+    source=st.lists(
+        st.tuples(st.sampled_from(sorted(SHAPES)), st.booleans()),
+        min_size=1,
+        max_size=2,
+    ),
+    target=st.lists(st.sampled_from(sorted(SHAPES)), min_size=1, max_size=4),
+)
+def test_a_play_begins_where_the_scene_was(
+    source: list[tuple[str, bool]], target: list[str]
+) -> None:
+    """A transform starts from its mobject as it is: its first frame (progress 0) shows what the
+    frame before it showed, however many parts the matching adds and whatever updates the parts
+    it has (here, some redrawn each frame as they are: `always_redraw`)."""
+
+    def part(name: str, i: int, redrawn: bool) -> m.Mobject:
+        return m.always_redraw(lambda: _shape(name, i)) if redrawn else _shape(name, i)
+
+    def story(scene: Recorder) -> None:
+        group = m.VGroup(*(part(n, i, r) for i, (n, r) in enumerate(source)))
+        scene.add(group)
+        scene.wait(0.2)
+        goal = m.VGroup(*(_shape(n, i).shift(m.DOWN) for i, n in enumerate(target)))
+        scene.play(m.Transform(group, goal), rate_func=linear)
+
+    shot = record(story, fps=10).frames
+    assert_same_shots(shot[2], shot[1], "the play's first frame")
+
+
+# ── updaters run on the mobjects they were given to ─────────────────────────────────────────
+OPERATIONS = ["transformed", "outlined", "played"]
+
+
+@given(
+    name=st.sampled_from(sorted(SHAPES)),
+    operation=st.sampled_from(OPERATIONS),
+    parts=st.integers(2, 4),
+)
+def test_updaters_run_on_the_mobjects_they_were_given_to(
+    name: str, operation: str, parts: int
+) -> None:
+    """An updater is a mobject's own: it runs on that mobject, and on no part the engine makes
+    to hold a value: not the parts a transform's matching adds (its updating not suspended), not
+    the outlines an `AnimatedBoundary` draws around it, not a copy beneath a play."""
+    ran: list[m.Mobject] = []
+    shape = _shape(name, 0)
+    shape.add_updater(lambda mob: ran.append(mob))
+
+    def construct(scene: m.Scene) -> None:
+        group = m.VGroup(shape)
+        scene.add(group)
+        if operation == "transformed":
+            goal = m.VGroup(*(_shape(name, i).shift(m.DOWN) for i in range(parts)))
+            scene.play(
+                m.Transform(group, goal), suspend_mobject_updating=False, run_time=0.4
+            )
+        elif operation == "outlined":
+            scene.add(m.AnimatedBoundary(group))
+            scene.wait(0.4)
+        else:
+            scene.play(group.animate.shift(m.RIGHT), run_time=0.4)
+
+    played(construct)
+    strangers = {type(x).__name__ for x in ran if x is not shape}
+    assert not strangers, f"its updater ran on parts the engine made: {strangers}"
+
+
+# ── what a mobject holds does not grow with its history ─────────────────────────────────────
+HISTORY: dict[str, Callable[[m.Mobject], object]] = {
+    "save_state": lambda x: x.save_state(),
+    "generate_target": lambda x: x.generate_target(),
+    "animate": lambda x: x.animate.shift(m.RIGHT),
+}
+
+
+@given(
+    name=st.sampled_from(sorted(SHAPES)),
+    steps=st.lists(st.sampled_from(sorted(HISTORY)), min_size=1, max_size=8),
+)
+def test_what_a_mobject_holds_does_not_grow_with_its_history(
+    name: str, steps: list[str]
+) -> None:
+    """A target and a saved state are copies of the mobject as it is, not of its history: however
+    often it saves its state and makes targets (each `.animate` makes one), it holds its family,
+    a target and a saved state, so copying it costs what three families cost."""
+    mob = SHAPES[name]()
+    alone = held(SHAPES[name]())
+    for step in steps:
+        HISTORY[step](mob)
+    assert held(mob) <= 3 * alone, f"{held(mob)} mobjects held, {alone} alone"
+
+
+def held(mob: m.Mobject) -> int:
+    """How many mobjects a mobject holds: its family, and any it keeps besides."""
+    return sum(isinstance(x, m.Mobject) for x in oracles.reachable(mob).values())
+
+
+# ── alignment is one law ────────────────────────────────────────────────────────────────────
+def _row(i: int) -> m.ManimColor:
+    return m.ManimColor((i / 16, 0.0, 0.0))
+
+
+def _steps(kind: str, k: int, far: bool) -> m.Mobject:
+    """A mobject of k steps, step i at x = i (or far away, at y = 10)."""
+    y = 10.0 if far else 0.0
+    if kind == "members":
+        return m.VGroup(*(m.Dot([float(i), y, 0.0], radius=0.1) for i in range(k)))
+    if kind == "curves":
+        line = m.VMobject()
+        line.points = np.array(
+            [[i + t, y, 0.0] for i in range(k) for t in (0.0, 1 / 3, 2 / 3, 1.0)]
+        )
+        return line
+    if kind == "points":
+        return m.PMobject().add_points(np.array([[float(i), y, 0.0] for i in range(k)]))
+    if kind == "triangles":
+        vertices = np.array(
+            [
+                p
+                for i in range(k)
+                for p in ([i, y, 0], [i + 0.5, y, 0], [i, y + 0.5, 0])
+            ],
+            dtype=float,
+        )
+        return m.MeshMobject(vertices, np.arange(3 * k).reshape(-1, 3))
+    return m.Square().set_fill([_row(i) for i in range(k)], opacity=1)
+
+
+def _sources(kind: str, mob: m.Mobject) -> list[int]:
+    """Where each step of a mobject at a transform's start comes from: the x it is at."""
+    if kind == "members":
+        return [int(round(x.get_center()[0])) for x in mob.submobjects]
+    if kind == "curves":
+        return [int(np.floor(c[:, 0].mean())) for c in mob.points.reshape(-1, 4, 3)]
+    if kind == "points":
+        return [int(round(p[0])) for p in mob.points]
+    if kind == "triangles":
+        return [
+            int(np.floor(t[:, 0].min() + 1e-9)) for t in mob.points.reshape(-1, 3, 3)
+        ]
+    return [int(round(r[0] * 16)) for r in mob.paint.fill]
+
+
+@given(
+    kind=st.sampled_from(["members", "curves", "points", "triangles"]),
+    c=st.integers(1, 6),
+    more=st.integers(0, 7),
+)
+def test_alignment_sends_step_j_to_step_floor_j_c_over_n(
+    kind: str, c: int, more: int
+) -> None:
+    """A transform from c steps to n >= c gives its mobject n steps, each drawn from one of its
+    own: at the transform's start, new step j is where old step floor(j * c / n) is, its first
+    new step that old step itself, the rest copies that draw it (a curve's pieces, a point
+    again, a triangle collapsed, a part made invisible). (A gradient's color stops are refined
+    on a grid both share instead, which keeps every stop: its look does not change.)"""
+    n = c + more
+    source, target = _steps(kind, c, False), _steps(kind, n, True)
+
+    def construct(scene: m.Scene) -> None:
+        scene.add(source)
+        scene.play(m.Transform(source, target), rate_func=linear)
+
+    seen = instants(construct, lambda scene: _sources(kind, source))
+    assert seen[Fraction(0)] == [j * c // n for j in range(n)]
+
+
+@pytest.mark.parametrize(
+    "source", ["empty", "path", "cloud", "mesh", "tracker", "group"]
+)
+@pytest.mark.parametrize(
+    "target", ["empty", "path", "cloud", "mesh", "tracker", "group"]
+)
+def test_every_geometry_domain_can_transform_into_every_other(
+    source: str, target: str
+) -> None:
+    """Empty values and incompatible drawing domains align without converting their meaning."""
+
+    def make(kind: str) -> m.Mobject:
+        match kind:
+            case "path":
+                return m.Square()
+            case "cloud":
+                return m.PMobject().add_points([[0, 0, 0], [1, 2, 0], [-1, 0, 0]])
+            case "mesh":
+                return m.MeshMobject(np.eye(3), np.array([[0, 1, 2]]))
+            case "tracker":
+                return m.ComplexValueTracker(2 + 3j)
+            case "group":
+                return m.Group(m.PMobject(), m.Circle(), m.ValueTracker(4))
+            case _:
+                return m.Mobject()
+
+    a, b = make(source), make(target).shift(m.UR)
+    played(lambda s: s.play(m.Transform(a, b), run_time=0.2))
+    assert oracles.drawing(a) == oracles.drawing(b)
+
+
+@given(
+    direction=arrays(3, 5),
+    angle=st.floats(-3, 3),
+    signs=st.tuples(*[st.sampled_from([-1, 1])] * 3),
+)
+def test_a_maps_orthogonal_part_carries_the_sheen(
+    direction: np.ndarray, angle: float, signs: tuple[int, int, int]
+) -> None:
+    """A turn and reflections turn paint; positive axis stretches leave its direction alone."""
+    turn = m.rotation_matrix(angle, m.OUT)
+    matrix = turn @ np.diag(np.array(signs) * [0.5, 2, 3])
+    expected = turn @ (np.array(signs) * direction)
+    for mob in (m.Square(), m.PMobject(), m.Group(m.Circle())):
+        mob.set_sheen(0.5, direction)
+        by_function = mob.copy().apply_function(lambda p: matrix @ p + m.RIGHT)
+        mob.apply_matrix(matrix)
+        for one, other in zip(mob.get_family(), by_function.get_family(), strict=True):
+            np.testing.assert_allclose(one.paint.sheen_direction, expected, atol=1e-9)
+            np.testing.assert_allclose(other.paint.sheen_direction, expected, atol=1e-9)
+
+
+@given(factor=st.floats(0.5, 3))
+def test_arrow_width_is_measured_after_its_tips_are_restored(factor: float) -> None:
+    """Scaling an arrow sizes its stroke from the complete arrow, including both tips."""
+    arrow = m.DoubleArrow()
+    original = arrow.copy()
+    arrow.scale(1.0)
+    assert_alike(arrow, original)
+    arrow.scale(factor)
+    assert arrow.stroke_width == pytest.approx(
+        min(
+            arrow.initial_stroke_width,
+            arrow.max_stroke_width_to_length_ratio * arrow.get_length(),
+        )
+    )
+
+
+def test_a_transform_can_begin_before_a_boundarys_first_update() -> None:
+    """A procedural source is held before alignment, so its first update keeps its own shape."""
+    boundary = m.AnimatedBoundary(m.Square())
+    played(lambda s: s.play(m.Transform(boundary, m.Circle()), run_time=0.4))
+
+
+def test_keyframes_and_fillers_hold_values_without_updaters_or_history() -> None:
+    """The engine's drawing copies cannot execute callbacks or retain saved drawing histories."""
+    source = m.Group(m.Square().save_state())
+    source[0].generate_target()
+    source[0].add_updater(lambda mob: None)
+    animation = m.Transform(source, m.Group(m.Circle(), m.Circle()))
+    played(lambda s: s.play(animation, run_time=0.4))
+    for frame in animation.frames:
+        for member in frame.get_family():
+            assert not member.updaters
+            assert member.target is None
+            assert getattr(member, "saved_state", None) is None
+
+
+def test_a_snapshot_used_as_a_member_is_still_copied_as_a_member() -> None:
+    """History attributes are omitted, but an object also used in the family keeps its value."""
+    original = m.Circle().save_state()
+    saved = original.saved_state
+    assert saved is not None
+    original.add(saved)
+    target = original.generate_target()
+    assert target.submobjects[0] is not saved
+    assert oracles.drawing(target) == oracles.drawing(original)
+    assert target.saved_state is None
+    assert target.target is None

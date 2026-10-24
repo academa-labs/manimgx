@@ -45,7 +45,8 @@ import pytest
 from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
-from tests.strategies import colors, paints, rgbs
+from tests import oracles
+from tests.strategies import brushes, colors, paints, rgbs, vectors
 from tests.strategies import rgbas as rgba_values
 
 import manimgx as m
@@ -202,15 +203,24 @@ class TestMix:
 
 
 class TestGradients:
-    @given(stops=st.lists(colors, min_size=1, max_size=5), n=st.integers(1, 30))
+    @given(stops=st.lists(colors, min_size=1, max_size=5), n=st.integers(0, 30))
+    @example(stops=[], n=0)
     def test_a_gradient_runs_from_its_first_color_to_its_last(
         self, stops: list[m.ManimColor], n: int
     ) -> None:
         out = m.color_gradient(stops, n)
         assert len(out) == n
+        if not n:
+            return
         np.testing.assert_allclose(out[-1].to_rgba(), stops[-1].to_rgba(), atol=1e-12)
         if n > 1:
             np.testing.assert_allclose(out[0].to_rgba(), stops[0].to_rgba(), atol=1e-12)
+        for i, sample in enumerate(out):
+            position = len(stops) - 1 if n == 1 else i * (len(stops) - 1) / (n - 1)
+            left = min(int(position), len(stops) - 1)
+            right = min(left + 1, len(stops) - 1)
+            expected = m.interpolate_color(stops[left], stops[right], position - left)
+            np.testing.assert_allclose(sample.to_rgba(), expected.to_rgba(), atol=1e-12)
 
     @given(
         stops=st.lists(colors, min_size=2, max_size=5),
@@ -397,8 +407,8 @@ class TestMixed:
 
 class TestAligned:
     @given(a=paints, b=paints)
-    def test_both_get_as_many_rows_per_brush(self, a: Paint, b: Paint) -> None:
-        a2, b2 = Paint.aligned(a, b)
+    def test_element_brushes_repeat_rows_to_match(self, a: Paint, b: Paint) -> None:
+        a2, b2 = Paint.aligned(a, b, gradient=False)
         for name in BRUSHES:
             assert (
                 len(getattr(a2, name))
@@ -409,6 +419,18 @@ class TestAligned:
             assert {r.tobytes() for r in getattr(a2, name)} == {
                 r.tobytes() for r in getattr(a, name)
             }
+
+    @given(a=paints, b=paints, alpha=st.floats(0.01, 0.99))
+    def test_aligned_tweens_keep_their_colors_lazy(
+        self, a: Paint, b: Paint, alpha: float
+    ) -> None:
+        """Counting already aligned rows never materializes a tween's colors."""
+        a, b = Paint.aligned(a, b)
+        mixed = Paint().mixed(a, b, alpha)
+        first, second = Paint.aligned(mixed, a)
+        assert first is mixed
+        assert second is a
+        assert all(("brush", name) not in mixed._derived for name in BRUSHES)
 
 
 @given(low=st.floats(0, 1), high=st.floats(0, 1), curves=st.integers(1, 8))
@@ -575,7 +597,7 @@ class Derivations(RuleBasedStateMachine):
         paint = self.pick(i)
         warm = paint.updated(name, colored, opacity)
         with cold():
-            expected = forgetful(paint)._updated(name, colored, opacity)
+            expected = forgetful(paint).updated(name, colored, opacity)
         assert everything(warm) == everything(expected), (
             f"{colored!r}: recolored otherwise"
         )
@@ -598,7 +620,7 @@ class Derivations(RuleBasedStateMachine):
         for twin in pair:
             warm = paint.updated(name, twin, opacity)
             with cold():
-                expected = forgetful(paint)._updated(name, twin, opacity)
+                expected = forgetful(paint).updated(name, twin, opacity)
             assert everything(warm) == everything(expected), (
                 f"{twin!r} taken for its twin"
             )
@@ -675,3 +697,138 @@ class Derivations(RuleBasedStateMachine):
 
 TestDerivations = Derivations.TestCase
 TestDerivations.settings = settings(max_examples=50, stateful_step_count=25)
+
+
+def gradient(rows: np.ndarray, at: float) -> np.ndarray:
+    """A gradient evaluated through the public color mixing operation."""
+    if len(rows) == 1:
+        return rows[0]
+    x = np.clip(at, 0, 1) * (len(rows) - 1)
+    k = min(int(x), len(rows) - 2)
+    return (
+        m.ManimColor.from_rgba(rows[k])
+        .interpolate(m.ManimColor.from_rgba(rows[k + 1]), float(x - k))
+        .to_rgba()
+    )
+
+
+@given(a=brushes(6), b=brushes(6))
+@example(a=np.array([[0.0, 0, 0, 1], [1.0, 1, 1, 1]]), b=np.ones((50, 4)))
+def test_aligning_gradients_retains_every_original_stop(
+    a: np.ndarray, b: np.ndarray
+) -> None:
+    """A common refinement retains both brushes' knots, including unequal interval counts."""
+    first, second = Paint().but(fill=a), Paint().but(fill=b)
+    aligned = Paint.aligned(first, second)
+    assert len(aligned[0].fill) == len(aligned[1].fill)
+    for before, after in zip((first, second), aligned, strict=True):
+        if len(before.fill) == 1:
+            np.testing.assert_array_equal(
+                after.fill, np.repeat(before.fill, len(after.fill), axis=0)
+            )
+        else:
+            stride = (len(after.fill) - 1) // (len(before.fill) - 1)
+            np.testing.assert_array_equal(after.fill[::stride], before.fill)
+
+
+@given(a=paints, b=paints, x=st.floats(0, 1))
+def test_aligning_paints_keeps_gradients_inside_the_gamut(
+    a: Paint, b: Paint, x: float
+) -> None:
+    """Refinement preserves premultiplied OKLab segments when inserted colors need no clipping.
+
+    Use colors near neutral and nonvanishing opacities to stay inside the gamut and
+    outside the mixer's transparent fallback. Clipping is not an affine operation.
+    """
+
+    def interior(paint: Paint) -> Paint:
+        return paint.but(
+            **{
+                name: np.column_stack(
+                    [
+                        0.4 + 0.2 * getattr(paint, name)[:, :3],
+                        0.1 + 0.9 * getattr(paint, name)[:, 3],
+                    ]
+                )
+                for name in BRUSHES
+            }
+        )
+
+    a, b = interior(a), interior(b)
+    for before, after in zip((a, b), Paint.aligned(a, b), strict=True):
+        for name in BRUSHES:
+            np.testing.assert_allclose(
+                gradient(getattr(before, name), x),
+                gradient(getattr(after, name), x),
+                rtol=0,
+                atol=1e-9,
+            )
+
+
+@given(a=rgba_values, b=rgba_values, t=st.floats(0, 1))
+def test_colors_mix_in_premultiplied_oklab_as_the_engine_mixes_them(
+    a: np.ndarray, b: np.ndarray, t: float
+) -> None:
+    """Color mixing agrees with independent float64 and engine-precision OKLab arithmetic."""
+    mixed = (
+        m.ManimColor.from_rgba(a).interpolate(m.ManimColor.from_rgba(b), t).to_rgba()
+    )
+    np.testing.assert_allclose(
+        mixed, oracles.premultiplied_mix(a, b, t), rtol=0, atol=1e-7
+    )
+    np.testing.assert_allclose(
+        mixed, oracles.premultiplied_mix(a, b, t, np.float32), rtol=0, atol=0.5 / 255
+    )
+
+
+@given(
+    direction=vectors(),
+    axis=vectors(),
+    angle=st.floats(0.02, 3.2),
+    alpha=st.floats(0, 1),
+)
+def test_an_arc_tween_turns_its_direction_with_its_geometry(
+    direction: np.ndarray, axis: np.ndarray, angle: float, alpha: float
+) -> None:
+    """A rigid arc carries a direction by the same rotation, without shortening it."""
+    a = Paint().but(sheen_direction=direction)
+    b = a.but(sheen_direction=m.rotation_matrix(angle, axis) @ direction)
+    mixed = a.mixed(a, b, alpha, m.path_along_arc(angle, axis))
+    np.testing.assert_allclose(
+        mixed.sheen_direction,
+        m.rotation_matrix(angle * alpha, axis) @ direction,
+        atol=1e-12,
+    )
+
+
+@given(paint=paints, alpha=st.floats(0, 1, exclude_min=True, exclude_max=True))
+def test_equal_brush_values_never_need_a_mix(paint: Paint, alpha: float) -> None:
+    """Equal brushes remain themselves, even when independently allocated."""
+    twin = Paint().but(
+        fill=paint.fill.copy(),
+        stroke=paint.stroke.copy(),
+        background=paint.background.copy(),
+        stroke_width=paint.stroke_width,
+    )
+    mixed = paint.mixed(paint, twin, alpha)
+    assert mixed.mix is None
+    assert mixed is paint
+
+
+@pytest.mark.parametrize("change", ["recolor", "turn"])
+def test_a_paint_changed_frame_after_frame_keeps_none_of_its_past_alive(
+    change: str,
+) -> None:
+    """A paint remembers what was derived from it only while something else holds that: a
+    mobject repainted frame after frame (an updater's work) leaves no chain of its past paints
+    alive behind its first one."""
+    square = m.Square().set_sheen(0.2, m.UR)
+    past: list[weakref.ref[Paint]] = []
+    for k in range(200):
+        if change == "recolor":
+            square.set_color(m.ManimColor((k / 200, 0.5, 1 - k / 200)))
+        else:
+            square.rotate(0.01)
+        past.append(weakref.ref(square.paint))
+    gc.collect()
+    assert sum(ref() is not None for ref in past[:-1]) == 0

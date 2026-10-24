@@ -50,7 +50,15 @@ from manimgx.drawing.paint import (
     Style,
     _Style,
 )
-from manimgx.mobject import Mobject, Placement, VGroup, VMobject, _family, _family_box
+from manimgx.mobject import (
+    Mobject,
+    Placement,
+    VGroup,
+    VMobject,
+    _family,
+    _family_box,
+    _snapshot,
+)
 from manimgx.mobjects.shapes import (
     Arc,
     Arced,
@@ -618,7 +626,7 @@ class Brace(VMobjectFromSVGPath):
         self.buff = buff
         dx, dy = np.asarray(direction, dtype=float)[:2]
         angle = -np.arctan2(dx, dy) + np.pi
-        mobject.rotate(-angle, about_point=ORIGIN)
+        mobject = _snapshot(mobject).rotate(-angle, about_point=ORIGIN)  # (not it)
         left = mobject.get_corner(DOWN + LEFT)
         right = mobject.get_corner(DOWN + RIGHT)
         target_width = right[0] - left[0]
@@ -634,8 +642,7 @@ class Brace(VMobjectFromSVGPath):
         self.flip(RIGHT)
         self.stretch_to_fit_width(target_width)
         self.shift(left - self.get_corner(UP + LEFT) + self.buff * DOWN)
-        for mob in (mobject, self):
-            mob.rotate(angle, about_point=ORIGIN)
+        self.rotate(angle, about_point=ORIGIN)
 
     def put_at_tip(
         self, mob: Mobject, use_next_to: bool = True, **kwargs: Unpack[Placement]
@@ -936,21 +943,21 @@ class ArcBrace(Brace):
     ):
         if arc is None:
             arc = Arc(start_angle=-1, angle=2, radius=1)
-        arc_end_angle = arc.start_angle + arc.angle
-        line = Line(UP * arc.start_angle, UP * arc_end_angle)
-        scale_shift = RIGHT * np.log(arc.radius)
-        if arc.radius >= 1:
-            line.scale(arc.radius, about_point=ORIGIN)
+        # the arc as it is (its points), not as it was made: it may have turned or moved
+        center = arc.get_arc_center()
+        radius = float(np.linalg.norm(arc.get_start() - center))
+        around = arc.get_anchors() - center
+        angles = np.unwrap(np.arctan2(around[:, 1], around[:, 0]))
+        line = Line(UP * angles[0], UP * angles[-1])
+        if radius >= 1:
+            line.scale(radius, about_point=ORIGIN)
             super().__init__(line, direction=direction, **kwargs)
-            self.scale(1 / arc.radius, about_point=ORIGIN)
+            self.scale(1 / radius, about_point=ORIGIN)
         else:
             super().__init__(line, direction=direction, **kwargs)
-        if arc.radius >= 0.3:
-            self.shift(scale_shift)
-        else:
-            self.shift(RIGHT * np.log(0.3))
+        self.shift(RIGHT * np.log(max(radius, 0.3)))
         self.apply_complex_function(np.exp)
-        self.shift(arc.get_arc_center())
+        self.shift(center)
 
 
 class LabeledDot(Dot):
