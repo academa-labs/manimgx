@@ -378,14 +378,17 @@ def test_a_typeset_mobject_made_to_a_size_is_that_size(
 
 
 @pytest.mark.parametrize("fixed_stroke", [None, 3])
+@pytest.mark.parametrize("copied", [False, True])
 @pytest.mark.parametrize(("width", "height"), [(2, None), (None, 1.5), (2, 1.5)])
 def test_fitted_typeset_rules_scale_unless_stroke_width_is_explicit(
-    fixed_stroke: float | None, width: float | None, height: float | None
+    fixed_stroke: float | None, copied: bool, width: float | None, height: float | None
 ) -> None:
     reference = m.Typst("$ frac(a,b) $", stroke_width=fixed_stroke)
     text = m.Typst(
         "$ frac(a,b) $", stroke_width=fixed_stroke, width=width, height=height
     )
+    if copied:
+        text = text.copy()
     originals = [
         part
         for part in reference.family_members_with_points()

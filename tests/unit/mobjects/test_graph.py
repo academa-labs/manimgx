@@ -566,3 +566,55 @@ def test_own_keywords_are_mappings() -> None:
         m.Graph([1, 2], [(1, 2)], vertex_config={1: "red"})
     with pytest.raises(TypeError, match="tip_config is not a mapping"):
         m.DiGraph([1, 2], [(1, 2)], edge_config={"tip_config": 3})
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("added", [False, True])
+def test_moving_vertices_keeps_each_edges_buffer_and_bend(
+    directed: bool, added: bool
+) -> None:
+    kind = m.DiGraph if directed else m.Graph
+    edges = [(0, 1), (1, 2)]
+    options = {"buff": 0.15, "path_arc": 0.4, (1, 2): {"buff": 0.3, "path_arc": -0.5}}
+    graph = kind([0, 1, 2], [] if added else edges, layout=PLACES, edge_config=options)
+    if added:
+        graph.add_edges(*edges, edge_config=options)
+    graph[1].shift(m.UP)
+    graph.update(0)
+    reference = kind(
+        [0, 1, 2],
+        edges,
+        layout={v: graph[v].get_center() for v in graph.vertices},
+        edge_config=options,
+    )
+    for edge in edges:
+        actual_parts = graph.edges[edge].family_members_with_points()
+        expected_parts = reference.edges[edge].family_members_with_points()
+        for actual, expected in zip(actual_parts, expected_parts, strict=True):
+            np.testing.assert_allclose(actual.points, expected.points, atol=1e-12)
+
+
+def test_added_vertices_share_the_original_center_and_keep_their_own_labels() -> None:
+    graph = m.Graph([0], [], layout={0: [2, 1, 0]}, vertex_config={"color": m.BLUE})
+    center = graph.get_center()
+    label = m.Square(0.1)
+    supplied = m.Square(0.2)
+    added = graph.add_vertices(
+        1,
+        2,
+        3,
+        labels={1: label},
+        positions={1: [-3, 2, 0]},
+        vertex_config={"color": m.GREEN, 2: {"radius": 0.2}},
+        vertex_mobjects={3: supplied},
+    )
+    assert added.submobjects == [graph[1], graph[2], supplied]
+    assert label in graph[1].get_family()
+    assert graph[1].get_color() == m.GREEN
+    assert graph[2].get_color() == m.BLUE
+    assert graph[2].width == pytest.approx(0.4)
+    np.testing.assert_allclose(graph[1].get_center(), [-3, 2, 0])
+    np.testing.assert_allclose(graph[2].get_center(), center)
+    np.testing.assert_allclose(graph[3].get_center(), center)
+    with pytest.raises(ValueError, match="already used"):
+        graph.add_vertices(4, 4)

@@ -258,3 +258,20 @@ def test_a_take_keeps_same_form_path_and_cloud_as_distinct_uploads(
         if op == 11
     }
     assert arrays[record_key] == 9
+
+
+class Viewed(m.Scene):
+    """A picture of what another camera sees, beside what it sees."""
+
+    def construct(self) -> None:
+        square = m.Square().shift(2 * m.LEFT)
+        camera = m.Camera()
+        camera.frame.scale(0.5).move_to(square)
+        self.add(square, m.ImageMobjectFromCamera(camera).to_corner(m.UR))
+        self.play(square.animate.shift(m.UP))
+
+
+def test_a_take_is_the_same_however_often_it_is_made() -> None:
+    """What a take holds is a function of its scene: its keys too, a camera's view's among
+    them (named in the order the film first draws it)."""
+    assert record(Viewed()) == record(Viewed())

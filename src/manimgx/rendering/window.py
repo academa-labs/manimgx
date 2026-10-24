@@ -156,15 +156,10 @@ class Window:
         assert self._process.stdout is not None
         with self._process.stdout as lines:
             for line in lines:
-                try:
-                    said = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(said, dict):
-                    continue
-                if isinstance(scene := said.get("scene"), str):
+                said: dict[str, str] = json.loads(line)
+                if (scene := said.get("scene")) is not None:
                     self._asked.put(scene)
-                if isinstance(failure := said.get("failure"), str):
+                if (failure := said.get("failure")) is not None:
                     self.failure = failure
 
 

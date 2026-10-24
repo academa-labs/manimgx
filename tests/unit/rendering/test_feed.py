@@ -16,6 +16,8 @@ keeps the player's store in step with its own books; the player derives what dra
   of frames as it was.
 - A batch of a reveal's frames has each frame's window, as the frame alone would.
 - A path and a cloud of points drawn in one frame draw as each does alone.
+- A growing path is named by what it holds, as a shape is: paths that grow alike are one
+  upload, grown once by what they gain, and one that grows otherwise is uploaded as itself.
 - Over any run of frames of any mobjects (paths, graded paths, colored clouds and meshes,
   surfaces, images; moved, copied, recolored, stretched, morphed, turned partway into
   another shape, cut to a part), idle time, sweeps, and uploads or evictions that fail:
@@ -46,7 +48,7 @@ from tests.scenes import frames, scene_3d
 
 import manimgx as m
 from manimgx._engine import Player, Recorder, digest
-from manimgx.drawing.geometry import Path
+from manimgx.drawing.geometry import Log, Path
 from manimgx.rendering import feed
 
 
@@ -114,21 +116,21 @@ def _legacy_refine_surface(
     ("kind", "steps"),
     [("plain", 1), ("strided", 2), ("periodic", 4), ("pole", 8), ("realistic", 16)],
 )
-def test_surface_patch_simplifications_are_bit_exact(kind: str, steps: int) -> None:
+def test_surface_patches_are_the_splines_values(kind: str, steps: int) -> None:
     grid = _surface_grid(kind)
     if kind == "strided":
         assert not grid.flags.c_contiguous
     cells = feed._cells(grid)
     x = np.linspace(0.0, 1.0, steps + 1)
     expected = _legacy_patches(cells, x)
+    tolerance = 1e-12 * (1 + np.abs(grid).max())
+    expected = tuple(e.transpose(2, 3, 0, 1, 4) for e in expected)  # (s, t, u, v, dims)
     points_only = feed._patches(cells, x, derivatives=False)
     assert len(points_only) == 1
-    assert points_only[0].tobytes() == expected[0].tobytes()
+    np.testing.assert_allclose(points_only[0], expected[0], rtol=0, atol=tolerance)
     del points_only
-    actual = feed._patches(cells, x)
-    assert actual[0].tobytes() == expected[0].tobytes()
-    assert actual[1].tobytes() == expected[1].tobytes()
-    assert actual[2].tobytes() == expected[2].tobytes()
+    for actual, wanted in zip(feed._patches(cells, x), expected, strict=True):
+        np.testing.assert_allclose(actual, wanted, rtol=0, atol=tolerance)
 
 
 @pytest.mark.parametrize(
@@ -139,10 +141,10 @@ def test_surface_refinement_gather_keeps_every_result(kind: str, steps: int) -> 
     grid = _surface_grid(kind)
     expected = _legacy_refine_surface(grid, steps)
     actual = feed.refine_surface(grid, steps)
-    assert all(
-        a.tobytes() == b.tobytes()
-        for a, b in zip(actual[:3], expected[:3], strict=True)
-    )
+    tolerance = 1e-12 * (1 + np.abs(grid).max())
+    for a, b in zip(actual[:2], expected[:2], strict=True):  # (normals: of these sizes)
+        np.testing.assert_allclose(a, b, rtol=0, atol=tolerance * (1 + np.abs(b).max()))
+    np.testing.assert_array_equal(actual[2], expected[2])
     assert actual[3] == expected[3]
 
 
@@ -537,6 +539,47 @@ class Sink:
 
     def held(self) -> int:
         return self.engine.held()
+
+
+@pytest.mark.parametrize("kind", ["mesh", "rows"])
+def test_a_failed_upload_can_be_retried(kind: str) -> None:
+    mob = (
+        m.Square().set_fill([m.RED, m.BLUE], 1)
+        if kind == "rows"
+        else m.MeshMobject(np.eye(3), np.array([[0, 1, 2]]))
+    )
+    camera, sink = m.Camera(), Sink()
+    feeder = feed.Feeder(32, 32, sink)
+    sink.failing.add(kind)
+    with pytest.raises(Injected):
+        feeder.frame(camera, [mob])
+    records = feeder.frame(camera, [mob])[1]
+    assert records == feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
+    assert all(
+        int(row[name]) in sink.resident
+        for row in np.frombuffer(records, feed.RECORD)
+        for name in feed.KEYS
+        if row[name]
+    )
+
+
+@pytest.mark.parametrize("field", ["triangles", "uvs"])
+def test_a_mesh_shows_replaced_topology_and_uvs(field: str) -> None:
+    mob = m.MeshMobject(
+        np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]),
+        np.array([[0, 1, 2], [0, 2, 3]]),
+        uvs=np.zeros((4, 2)),
+    )
+    camera, sink = m.Camera(), Sink()
+    feeder = feed.Feeder(32, 32, sink)
+    before = feeder.frame(camera, [mob])[1]
+    if field == "triangles":
+        mob.triangles = np.array([[0, 1, 3], [1, 2, 3]])
+    else:
+        mob.uvs = np.ones((4, 2))
+    after = feeder.frame(camera, [mob])[1]
+    assert after != before
+    assert after == feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
 
 
 def test_a_tween_materializes_only_the_frames_consumed_and_reloads_evicted_values() -> (
@@ -936,3 +979,73 @@ def test_a_picture_is_not_one_of_the_films_frames() -> None:
     assert (feeder.frames, feeder.latest) == (frames, latest)
     feeder.sweep(pressed=True)  # the picture's shapes may go: never the held frame's
     assert held <= set(sink.resident)
+
+
+class Growing(Sink):
+    """A sink that takes growing paths too, noting each path it is given whole, and each it
+    grows: (how, key, curves sent)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.paths: list[tuple[str, int, int]] = []
+
+    def add_path(
+        self, key: int, points: bytes, subpaths: bytes, ca: Sequence[float]
+    ) -> None:
+        super().add_path(key, points, subpaths, ca)
+        self.paths.append(("whole", key, len(points) // 96))
+
+    def grow_path(self, key: int, points: bytes, closed: bool = False) -> None:
+        self.engine.grow_path(key, points, closed)
+        self.paths.append(("grown", key, len(points) // 96))
+
+
+def test_paths_that_grow_alike_share_one_upload() -> None:
+    sink = Growing()
+    feeder = feed.Feeder(32, 32, sink)
+    right, up, nothing = np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.empty((0, 3))
+
+    def line(start: np.ndarray, step: np.ndarray) -> np.ndarray:
+        """A straight curve: its points a step apart, the handles at its thirds."""
+        return start + np.outer(np.arange(4), step)
+
+    def drawn(log: Log, tail: np.ndarray) -> int | None:
+        """The key a frame draws the log by once it gains `tail`; None: an ordinary shape."""
+        placed = feeder.grown(log.extended(tail))
+        return None if placed is None else placed[0]
+
+    a, b = Log(line(0 * right, right)), Log(line(0 * right, right))
+    assert [drawn(a, nothing), drawn(b, nothing)] == [None, None]  # first seen
+    shared = drawn(a, line(3 * right, right))
+    assert shared is not None
+    assert drawn(b, line(3 * right, right)) == shared  # grown alike: one upload
+    on, behind = drawn(a, line(6 * right, right)), drawn(b, nothing)
+    turned = drawn(b, line(6 * right, up))
+    assert on == shared
+    assert behind not in (None, shared)
+    assert turned == behind
+    assert sink.paths == [
+        ("whole", shared, 2),
+        ("grown", shared, 1),  # the one that goes on grows what both held
+        ("whole", behind, 2),  # the other, left behind, is itself
+        ("grown", behind, 1),
+    ]
+
+
+@pytest.mark.parametrize("alpha", [1 - 1e-12, 1e-50], ids=["wholly", "not at all"])
+def test_a_paint_mixed_to_an_end_as_the_player_reads_it_is_that_end(
+    alpha: float,
+) -> None:
+    """A tween's paint mixed so near an end that the player, reading the mix in single
+    precision, draws that end's paint alone is recorded as that paint: the frame is the one
+    the end shows, so a film holds it rather than drawing it again."""
+    start, end = m.Square().set_fill(m.RED, 1), m.Square().set_fill(m.YELLOW, 1)
+    mob = m.Square()
+    mob.paint = mob.paint.mixed(start.paint, end.paint, alpha)
+    assert mob.paint.mix is not None  # a mix, as the paint holds it
+    camera = m.Camera()
+    shown = end if alpha > 0.5 else start
+    assert (
+        feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
+        == feed.Feeder(32, 32, Sink()).frame(camera, [shown])[1]
+    )

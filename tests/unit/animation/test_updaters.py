@@ -152,3 +152,16 @@ def test_a_replica_does_not_keep_its_original_alive(name: str, replica: str) -> 
     change()
     clone.update(0.25)
     assert np.isfinite(clone.get_center()).all()
+
+
+def test_an_animated_boundary_outlines_the_parts_its_mobject_has_now() -> None:
+    """When its mobject loses parts, the boundary's outlines lose them too: no outline stays
+    drawn for a part the mobject no longer has."""
+    group = m.VGroup(m.Square(), m.Circle().shift(2 * m.RIGHT))
+    boundary = m.AnimatedBoundary(group)
+    boundary.update_boundary_copies(0.5)
+    group.remove(group[1])
+    boundary.update_boundary_copies(0.5)
+    drawn = len(group.family_members_with_points())
+    for outline in boundary.boundary_copies:
+        assert len(outline.family_members_with_points()) == drawn

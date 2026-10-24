@@ -53,7 +53,6 @@ class Thing:
     root: str  # the outermost group the code names that holds it (else its top object's kind)
     root_kind: str
     backdrop: int | None  # a text's own opaque background: its draw order
-    ink: int  # a text's glyphs, fingerprinted: equal ink in one place is one text
 
 
 def written_frame() -> FrameType | None:
@@ -119,9 +118,9 @@ def text_of(mob: Mobject) -> str:
 def _paint(mob: Mobject) -> tuple[float, bool]:
     """How much it fills (opacity), and whether its outline shows (a hairline of opacity ×
     width below 0.02 does not)."""
-    fill = float(np.max(np.atleast_1d(mob.get_fill_opacity())))
-    stroke = float(np.max(np.atleast_1d(mob.get_stroke_opacity())))
-    width = float(np.max(np.atleast_1d(mob.get_stroke_width())))
+    fill = mob.get_fill_opacity()
+    stroke = mob.get_stroke_opacity()
+    width = mob.get_stroke_width()
     return fill, stroke * width > 0.02
 
 
@@ -216,15 +215,12 @@ def seen(scene: Scene, scope: Names) -> list[Thing]:
                     root=root,
                     root_kind=root_kind,
                     backdrop=min(backs) if backs else None,
-                    ink=hash(np.round(points, 3).tobytes()),
                 )
             )
             return
         if (
-            mob.has_points()
-            and id(mob) in order
+            id(mob) in order
             and isinstance(mob, DRAWN)
-            and _visible(mob)
             and (thing := shape(mob, chain)) is not None
         ):
             out.append(thing)
@@ -232,10 +228,12 @@ def seen(scene: Scene, scope: Names) -> list[Thing]:
             visit(sub, chain)
 
     def shape(mob: Mobject, chain: list[Mobject]) -> Thing | None:
+        fill, stroked = _paint(mob)
+        if not (fill > 0.02 or stroked):
+            return None
         curves = outline(mob) if isinstance(mob, manimgx.VMobject) else None
         extent = curves.reshape(-1, 2) if curves is not None else mob.points[:, :2]
         (x0, y0), (x1, y1) = extent.min(axis=0), extent.max(axis=0)
-        fill, stroked = _paint(mob)
         if min(x1 - x0, y1 - y0) <= EMPTY and not (
             stroked and max(x1 - x0, y1 - y0) > EMPTY
         ):
@@ -258,7 +256,6 @@ def seen(scene: Scene, scope: Names) -> list[Thing]:
             root=root,
             root_kind=root_kind,
             backdrop=None,
-            ink=0,
         )
 
     for mob in scene.mobjects:
@@ -417,7 +414,7 @@ def at(seen: View) -> list[Problem]:
         now.append(Problem("runs off" if note else "cut", whole, None, detail))
     for i, a in enumerate(texts):
         for b in texts[i + 1 :]:
-            if a.ink == b.ink or max(abs(u - v) for u, v in zip(a.box, b.box)) < 0.01:
+            if max(abs(u - v) for u, v in zip(a.box, b.box)) < 0.01:
                 continue  # the same glyphs in one place (a transform's copy): one text
             common = _area(_common(a.box, b.box))
             if common > 1e-4 and common > 0.05 * min(_area(a.box), _area(b.box)):

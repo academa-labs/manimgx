@@ -325,7 +325,6 @@ class Film:
         self._pending: tuple[bytes, bytes, list[CameraView], int] | None = (
             None  # sent once it ends
         )
-        self._first = 0  # the index of the pending frame
         self._key = False  # the next frame begins a section: a keyframe of its own
         self._pending_key = False  # the pending frame is one
 
@@ -478,7 +477,6 @@ class Film:
         else:
             self._send()
             self._pending = (view, records, cameras, repeat)
-            self._first = self.frame_count
             self._pending_key, self._key = self._key, False
         self.frame_count += repeat
 
@@ -519,7 +517,7 @@ class Film:
             return pixels
 
         try:
-            self.frames(Frame(self._first, repeat, draw, key))
+            self.frames(Frame(self.frame_count - repeat, repeat, draw, key))
         except Cut:
             push()  # the frame that cuts a film still belongs to its video
             raise

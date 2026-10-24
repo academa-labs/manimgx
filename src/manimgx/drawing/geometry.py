@@ -733,11 +733,7 @@ def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     Returns:
         The three rows.
     """
-    inverse = quaternion_conjugate(quat)
-    return [
-        np.array(quaternion_mult(quat, [0, *basis], inverse)[1:])
-        for basis in np.identity(3)
-    ]
+    return list(rotation_matrix_from_quaternion(quat).T)
 
 
 @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
@@ -1173,35 +1169,28 @@ class QuickHull:
         assert self.unclaimed is not None
         assert self.internal is not None
 
-        while True:
-            updated = False
-            for facet in self.facets:
-                if facet in self.removed:
-                    continue
-                _outside, eye = self.outside[facet]
-                if eye is not None:
-                    updated = True
-                    horizon = self.compute_horizon(eye, facet)
-                    for f in horizon.facets:
-                        points_to_append = self.outside[f][0]
-                        # TODO: is this always true?
-                        assert points_to_append is not None
-                        self.unclaimed = np.vstack((self.unclaimed, points_to_append))
-                        self.removed.add(f)
-                        for sf in f.subfacets:
-                            self.neighbors[sf].discard(f)
-                            if self.neighbors[sf] == set():
-                                del self.neighbors[sf]
-                    for sf in horizon.boundary:
-                        nf = Facet(
-                            np.vstack((sf.coordinates, eye)), internal=self.internal
-                        )
-                        self.classify(nf)
-                        self.facets.append(nf)
-                        for nsf in nf.subfacets:
-                            self.neighbors.setdefault(nsf, set()).add(nf)
-            if not updated:
-                break
+        for facet in self.facets:
+            if facet in self.removed:
+                continue
+            _outside, eye = self.outside[facet]
+            if eye is not None:
+                horizon = self.compute_horizon(eye, facet)
+                for f in horizon.facets:
+                    points_to_append = self.outside[f][0]
+                    # TODO: is this always true?
+                    assert points_to_append is not None
+                    self.unclaimed = np.vstack((self.unclaimed, points_to_append))
+                    self.removed.add(f)
+                    for sf in f.subfacets:
+                        self.neighbors[sf].discard(f)
+                        if self.neighbors[sf] == set():
+                            del self.neighbors[sf]
+                for sf in horizon.boundary:
+                    nf = Facet(np.vstack((sf.coordinates, eye)), internal=self.internal)
+                    self.classify(nf)
+                    self.facets.append(nf)
+                    for nsf in nf.subfacets:
+                        self.neighbors.setdefault(nsf, set()).add(nf)
 
 
 @overload
@@ -1406,6 +1395,11 @@ def partial_bezier_points(
         arr = np.array(points)
         arr[:] = arr[0]
         return arr
+    return _bezier_matrix(a, b) @ np.asarray(points)
+
+
+def _bezier_matrix(a: float | np.ndarray, b: float | np.ndarray) -> np.ndarray:
+    """Cubic restriction coefficients for [a, b], with any interval axes last."""
     ma, mb = 1 - a, 1 - b
     a2, b2, ma2, mb2 = a * a, b * b, ma * ma, mb * mb
     a3, b3, ma3, mb3 = a2 * a, b2 * b, ma2 * ma, mb2 * mb
@@ -1417,7 +1411,7 @@ def partial_bezier_points(
             [mb3, 3 * mb2 * b, 3 * mb * b2, b3],
         ]
     )
-    return m @ np.asarray(points)
+    return m
 
 
 _SUBDIVISION: Memo[int, np.ndarray] = Memo(1 << 10)
@@ -1428,32 +1422,9 @@ def _subdivision_matrix(n: int | np.integer) -> np.ndarray:
     if m is not None:
         return m
     n = int(n)
-    m = np.empty((4 * n, 4))
-    for i in range(n):
-        i2, i3 = i * i, i * i * i
-        ip1 = i + 1
-        ip12, ip13 = ip1 * ip1, ip1 * ip1 * ip1
-        nmi = n - i
-        nmi2, nmi3 = nmi * nmi, nmi * nmi * nmi
-        nmim1 = nmi - 1
-        nmim12, nmim13 = nmim1 * nmim1, nmim1 * nmim1 * nmim1
-        m[4 * i : 4 * (i + 1)] = [
-            [nmi3, 3 * nmi2 * i, 3 * nmi * i2, i3],
-            [
-                nmi2 * nmim1,
-                2 * nmi * nmim1 * i + nmi2 * ip1,
-                nmim1 * i2 + 2 * nmi * i * ip1,
-                i2 * ip1,
-            ],
-            [
-                nmi * nmim12,
-                nmim12 * i + 2 * nmi * nmim1 * ip1,
-                2 * nmim1 * i * ip1 + nmi * ip12,
-                i * ip12,
-            ],
-            [nmim13, 3 * nmim12 * ip1, 3 * nmim1 * ip12, ip13],
-        ]
-    m /= n**3
+    starts = np.arange(n, dtype=float)
+    intervals = _bezier_matrix(starts / n, (starts + 1) / n)
+    m = np.moveaxis(intervals, -1, 0).reshape(4 * n, 4)
     return _SUBDIVISION.keep(n, m)
 
 
@@ -1677,8 +1648,9 @@ class Path:
             if not self.steps:
                 return (1 - alpha) * _EYE, alpha * _EYE, _ZERO
             if not self._end:
-                self._end.append(self.motion(1.0))
-            g, end = self.motion(alpha), self._end[0]
+                self._end.append(carried((step, 1.0) for step in self.steps))
+            g = carried((step, alpha) for step in self.steps)
+            end = self._end[0]
             le = alpha * g[:3, :3] @ end[:3, :3].T
             return (
                 (1 - alpha) * g[:3, :3],
@@ -1698,18 +1670,6 @@ class Path:
             k = _cross(self.axis) / (2 * np.tan(self.angle / 2))
             cs, ce = 0.5 * _EYE - k, 0.5 * _EYE + k
         return (_EYE - rot) @ cs + rot - along, (_EYE - rot) @ ce + along, _ZERO
-
-    @deprecated("ManimGX's machinery: a transform calls it", category=None)
-    def motion(self, alpha: float) -> Floats:
-        """The motion the path's steps have carried the shape by at a moment.
-
-        Args:
-            alpha: The animation's progress, from 0 to 1.
-
-        Returns:
-            The 4×4 affine matrix G(α).
-        """
-        return carried((step, alpha) for step in self.steps)
 
     def __call__(
         self, start: Point3D_Array, end: Point3D_Array, alpha: float
