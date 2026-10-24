@@ -2982,8 +2982,11 @@ def test_a_value_holds_the_box_a_gradient_frame_outside_it_spans() -> None:
     assert isinstance(value, m.VMobject)
     assert value.gradient_frame is not None
     assert len(value.gradient_frame.get_family()) == 1
-    np.testing.assert_array_equal(
-        value.gradient_frame.boundary_box(), piece.gradient_frame.boundary_box()
+    np.testing.assert_allclose(  # (to rounding: a placement's arithmetic is the platform's)
+        value.gradient_frame.boundary_box(),
+        piece.gradient_frame.boundary_box(),
+        rtol=0,
+        atol=1e-12,
     )
     np.testing.assert_array_equal(
         value.get_gradient_start_and_end_points(),
