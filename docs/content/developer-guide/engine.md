@@ -369,7 +369,8 @@ for crates. `MANIMGX_SOURCES` names a folder for the archives (an absolute path)
 an archive there, and downloads it there first if it isn't. A folder that holds them builds
 offline; one shared by your checkouts downloads each archive once; and a build into an empty
 one gathers what it was built from. A build script fetches the same archives on every target,
-whatever it compiles of them, so one build gathers what every build reads.
+whatever it compiles of them, so one build gathers what every build reads. Only DXC, which
+Windows builds alone read, needs `MANIMGX_COMPLETE_SOURCE` too, which the release sets.
 
 The release ships `manimgx-X.Y.Z-source.tar.xz` beside the wheels (`just build-source` makes it).
 It is the committed repository, identified by `SOURCE_COMMIT`, with `vendor/`, every crate `rust/Cargo.lock` names
