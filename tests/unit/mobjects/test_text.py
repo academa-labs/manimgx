@@ -23,7 +23,8 @@
 - A title's color is its underline's too.
 - `opacity` is every part's fill and stroke opacity, where `fill_opacity` or
   `stroke_opacity` doesn't give one, in each of Typst's front ends.
-
+- A color map's key within a control word is no key: the `a` of `\\frac` is part of the
+  command's name, so the command is set whole rather than cut into strings.
 Baselines are read off capitals "H", whose ink sits on the baseline.
 """
 
@@ -421,3 +422,28 @@ def test_fitting_text_before_coloring_ligatures_preserves_their_geometry() -> No
     for original, fitted in zip(before, after, strict=True):
         np.testing.assert_array_equal(fitted.points, original.points)
         assert fitted.get_color() == original.get_color()
+
+
+def test_a_color_maps_key_within_a_control_word_is_no_key() -> None:
+    # the `a` of `\frac` names the command, so it is neither isolated nor cut: cutting it
+    # left `\fr`, which Typst does not know
+    formula = m.MathTex(
+        r"x^2+\frac{b}{a}x+\frac{c}{a}=0",
+        tex_to_color_map={"a": m.RED, "b": m.BLUE, "c": m.GREEN},
+    )
+    assert formula.tex_strings == [
+        r"x^2+\frac{",
+        "b",
+        r"}{",
+        "a",
+        r"}x+\frac{",
+        "c",
+        r"}{",
+        "a",
+        r"}=0",
+    ]
+
+
+def test_a_command_named_by_a_key_is_no_part() -> None:
+    formula = m.MathTex(r"\alpha + a", tex_to_color_map={"a": m.RED})
+    assert formula.tex_strings == [r"\alpha + ", "a"]

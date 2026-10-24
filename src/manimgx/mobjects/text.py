@@ -1739,9 +1739,20 @@ class MathTex(Typst):
         return self
 
 
+def _in_command(s: str, i: int) -> bool:
+    """Whether index `i` falls inside a control word, as the `a` of `\\frac` does: a run of
+    letters preceded by a backslash is a command's name, and none of it is a string."""
+    j = i
+    while j > 0 and s[j - 1].isascii() and s[j - 1].isalpha():
+        j -= 1
+    return j > 0 and s[j - 1] == "\\"
+
+
 def _split(s: str, isolate: list[str], math: bool) -> list[str]:
     """The string split around each isolated substring; in math, where spaces mean
-    nothing, without the parts that are only spaces."""
+    nothing, without the parts that are only spaces. A substring within a control
+    word is no substring: the `a` of `\\frac` is part of the command's name, so it is
+    neither isolated nor cut."""
     parts = [s]
     for sub in sorted(isolate, key=len, reverse=True):
         out: list[str] = []
@@ -1749,12 +1760,17 @@ def _split(s: str, isolate: list[str], math: bool) -> list[str]:
             if p in isolate:
                 out.append(p)
                 continue
-            pieces = p.split(sub)
-            for k, piece in enumerate(pieces):
-                if piece:
-                    out.append(piece)
-                if k < len(pieces) - 1:
-                    out.append(sub)
+            pieces: list[str] = []
+            start = 0
+            at = p.find(sub)
+            while at != -1:
+                if not _in_command(p, at):
+                    pieces.append(p[start:at])
+                    pieces.append(sub)
+                    start = at + len(sub)
+                at = p.find(sub, at + len(sub))
+            pieces.append(p[start:])
+            out.extend(piece for piece in pieces if piece)
         parts = out
     return [p for p in parts if (p.strip() if math else p)]
 
