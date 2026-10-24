@@ -22,9 +22,10 @@ __all__ = [
     "turn_animation_into_updater",
 ]
 import inspect
-import itertools
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import TYPE_CHECKING, Self, Unpack
 
 import numpy as np
@@ -219,7 +220,9 @@ def always_rotate[M: Mobject](
         rate: The speed, in radians per second; a positive one turns counterclockwise.
         axis: The axis it turns about.
         **kwargs: [Pivot keywords][manimgx.mobject.Pivot]: the point it turns
-            about, its center unless given.
+            about; unless given, its center of mass (the mean of its points), which a
+            turn about it leaves where it is, so it turns the same however its time is
+            split into frames.
 
     Returns:
         The mobject, with its updater.
@@ -241,7 +244,16 @@ def always_rotate[M: Mobject](
                 self.wait(4)
         ```
     """
-    mobject.add_updater(flow(lambda m, dt: m.rotate(dt * rate, axis, **kwargs)))
+    if kwargs:
+        mobject.add_updater(flow(lambda m, dt: m.rotate(dt * rate, axis, **kwargs)))
+    else:  # about its center of mass, which a turn about it leaves where it is
+        mobject.add_updater(
+            flow(
+                lambda m, dt: m.rotate(
+                    dt * rate, axis, about_point=m.get_center_of_mass()
+                )
+            )
+        )
     return mobject
 
 
@@ -289,31 +301,34 @@ def turn_animation_into_updater(
     animation.interpolate(
         0
     )  # the object is the animation's from now: at its start, until then
-    # the animation and its time are kept on the mobject, so that a copy of it plays a copy
-    # of them: the updater holds only their key, and plays those of the mobject it runs on
-    key = next(_PLAYED_KEYS)
-    played: dict[int, _Played] = mobject.__dict__.setdefault("_played", {})
-    played[key] = _Played(animation, -delay)
 
     def update(m: Mobject, dt: float) -> None:
-        state = m.__dict__.get("_played", {}).get(key)
+        state = m.__dict__.get("_played", {}).get(update)
         if state is None:  # nothing of its own to play
             return
-        state.elapsed += dt  # its time now: what this frame shows
+        # its time now, exactly (so it ends and cycles at the same instants, whatever
+        # steps the time came in): what this frame shows
+        state.elapsed += clock.exact(dt)
         if state.elapsed < 0:
             return
         animation, elapsed = state.animation, state.elapsed
-        run_time = animation.get_run_time()
+        run_time = animation._duration
         if run_time > 0 and (cycle or elapsed < run_time):
-            animation.interpolate(
-                (elapsed / run_time) % 1 if cycle else elapsed / run_time
-            )
             animation.advance(clock.now)
+            animation.interpolate(
+                float((elapsed / run_time) % 1 if cycle else elapsed / run_time)
+            )
         else:
             animation.finish()
             m.remove_updater(update)
-            del m.__dict__["_played"][key]
+            del m.__dict__["_played"][update]
 
+    # the animation and its time are kept on the mobject, so that a copy of it plays a copy
+    # of them: the updater identifies its state on the mobject it runs on
+    played: dict[Callable[[Mobject, float], None], _Played] = (
+        mobject.__dict__.setdefault("_played", {})
+    )
+    played[update] = _Played(animation, -clock.rational(delay))
     mobject.add_updater(flow(update))  # the animation at the time it has run
     return mobject
 
@@ -324,10 +339,7 @@ class _Played:
     plays, and the time it has run (before its delay, negative)."""
 
     animation: Animation
-    elapsed: float
-
-
-_PLAYED_KEYS = itertools.count()
+    elapsed: Fraction
 
 
 def cycle_animation(animation: Animation, delay: float = 0) -> Mobject:
@@ -420,12 +432,22 @@ class AnimatedBoundary(VGroup):
         self.draw_rate_func = draw_rate_func
         self.fade_rate_func = fade_rate_func
         self.vmobject = vmobject
-        self.boundary_copies = [
-            vmobject.copy().set_style(stroke_width=0, fill_opacity=0) for x in range(2)
+        self.boundary_copies = [  # (its shape, to draw: not its updaters)
+            vmobject.copy().clear_updaters().set_style(stroke_width=0, fill_opacity=0)
+            for x in range(2)
         ]
         self.add(*self.boundary_copies)
-        self.total_time = 0.0
+        self._time = Fraction(0)  # the time it has run, exactly (`total_time`)
         self.add_updater(flow(lambda m, dt: m.update_boundary_copies(dt)))
+
+    @property
+    def total_time(self) -> float:
+        """The time the outline has run, in seconds: what its cycle is at."""
+        return float(self._time)
+
+    @total_time.setter
+    def total_time(self, value: float) -> None:
+        self._time = clock.rational(value)
 
     @deprecated("Manim CE's machinery: its updater calls it", category=None)
     def update_boundary_copies(self, dt: float) -> None:
@@ -434,7 +456,9 @@ class AnimatedBoundary(VGroup):
         Args:
             dt: The time since it last moved on, in seconds.
         """
-        self.total_time += dt  # its time now: what this frame shows
+        # its time now, exactly (so a cycle turns at the same instant, whatever steps the
+        # time came in): what this frame shows
+        self._time += clock.exact(dt)
         time = self.total_time * self.cycle_rate
         growing, fading = self.boundary_copies
         colors = self.colors
@@ -448,10 +472,17 @@ class AnimatedBoundary(VGroup):
             bounds = (1.0 - draw_alpha, 1.0)
         else:
             bounds = (0.0, draw_alpha)
+        drawn = len(vmobject.family_members_with_points())
+        for outline in (growing, fading):
+            if len(outline.family_members_with_points()) != drawn:
+                # the mobject's parts changed: its outline is of the parts it has now, unseen
+                # until its cycle draws it
+                outline.become(vmobject).set_style(stroke_width=0, fill_opacity=0)
         self.full_family_become_partial(growing, vmobject, *bounds)
         growing.set_stroke(colors[index], width=msw)
+        # the outline the cycle before drew, as the mobject is now (unseen before a cycle ends)
+        self.full_family_become_partial(fading, vmobject, 0, 1)
         if time >= 1:
-            self.full_family_become_partial(fading, vmobject, 0, 1)
             fading.set_stroke(color=colors[index - 1], width=(1 - fade_alpha) * msw)
 
     @deprecated("Manim CE's machinery: its updater calls it", category=None)
@@ -488,9 +519,12 @@ class TracedPath(VMobject):
     the simulation clock
     ([`config.simulation_rate`][manimgx.settings.Config.simulation_rate] times a second)
     and at the end of each play and wait, so it is the same path at any frame rate; at a
-    frame between two ticks, it runs on to where the point is then. It traces while it
-    is in the scene, from when it joins it, and at each instant once everything else
-    has moved: its updater is a [recorder][manimgx.mobject.record].
+    frame between two ticks, it runs on to where the point is then. It records an instant
+    once: where the scene comes to an instant again (one play's end is the next one's
+    beginning), it adds the point only if it moved there. It traces while it is in the
+    scene, from when it joins it, and at each instant once everything else has moved:
+    its updater is a [recorder][manimgx.mobject.record]. A play that animates the path
+    does not stop it: it traces on beneath the play.
 
     A per-frame updater moves the point at frames only, so what it moves the point by
     at a frame is its change over the frame that ends there: the path spreads that move
@@ -545,16 +579,14 @@ class TracedPath(VMobject):
         super().__init__(**kwargs)
         self.traced_point_func = traced_point_func
         self.dissipating_time = dissipating_time
-        self.time = 0.0  # the path's own time
-        # when each curve's end was traced (its own time)
-        self._traced: list[float] = []
-        # the scene time of each curve's end since the last frame
-        self._open: list[float] = []
+        # when each curve's end was traced, in scene time: with the points, all it knows of
+        # what it traced (where and when it traced last, what since the last frame, what
+        # dissipates)
+        self._times: list[float] = []
         self._framed: float | None = None  # the scene time of the last frame (or event)
-        self._last = np.zeros(3)  # the point as last traced
-        self._loose = (
-            False  # its last curve runs on to the point at a frame between two ticks
-        )
+        self._loose = False  # its last curve runs on to the point between two ticks
+        # where it ends, exactly as traced: its stored points are placed, to rounding
+        self._last = np.zeros(3)
         self.add_updater(
             _trace
         )  # (a function of the path it runs on: a copy traces itself)
@@ -571,11 +603,11 @@ class TracedPath(VMobject):
         once the per-frame updaters have run: what they moved the point by is spread
         over the frame that ends there, each stretch traced since the frame before
         moved by its share of the frame's time. A dissipating path then drops what it
-        traced more than `dissipating_time` seconds ago.
+        traced more than `dissipating_time` seconds of scene time ago.
 
         Args:
             mob: The path the updater runs on.
-            dt: The time since it last ran, in seconds.
+            dt: The time since it last ran, in seconds; unused: the path keeps scene time.
         """
         # the second run is the instant's second pass (`clock.framing`, see
         # `Scene._instant`): `_settle` spreads the move
@@ -584,51 +616,51 @@ class TracedPath(VMobject):
         if clock.framing:
             self._settle(point, now)
             return
-        if self._loose:
+        if self._loose:  # what ran on at a frame between two ticks is taken back
             self._loose = False
             self.set_points(self.points[: -self.n_points_per_curve])
-            self._open.pop()
+            self._times.pop()
             if self.has_points():
                 self._last = self.points[-1].copy()
-        self.time += dt
         if not clock.stepping:  # a frame between two ticks: loose, if the point moved
             if not self.has_points() or not np.array_equal(point, self._last):
                 self._trace(point, now)
                 self._loose = True
             return
+        if self._times[-1:] == [now] and np.array_equal(point, self._last):
+            return  # traced there already: an instant adds a point only if it moved
         self._trace(point, now)
         if self.dissipating_time:
-            self._traced.append(self.time)
-            old = 0
-            while self._traced[old] < self.time - self.dissipating_time:
-                old += 1
+            old = bisect_left(self._times, now - self.dissipating_time)
             if old:
-                del self._traced[:old]
+                del self._times[:old]
                 self.set_points(self.points[old * self.n_points_per_curve :])
-                del self._open[: max(0, len(self._open) - len(self._traced))]
 
     def _trace(self, point: np.ndarray, now: float) -> None:
         if not self.has_points():
             self.start_new_path(point)
         self.add_line_to(point)
-        self._open.append(now)
+        self._times.append(now)
         self._last = point
 
     def _settle(self, point: np.ndarray, now: float) -> None:
         """The frame (or event) ending `now` moved the point on to `point`: each curve traced
         since the last one takes its share of that move, by when it was traced. A curve's
         handles move with its anchors, so it stays straight."""
-        jump = point - self._last
-        if jump.any():
-            if not self._open or self._open[-1] != now:  # nothing traced here yet
+        if not self.has_points():  # nothing traced yet: it starts where the point is
+            self._trace(point, now)
+            self._loose = True
+        elif (jump := point - self._last).any():
+            framed = self._framed
+            since = 0 if framed is None else bisect_right(self._times, framed)
+            if since == len(self._times) or self._times[-1] != now:  # none traced here
                 self._trace(self._last, now)
                 self._loose = True
-            start = self._open[0] if self._framed is None else self._framed
+            times = self._times[since:]  # the curves traced since the last frame
+            start = times[0] if framed is None else framed
             span = now - start
-            ends = np.array(
-                [(t - start) / span if span > 0 else 1.0 for t in self._open]
-            )
-            first = ends[0] if self._framed is None else 0.0
+            ends = np.array([(t - start) / span if span > 0 else 1.0 for t in times])
+            first = ends[0] if framed is None else 0.0
             starts = np.concatenate(([first], ends[:-1]))
             weights = np.stack(
                 (starts, (2 * starts + ends) / 3, (starts + 2 * ends) / 3, ends), axis=1
@@ -637,7 +669,6 @@ class TracedPath(VMobject):
             points[-len(weights) :] += weights * jump
             self.set_points(points)
             self._last = point
-        self._open = [now] if self._loose else []
         self._framed = now
 
 

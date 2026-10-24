@@ -23,6 +23,7 @@ from typing import (
     Concatenate,
     Final,
     Literal,
+    NamedTuple,
     Never,
     Self,
     TypeIs,
@@ -144,9 +145,163 @@ type Updater[M] = Callable[[M], object] | Callable[[M, float], object]
 it has a parameter named `dt`, with the mobject and the seconds since it last ran. What
 it returns is ignored; see [add_updater][manimgx.Mobject.add_updater]."""
 
-type _Recorder = tuple[
-    "Mobject", Callable[..., object], Sequence[Callable[..., object]]
-]
+
+# the mobjects plays hold now, by id (`Animation._join`, `_let_go`): what any updater may
+# change beneath them (weakly: a scene that fails mid-play keeps none of them alive)
+_HELD: "dict[int, weakref.ref[Mobject]]" = {}
+
+
+class _Hold(NamedTuple):
+    """The plays' hold on a member of what they animate (see `Animation.take`): the plays that
+    hold it, the first of which brings it to time, and its own value, as its updaters last left
+    it, kept aside while the plays show another over it."""
+
+    plays: tuple["Animation", ...]
+    own: "Mobject"
+
+
+def _own(mob: "Mobject") -> "Mobject":
+    """A mobject's own value as it is now: what `become` takes of it (its points, shape, paint
+    and members), held by a bare instance of its class."""
+    own = object.__new__(type(mob))
+    own._geometry, own.paint = mob._geometry, mob.paint
+    own.submobjects = list(mob.submobjects)
+    own._take_shape(mob)
+    return own
+
+
+def _put(mob: "Mobject", own: "Mobject") -> None:
+    """Make a mobject its own value again (see `_own`)."""
+    mob._geometry, mob.paint = own._geometry, own.paint
+    mob.submobjects = list(own.submobjects)
+    mob._take_shape(own)
+
+
+def _put_family(mob: "Mobject") -> None:
+    """Make each held member of a mobject's family its own value again (see `_put`), from the
+    top down: the family as its own values hold it (a member the plays restructured as they
+    show it is put back with its own members)."""
+    pending = [mob]
+    while pending:
+        member = pending.pop()
+        if (hold := member._hold) is not None:
+            _put(member, hold.own)
+        pending.extend(member.submobjects)
+
+
+def _run_beneath(
+    family: Iterable["Mobject"],
+    holding: tuple["Animation", ...] | None,
+    run: Callable[[], object],
+) -> None:
+    """Run an updater's `run` beneath the plays (see `Mobject._beneath`): with `holding`, the
+    plays holding the mobject whose updater it is, on the members of `family` they hold, each
+    as its other plays show it; None, for one no play holds and for the scene's own. Whatever
+    else it changes of what plays hold (another mobject's, a group's member), as they show it,
+    is kept too: each change goes to the own value, and the plays holding it show themselves
+    over it."""
+    held = (
+        []
+        if holding is None
+        else [
+            m
+            for m in family
+            if (h := m._hold) is not None and any(p in holding for p in h.plays)
+        ]
+    )
+    inside = {id(m) for m in held}
+    # the rest as they show, by what their looks are made of (a value made anew is another)
+    watched = [
+        (m, m._geometry, m.paint)
+        for key, ref in list(_HELD.items())
+        if key not in inside and (m := ref()) is not None
+    ]
+    if not held and not watched:
+        run()
+        return
+    shown = [_own(m) for m in held]
+    put = [_put_beneath(m, holding or ()) for m in held]
+    run()
+    plays: dict[int, Animation] = {}
+    changed = [
+        (m, _shown_as(m, g, p))
+        for m, g, p in watched
+        if m._geometry is not g or m.paint is not p
+    ]
+    for m, was in (*zip(held, put, strict=True), *changed):
+        if (hold := m._hold) is not None and not _same(m, was):
+            m._hold = hold._replace(own=_kept(m, was, hold.own))
+            plays.update((id(p), p) for p in hold.plays)
+    for m, was in zip(held, shown, strict=True):
+        if (hold := m._hold) is not None and all(
+            id(p) not in plays for p in hold.plays
+        ):
+            _put(m, was)
+    for play in plays.values():
+        play._reshow()
+
+
+def _shown_as(mob: "Mobject", geometry: Blend, paint: Paint) -> "Mobject":
+    """A mobject's value as it showed before a change: its geometry and paint then."""
+    was = _own(mob)
+    was._geometry, was.paint = geometry, paint
+    return was
+
+
+def _put_beneath(mob: "Mobject", holding: tuple["Animation", ...]) -> "Mobject":
+    """Put a held member as it is beneath the plays `holding`: its own value, as the plays
+    holding it but those show it over that (only tweens compose: else its own value); the
+    value put."""
+    from manimgx.animation.transform import _composed
+
+    hold = mob._hold
+    assert hold is not None  # (held)
+    _put(mob, hold.own)
+    others = [p for p in hold.plays if p not in holding]
+    return _own(mob) if others and _composed(mob, others) else hold.own
+
+
+def _kept(mob: "Mobject", was: "Mobject", own: "Mobject") -> "Mobject":
+    """A member's own value after an updater changed it from `was`, its own value or as its
+    other plays show it over that: what the updater made of it, or its change (points that
+    moved, paint fields set) over its own value, so the other plays' changes stay theirs."""
+    from manimgx.animation.transform import _FIELDS
+
+    made = _own(mob)
+    if _same(was, own):
+        return made
+    if mob._geometry.n == was._geometry.n == own._geometry.n:
+        # one shape, its points: its terms do not pile up over the instants
+        made._geometry = Blend.of(own.points + (mob.points - was.points), mob.dim)
+    fields = (*_FIELDS, "sheen_direction")
+    made.paint = own.paint.but(
+        **{
+            name: value
+            for name in fields
+            if (value := getattr(mob.paint, name)) is not getattr(was.paint, name)
+        }
+    )
+    return made
+
+
+def _made_of(mob: "Mobject") -> tuple[object, ...]:
+    """The objects a mobject's own look is made of: its geometry, its paint, and what goes
+    with its points (`_shape`). Values are immutable: a look made anew is made of others."""
+    return (mob._geometry, mob.paint, *mob._shape())
+
+
+def _same(mob: "Mobject", own: "Mobject") -> bool:
+    """Is a mobject still the value `own` holds (its parts the same objects)?"""
+    return (
+        all(a is b for a, b in zip(_made_of(mob), _made_of(own), strict=True))
+        and len(mob.submobjects) == len(own.submobjects)
+        and all(a is b for a, b in zip(mob.submobjects, own.submobjects, strict=True))
+    )
+
+
+def _unscaled(factor: float | Vector3DLike) -> bool:
+    """Is a scale by `factor` the identity (1 along every axis)?"""
+    return bool(np.all(axis_factors(factor) == 1.0))
 
 
 def axis_factors(factor: float | Vector3DLike) -> np.ndarray:
@@ -241,6 +396,13 @@ def flow[U: Callable[..., object]](updater: U) -> U:
     [always_rotate][manimgx.always_rotate] add flows. An updater that only reads the
     world, as a traced path's does, is a [recorder][manimgx.mobject.record].
 
+    Several flows of one mobject are exact together when they commute: moves do, and a
+    turn about the mobject's own center of mass (as `always_rotate` turns by default)
+    commutes with every move and turn of it. A turn about a point fixed in space and a
+    move of the same mobject do not: taken in steps, one after the other, they come to
+    what depends on the steps, as any splitting of two motions does, so on the instants
+    the scene computes.
+
     Args:
         updater: A time-based updater: a function of the mobject and `dt`.
 
@@ -295,8 +457,6 @@ def record[U: Callable[..., object]](updater: U) -> U:
         The same updater, declared a recorder, to add with
         [add_updater][manimgx.Mobject.add_updater].
     """
-    # the scene computes a frame or an event in two passes (`Scene._instant`) only while
-    # a recorder is in it; the second pass is `clock.framing`
     _RECORDERS.add(_function(updater))
     return updater
 
@@ -304,7 +464,8 @@ def record[U: Callable[..., object]](updater: U) -> U:
 def records(updater: Callable[..., object]) -> bool:
     """Whether an updater is a [recorder][manimgx.mobject.record].
 
-    The scene asks, to know whether it must compute each frame in two passes.
+    A mobject asks as its updaters run: a recorder runs once everything else is at the
+    instant (see [advance][manimgx.Mobject.advance]).
 
     Args:
         updater: An updater; a method is a recorder if its function is.
@@ -372,8 +533,7 @@ def _copied(value: object, memo: dict[int, object]) -> object:
     if kind is tuple:
         return tuple(_copied(v, memo) for v in cast("tuple[object, ...]", value))
     if isinstance(value, Mobject):
-        known = memo.get(id(value))
-        return known if known is not None else value.__deepcopy__(memo)
+        return memo[id(value)] if id(value) in memo else value.__deepcopy__(memo)
     if kind is np.ndarray:  # read-only, an array is a value: shared
         array = cast("np.ndarray", value)
         return array.copy() if array.flags.writeable else array
@@ -404,12 +564,22 @@ _STYLED: Memo[tuple[object, ...], tuple[Paint, Paint | None]] = Memo(1 << 12)
 _PROTOTYPES: Memo[tuple[object, ...], "Mobject"] = Memo(1 << 12)
 
 
+class _StateMemo(dict[int, object]):
+    """A copy memo that excludes history attributes, without excluding visible members."""
+
+
 def _copy_state(source: "Mobject", target: "Mobject", memo: dict[int, object]) -> None:
-    """Copy fields in order, with active clock stamps owned by the copied updaters."""
+    """Copy fields in order, with active clock stamps owned by the copied updaters; a copy is
+    held by no play."""
     shared = type(source).shared
+    state_only = isinstance(memo, _StateMemo)
     copied = target.__dict__
     for name, value in source.__dict__.items():
-        if value is None or type(value) in _SHARED or name in shared:
+        if name == "_hold":
+            continue
+        if state_only and name in {"target", "saved_state"}:
+            copied[name] = None
+        elif value is None or type(value) in _SHARED or name in shared:
             copied[name] = value
         elif name == "_since_":
             stamps = cast("dict[object, Fraction]", value)
@@ -431,15 +601,65 @@ def _kind(cls: type["Mobject"]) -> type["Mobject"]:
     return next((kind for kind in kinds if issubclass(cls, kind)), Mobject)
 
 
-def _fresh(mob: "Mobject", alone: bool = False) -> "Mobject":
-    """A member `become` gains: a copy of the other's (alone: without its members), with
-    no updaters."""
-    made = mob.copy()
-    if alone:
-        made.submobjects = []
-    for part in made.get_family():
-        part.clear_updaters()
-    return made
+def _snapshot(mob: "Mobject", alone: bool = False) -> "Mobject":
+    """A drawing value, with no recipe, history, or executable updaters; aliases stay aliases.
+    Each is of the least class that holds its value: its kind, unless its own class holds more
+    than its points, paint and members (`_shape`: a light's numbers). A gradient's frame within
+    the value is its copy there; one outside it is the box the gradient spans, as it is now
+    (all a frame gives a gradient), not a copy of all it holds."""
+    memo: dict[int, Mobject] = {}
+    family = {id(m) for m in ([mob] if alone else mob.get_family())}
+
+    def visit(source: Mobject, descend: bool = True) -> Mobject:
+        if id(source) in memo:
+            return memo[id(source)]
+        own, kind = type(source), _kind(type(source))
+        made = memo[id(source)] = object.__new__(
+            kind if own._shape is kind._shape else own
+        )
+        made.name, made.dim, made.z_index = kind.__name__, source.dim, source.z_index
+        made.target = None
+        made.updaters, made.updating_suspended = [], False
+        made._geometry, made.paint = source._geometry, source.paint
+        made._take_shape(source)
+        made.submobjects = [visit(sub) for sub in source.submobjects] if descend else []
+        if (
+            isinstance(source, VMobject)
+            and isinstance(made, VMobject)
+            and (frame := source.gradient_frame) is not None
+        ):
+            made.gradient_frame = (
+                visit(frame) if id(frame) in family else _spanned(frame)
+            )
+        return made
+
+    return visit(mob, not alone)
+
+
+def _spanned(frame: "Mobject") -> "PMobject":
+    """The box a mobject spans, as a value: a cloud of its two corners (none: no box)."""
+    cloud = PMobject()
+    box = frame.boundary_box()
+    cloud.points = np.zeros((0, 3)) if box is None else box
+    return cloud
+
+
+def _state_copy[M: "Mobject"](mob: M) -> M:
+    """Copy a recipe and its family, excluding every member's saved history."""
+    return mob.__deepcopy__(_StateMemo())
+
+
+def _orientation(linear: np.ndarray) -> np.ndarray | None:
+    """The orthogonal part of a map, including reflections; stretches keep directions."""
+    diagonal = np.diag(linear)
+    if np.count_nonzero(linear) == np.count_nonzero(diagonal):
+        return (
+            np.diag(np.where(diagonal < 0, -1.0, 1.0)) if np.any(diagonal < 0) else None
+        )
+    if np.abs(linear.T @ linear - np.eye(3)).max() <= 1e-12:  # a turn: itself
+        return linear
+    left, _, right = np.linalg.svd(linear)
+    return left @ right
 
 
 def prototype[S: "Mobject", **P](
@@ -661,38 +881,21 @@ def remove_list_redundancies[T](items: Sequence[T]) -> list[T]:
 
 def _family(roots: Iterable["Mobject"]) -> list["Mobject"]:
     """Preorder from these roots, each member once at its last occurrence."""
-    # Members held once (most families) are the preorder itself, made in one pass; a member
-    # met again sends the work to the walk that keeps last occurrences.
-    roots = list(roots)
-    preorder: list[Mobject] = []
-    met: set[int] = set()
-    pending = roots[::-1]
-    while pending:
-        item = pending.pop()
-        if id(item) in met:
-            return _family_of_repeats(roots)
-        met.add(id(item))
-        preorder.append(item)
-        if item.submobjects:
-            pending.extend(item.submobjects[::-1])
-    return preorder
-
-
-def _family_of_repeats(roots: list["Mobject"]) -> list["Mobject"]:
-    """`_family` of roots whose families share members, or repeat them."""
     # Right-to-left postorder is reversed preorder. Keep its first occurrences,
     # skipping already visited subtrees, then reverse to keep preorder's last ones.
     family: list[Mobject] = []
     seen: set[int] = set()
-    pending: list[Mobject | tuple[Mobject]] = list(roots)
+    pending: list[Mobject | None] = list(roots)
+    parents: list[Mobject] = []
     while pending:
         item = pending.pop()
-        if isinstance(item, tuple):
-            family.append(item[0])
+        if item is None:
+            family.append(parents.pop())
         elif id(item) not in seen:
             seen.add(id(item))
             if item.submobjects:
-                pending.append((item,))
+                parents.append(item)
+                pending.append(None)
                 pending.extend(item.submobjects)
             else:
                 family.append(item)
@@ -703,7 +906,13 @@ def _family_of_repeats(roots: list["Mobject"]) -> list["Mobject"]:
 def _family_box(family: Iterable["Mobject"]) -> np.ndarray | None:
     """Combine the selected family's own geometry boxes without constructing a group."""
     # A member's box is what it draws (`_box`); paths use their curves' tight bounds.
-    boxes = [b for m in family if m._geometry.n and (b := m._box()) is not None]
+    boxes = [
+        b
+        for m in family
+        if m._geometry.n
+        and _kind(type(m)) is not Mobject
+        and (b := m._box()) is not None
+    ]
     if len(boxes) < 2:
         return boxes[0] if boxes else None
     stacked = np.array(boxes)
@@ -743,11 +952,10 @@ class Mobject:
     """The style keywords whose defaults the class changes: a subclass lists only what
     it changes (`defaults = {"color": BLUE}`), and takes the rest from its parents (see
     [style_defaults][manimgx.mobject.style_defaults])."""
-    shared: ClassVar[frozenset[str]] = frozenset(
-        {"style", "__orig_class__", "_film_record"}
-    )
+    shared: ClassVar[frozenset[str]] = frozenset({"style", "__orig_class__"})
     """The attributes a copy shares with its original instead of copying them: values
     that are never changed in place."""
+    _hold: _Hold | None = None  # the play holding it, while one animates it (`advance`)
 
     # CE's style attributes, kept in the paint: each reads and sets the mobject's own,
     # not its family's
@@ -935,9 +1143,6 @@ class Mobject:
             )
         return self
 
-    # its points are cubic curves' control points (a path): its box is its curves' tight box
-    _curves: ClassVar[bool] = False
-
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_points_defining_boundary(self) -> Point3D_Array:
         """The points [get_boundary_point][manimgx.Mobject.get_boundary_point] chooses
@@ -950,12 +1155,12 @@ class Mobject:
         Returns:
             The points, as an (n, 3) array.
         """
-        if not self._curves:
+        if not isinstance(self, VMobject):
             return self.get_all_points()
         arrays = [
             _anchors(m.points)
             for m in self.get_family()
-            if m._curves and m.has_points()
+            if isinstance(m, VMobject) and m.has_points()
         ]
         return np.concatenate(arrays) if arrays else np.zeros((0, 3))
 
@@ -965,21 +1170,22 @@ class Mobject:
         can be blended point by point.
 
         [align_points][manimgx.Mobject.align_points] calls it on the one of two mobjects
-        with fewer points. Each kind implements it (a path divides its curves); a
-        mobject of no kind cannot.
+        with fewer points. A path divides its curves; a cloud or a non-drawing value
+        repeats its points.
 
         Args:
             larger: The mobject with more points.
         """
-        raise NotImplementedError(f"{type(self).__name__} cannot align points")
+        self.points = stretch_array(self.points, larger.get_num_points())
+        return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def get_point_mobject(self, center: Point3DLike | None = None) -> "Mobject":
         """The mobject shrunk to a point: what it grows from, or shrinks to, when a
         transform makes it appear or disappear.
 
-        A kind returns a point of its own kind and style; a mobject of no kind, the
-        group of its members' points.
+        A kind returns its collapsed drawing in its own style. A non-drawing value
+        keeps its points and members, collapsed at the same position.
 
         Args:
             center: Where the point is; None for the mobject's center.
@@ -988,7 +1194,10 @@ class Mobject:
             A new mobject.
         """
         c = self.get_center() if center is None else center
-        return Group(*(m.get_point_mobject(c) for m in self.submobjects))
+        point = _snapshot(self)
+        for member in point.family_members_with_points():
+            member.points = np.repeat(np.asarray(c)[None], len(member.points), axis=0)
+        return point
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
     def pointwise_become_partial(self, mobject: "Mobject", a: float, b: float) -> Self:
@@ -1296,7 +1505,7 @@ class Mobject:
         updater functions, on itself, and is not in the scene. Copying is cheap: the
         copy shares the original's points and style until either one changes them.
         """
-        return copy.deepcopy(self)
+        return self.__deepcopy__({})
 
     def generate_target(self) -> Self:
         """Make the mobject's [target][manimgx.Mobject.target]: a copy of it, which you
@@ -1324,15 +1533,15 @@ class Mobject:
                     self.play(m.MoveToTarget(circle))
             ```
         """
-        self.target = None  # not copied into the new target
-        self.target = self.copy()
+        self.target = _state_copy(self)
         return self.target
 
     def save_state(self) -> Self:
         """Keep a copy of the mobject as it is now, to return to with
         [restore][manimgx.Mobject.restore] or the [Restore][manimgx.Restore] animation.
 
-        The copy is the mobject's `saved_state`; saving again replaces it.
+        The copy is the mobject's `saved_state`; saving again replaces it. Saved states
+        and targets keep the current family and recipe, excluding previous snapshots.
 
         Examples:
             ```python
@@ -1349,8 +1558,8 @@ class Mobject:
                     self.play(m.Restore(square))
             ```
         """
-        self.saved_state = None  # not copied into the new saved state
-        self.saved_state = self.copy()
+        self.saved_state: Mobject | None = None
+        self.saved_state = _state_copy(self)
         return self
 
     def restore(self) -> Self:
@@ -1399,39 +1608,49 @@ class Mobject:
         return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
-    def advance(
-        self,
-        t: Fraction,
-        recursive: bool = True,
-        recorders: "list[_Recorder] | None" = None,
-    ) -> Self:
+    def advance(self, t: Fraction, recursive: bool = True) -> Self:
         """Bring the mobject's updaters to scene time `t`.
 
         An engine hook: the scene calls it on each of its mobjects at every instant it
-        computes, and an animation on the copy of its mobject that the updaters run on
-        while it plays. Each time-based updater is handed the time since it last ran —
-        on its own clock, if it has one (as [ChangeSpeed][manimgx.ChangeSpeed]'s
-        updaters do). A simulated one (time-based, not a
-        [flow][manimgx.mobject.flow]) runs only at the ticks of the simulation
-        clock and at the ends of plays and waits; a per-frame one only at frames and
-        those ends. Nothing runs while the mobject's updating is suspended.
+        computes, in the order it draws them. Each time-based updater is handed the time
+        since it last ran (on its own clock, if it has one, as
+        [ChangeSpeed][manimgx.ChangeSpeed]'s updaters do), once an instant. A simulated
+        one (time-based, not a [flow][manimgx.mobject.flow]) runs only at the ticks of the
+        simulation clock and at the ends of plays and waits; a per-frame one only at
+        frames and those ends. A [recorder][manimgx.mobject.record] is gathered into the
+        instant's (`clock.recorders`), to run once everything else is at `t`, wherever the
+        scene computes the instant; else it runs here, as the simulated updater it is.
+        Nothing runs while the mobject's updating is suspended. While a play holds the
+        mobject (see [Animation.take][manimgx.Animation.take]), its updaters run on its own
+        value, beneath the play, which then shows itself over what they made of it.
 
         Args:
             t: The scene time, in seconds, exact.
             recursive: Whether its submobjects' updaters are brought there too, after
                 its own.
-            recorders: Where the scene collects the
-                [recorders][manimgx.mobject.record], each with its mobject
-                and the updater list it came from, to run them once everything
-                else is at `t`; None: they run here, as the
-                simulated updaters they are.
         """
-        # a simulated updater runs only where it steps (`clock.stepping`: between the
-        # simulation clock's ticks it stays where it was); a per-frame one only at a
-        # frame or an event (`clock.framing`)
-        if self.updating_suspended:
-            return self
+        self._advance(t, recursive, set())
+        return self
+
+    def _advance(self, t: Fraction, recursive: bool, seen: set[int]) -> None:
+        """`advance`, each member once: a member shared by several groups of the family is
+        brought to `t` where it is first met (`seen`: the members brought already)."""
+        if id(self) in seen or self.updating_suspended:
+            return
+        seen.add(id(self))
+        if self.updaters:
+            self._beneath(lambda: self._update(t))
+        if recursive:
+            for sub in self.submobjects:
+                sub._advance(t, recursive, seen)
+
+    def _update(self, t: Fraction) -> None:
+        """Run the updaters due at `t`, in order: a simulated one only where it steps
+        (`clock.stepping`: between the simulation clock's ticks it stays where it was), a
+        flow wherever the scene computes an instant; a per-frame one only where frames are
+        (`clock.framing`); in a frame's relations (`clock.relating`), nothing else."""
         updaters = self.updaters
+        counted: dict[int, int] | None = None  # each recorder: how often it came so far
         for updater in updaters:
             if updaters is not self.updaters and not _has_updater(
                 self.updaters, updater
@@ -1440,14 +1659,31 @@ class Mobject:
             if _per_frame(updater):
                 if clock.framing:
                     updater(self)
-            elif recorders is not None and records(updater):
-                recorders.append((self, updater, updaters))
-            elif clock.stepping or _flows(updater):
+            elif records(updater) and (gathered := clock.recorders) is not None:
+                # once an instant: brought here again (a play's end), it is gathered once
+                counted = {} if counted is None else counted
+                n = counted[id(updater)] = counted.get(id(updater), -1) + 1
+                gathered.setdefault((id(self), id(updater), n), (self, updater))
+            elif not clock.relating and (clock.stepping or _flows(updater)):
                 self._bring(updater, t)
-        if recursive:
-            for sub in self.submobjects:
-                sub.advance(t, recursive, recorders)
-        return self
+
+    def _beneath(self, run: Callable[[], object]) -> None:
+        """Run `run` beneath the plays that hold the mobject, if any: on its own value, and
+        its members' that those plays hold (what it may change), each as its other plays (those
+        not holding the mobject) show it over its own value (a graph's updater sees a vertex as
+        a play of that vertex alone moves it); the plays then show themselves over what it made
+        of them (its change to a member, over the member's own value), and a member it left as
+        it was shows what it showed. A mobject no play holds runs it so on the members plays
+        hold (a group drifting while its members fade in), and on the rest as they are."""
+        hold = self._hold
+        _run_beneath(self.get_family(), None if hold is None else hold.plays, run)
+
+    def _record(self, recorder: Callable[..., object], t: Fraction) -> None:
+        """Run a recorder the instant gathered (see `advance`), if it is still there: on the
+        mobject's own value, beneath the plays that hold it, if any."""
+        if self.updating_suspended or not _has_updater(self.updaters, recorder):
+            return
+        self._beneath(lambda: self._bring(recorder, t))
 
     def _bring(self, updater: Callable[..., object], t: Fraction) -> None:
         """Run a time-based updater with the time its clock ran since it was last brought
@@ -1456,8 +1692,15 @@ class Mobject:
         start = since.get(updater, t)
         since[updater] = t
         on: clock.Clock | None = getattr(updater, "clock", None)
-        dt = float(t - start) if on is None else on.at(float(t)) - on.at(float(start))
-        updater(self, dt)
+        if on is not None:
+            updater(self, on.at(float(t)) - on.at(float(start)))
+            return
+        saved = clock.step  # (an updater may bring another forward)
+        clock.step = t - start
+        try:
+            updater(self, float(t - start))
+        finally:
+            clock.step = saved
 
     @property
     def _since(self) -> dict[object, Fraction]:
@@ -1711,7 +1954,7 @@ class Mobject:
         if recursive:
             for sub in self.submobjects:
                 sub.resume_updating(recursive)
-        self._stamp(clock.now, recursive)
+        self._stamp(clock.now, recursive=False)
         return self
 
     # ── the one transform primitive ────────────────────────────────────────
@@ -1786,11 +2029,15 @@ class Mobject:
             about_point = self.get_critical_point(
                 ORIGIN if about_edge is None else about_edge
             )
-        m = linear_about(
-            np.asarray(linear, dtype=float), np.array(about_point, dtype=float)
-        )
-        for mob in self.family_members_with_points():
+        linear = np.asarray(linear, dtype=float)
+        m = linear_about(linear, np.array(about_point, dtype=float))
+        turn = _orientation(linear)
+        for mob in self.get_family():
             mob._geometry = mob._geometry.transformed(m)
+            if turn is not None:
+                mob.paint = mob.paint.but(
+                    sheen_direction=turn @ mob.paint.sheen_direction
+                )
         return self
 
     def scale(
@@ -1804,7 +2051,8 @@ class Mobject:
         """Scale the mobject and its whole family about a point: by one factor, or by
         one per axis.
 
-        Stroke widths stay as they are, unless `scale_stroke`.
+        Stroke widths stay as they are, unless `scale_stroke`. A scale by 1 changes nothing,
+        exactly.
 
         Args:
             scale_factor: The factor: 2 doubles the mobject's size, 0.5 halves it, and a
@@ -1838,6 +2086,8 @@ class Mobject:
                     )
             ```
         """
+        if _unscaled(scale_factor):
+            return self
         if scale_stroke:
             length = length_factor(scale_factor)
             for mob in self.get_family():
@@ -1850,8 +2100,12 @@ class Mobject:
                 edge = ORIGIN if about_edge is None else about_edge
                 about_point = self.get_critical_point(edge)
             about = np.array(about_point, dtype=float)
-            for mob in self.family_members_with_points():
+            for mob in self.get_family():
                 mob._geometry = mob._geometry.scaled(float(scale_factor), about)
+                if scale_factor < 0:
+                    mob.paint = mob.paint.but(
+                        sheen_direction=-mob.paint.sheen_direction
+                    )
             return self
         return self._apply_linear(
             np.diag(axis_factors(scale_factor)), about_point, about_edge
@@ -1900,7 +2154,6 @@ class Mobject:
             ```
         """
         rot = rotation_matrix(angle, axis)
-        self._rotate_direction_state(rot)
         return self._apply_linear(rot, about_point, about_edge)
 
     def _rotate_direction_state(self, rot: MatrixMN) -> None:
@@ -2021,6 +2274,9 @@ class Mobject:
         """Transform the mobject and its whole family by a matrix: each point, taken
         relative to a fixed point, is multiplied by it.
 
+        The orthogonal part of the matrix carries the sheen direction, including
+        reflections. Positive stretches leave that direction unchanged.
+
         Args:
             matrix: A 3 × 3 matrix, or a smaller one (2 × 2) that acts on the first
                 coordinates and keeps the rest.
@@ -2070,7 +2326,9 @@ class Mobject:
         scene units (a quarter of a pixel at 4K), every curve of the path is cut into 2,
         4, 8, … equal pieces (at most 256 each), and the pieces are mapped instead. Any
         other kind maps its points. Through [animate][manimgx.Mobject.animate], each
-        point of the path, cut the same way, moves straight to its image.
+        point of the path, cut the same way, moves straight to its image. The sheen
+        follows the orthogonal part of the function's local derivative at each member's
+        center, the same rule as [apply_matrix][manimgx.Mobject.apply_matrix].
 
         Args:
             function: A function of a point, relative to the fixed point, that returns
@@ -2106,8 +2364,21 @@ class Mobject:
                 ORIGIN if about_edge is None else self.get_critical_point(about_edge)
             )
         about = np.array(about_point, dtype=float)
-        for mob in self.family_members_with_points():
-            mob._map_points(function, about)
+        for mob in self.get_family():
+            center = mob.get_center() - about
+            h = 1e-4 * max(1.0, float(np.linalg.norm(center)))
+            linear = np.column_stack(
+                [
+                    (function(center + step) - function(center - step)) / (2 * h)
+                    for step in h * np.eye(3)
+                ]
+            )
+            if (turn := _orientation(linear)) is not None:
+                mob.paint = mob.paint.but(
+                    sheen_direction=turn @ mob.paint.sheen_direction
+                )
+            if mob.has_points():
+                mob._map_points(function, about)
         return self
 
     def _map_points(
@@ -2187,7 +2458,7 @@ class Mobject:
         then runs the other way, from its end to its start.
         """
         for mob in self.family_members_with_points():
-            mob.points = mob.points[::-1].copy()
+            mob.points = mob.points[::-1]
         return self
 
     # ── bounds: one box, what the family draws ───────────────────────────────
@@ -2233,7 +2504,7 @@ class Mobject:
     def _box(self) -> np.ndarray | None:
         """The (2, 3) box of what this member draws, alone: its geometry's (a path's,
         its curves' tight box); None when it draws nothing."""
-        return self._geometry.box(self._curves)
+        return self._geometry.box(isinstance(self, VMobject))
 
     def boundary_box(self) -> np.ndarray | None:
         """The mobject's bounding box: the smallest box, aligned with the axes, around
@@ -3632,8 +3903,12 @@ class Mobject:
                 else mob.paint.but(sheen_factor=factor, sheen_direction=direction)
             )
             if factor != 0:
-                mob.paint = mob.paint.updated("stroke", mob.get_stroke_color(), None)
-                mob.paint = mob.paint.updated("fill", mob.get_fill_color(), None)
+                for name in ("stroke", "fill"):
+                    rows = getattr(mob.paint, name)
+                    if len(rows):
+                        mob.paint = mob.paint.updated(
+                            name, ManimColor(rows[0, :3]), None
+                        )
         return self
 
     def set_sheen_direction(self, direction: Vector3DLike, family: bool = True) -> Self:
@@ -3946,6 +4221,25 @@ class Mobject:
                 ([become][manimgx.Mobject.become] does: it takes the other's points as
                 they are).
         """
+        if (
+            self.has_points()
+            and mobject.has_points()
+            and _kind(type(self)) is not _kind(type(mobject))
+        ):
+            # Incompatible geometry domains occupy separate channels. Each channel
+            # keeps its kind and fades to or from a collapsed copy at the other end.
+            a, b = _snapshot(self, alone=True), _snapshot(mobject, alone=True)
+            ac, bc = self.get_center(), mobject.get_center()
+            self.reset_points()
+            mobject.reset_points()
+            self.submobjects[:0] = [
+                a,
+                _snapshot(b).scale(0, about_point=bc).move_to(ac).fade(1),
+            ]
+            mobject.submobjects[:0] = [
+                _snapshot(a).scale(0, about_point=ac).move_to(bc).fade(1),
+                b,
+            ]
         self.null_point_align(mobject)
         self.align_submobjects(mobject)
         if not skip_point_alignment:
@@ -3963,7 +4257,9 @@ class Mobject:
         Args:
             mobject: The other mobject.
         """
-        self.paint, mobject.paint = Paint.aligned(self.paint, mobject.paint)
+        self.paint, mobject.paint = Paint.aligned(
+            self.paint, mobject.paint, gradient=False
+        )
         n1, n2 = self.get_num_points(), mobject.get_num_points()
         if n1 < n2:
             self.align_points_with_larger(mobject)
@@ -4016,9 +4312,7 @@ class Mobject:
         not a replica that would run them too). The mobject keeps its submobjects, and has
         no points of its own.
         """
-        clone = self.copy()
-        clone.submobjects = []
-        clone.clear_updaters()
+        clone = _snapshot(self, alone=True)
         self.reset_points()
         return self.add(clone)
 
@@ -4048,7 +4342,7 @@ class Mobject:
         new: list[Mobject] = []
         for sub, sf in zip(self.submobjects, split, strict=True):
             new.append(sub)
-            new.extend(sub.copy().fade(1) for _ in range(1, sf))
+            new.extend(_snapshot(sub).fade(1) for _ in range(1, sf))
         self.submobjects = new
         return self
 
@@ -4078,10 +4372,15 @@ class Mobject:
         if (
             isinstance(path_func, Path) and g1.n == g2.n
         ):  # a linear path moves shapes, not points
-            self._geometry = Blend.mix(g1, g2, path_func.coefficients(alpha))
+            self._geometry = path_func.mix(g1, g2, alpha)
         else:
             self.points = path_func(mobject1.points, mobject2.points, alpha)
-        self.paint = self.paint.mixed(mobject1.paint, mobject2.paint, alpha)
+        self.paint = self.paint.mixed(
+            mobject1.paint,
+            mobject2.paint,
+            alpha,
+            path_func if isinstance(path_func, Path) else None,
+        )
         return self
 
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
@@ -4163,7 +4462,7 @@ class Mobject:
         if other.has_points() and _kind(type(self)) is not _kind(type(other)):
             # its kind can't hold the other's own shape: it holds it in a first member
             self.reset_points()
-            theirs = [_fresh(other, alone=True), *theirs]
+            theirs = [_snapshot(other, alone=True), *theirs]
         else:
             self._geometry = other._geometry  # immutable values: shared, not copied
             self._take_shape(other)
@@ -4174,7 +4473,7 @@ class Mobject:
             if mine is not None and _kind(type(mine)) is _kind(type(sub)):
                 mine._take(sub)
             else:
-                mine = _fresh(sub)
+                mine = _state_copy(sub).clear_updaters()
             members.append(mine)
         self.submobjects = members
 
@@ -4195,6 +4494,10 @@ class Mobject:
     def _take_shape(self, mobject: "Mobject") -> None:
         """What goes with another mobject's points when this one takes them (a kind whose
         shape is more than points — a mesh's triangles — takes that too)."""
+
+    def _shape(self) -> tuple[object, ...]:
+        """What goes with its points (what `_take_shape` takes), as objects."""
+        return ()
 
     @classmethod
     @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
@@ -4777,7 +5080,6 @@ class VMobject(Mobject):
         ```
     """
 
-    _curves = True  # a path: its box is its curves' tight box
     # CE's per-instance options, which no scene sets: constants a subclass may override.
     pre_function_handle_to_anchor_scale_factor: float = 0.01
     """Where along each handle [apply_function][manimgx.Mobject.apply_function] samples
@@ -5846,7 +6148,7 @@ class VMobject(Mobject):
             return self
         lo, lo_res = integer_interpolate(0, num_curves, a)
         hi, hi_res = integer_interpolate(0, num_curves, b)
-        src = vmobject.points.copy() if self is vmobject else vmobject.points
+        src = vmobject.points
         n = _NPPCC
         if lo == hi:
             self.points = partial_bezier_points(
@@ -5925,7 +6227,7 @@ class VMobject(Mobject):
                     self.add(m.VGroup(same, opposite).arrange(buff=2))
             ```
         """
-        self.points = self.points[::-1].copy()
+        self.points = self.points[::-1]
         return self
 
     def force_direction(self, target_direction: Literal["CW", "CCW"]) -> Self:
@@ -6380,8 +6682,8 @@ class PMobject(Mobject):
         self.paint = self.paint.but(fill=stretch_array(self.paint.fill, n))
         return self
 
-    def get_point_mobject(self, center: Point3DLike | None = None) -> "Point":
-        return Point(self.get_center() if center is None else center)
+    def get_point_mobject(self, center: Point3DLike | None = None) -> "PMobject":
+        return cast("PMobject", super().get_point_mobject(center))
 
     def pointwise_become_partial(self, mobject: Mobject, a: float, b: float) -> Self:
         # every point the stretch reaches into, as a reveal over it shows them
@@ -6509,9 +6811,6 @@ class Point(PMobject):
 
 if TYPE_CHECKING:
     from manimgx.scene import Camera
-
-
-_MESH_STRAIGHT = straight_path()  # a default (paths are immutable)
 
 
 def _value(array: np.ndarray, held: np.ndarray | None = None) -> np.ndarray:
@@ -6687,11 +6986,9 @@ class MeshMobject(Mobject):
     def align_points(self, mobject: Mobject) -> Self:
         # Equal topology shares the existing domain. Different topology becomes explicit
         # triangle soup; the smaller mesh gains copies collapsed to their centers.
-        if not isinstance(mobject, MeshMobject):
-            self.paint, mobject.paint = Paint.aligned(self.paint, mobject.paint)
-            return self
-        if len(self.points) != len(mobject.points) or not np.array_equal(
-            self._topology, mobject._topology
+        if isinstance(mobject, MeshMobject) and (
+            len(self.points) != len(mobject.points)
+            or not np.array_equal(self._topology, mobject._topology)
         ):
             for mesh in (self, mobject):
                 mesh._as_soup()
@@ -6712,17 +7009,17 @@ class MeshMobject(Mobject):
                     small.uvs = small.uvs.reshape(-1, 3, 2)[index].reshape(-1, 2)
                 small.points = padded.reshape(-1, 3)
             small._topology = large._topology
-        for a, b in ((self, mobject), (mobject, self)):
-            if len(a.paint.fill) == len(a.points) > 1 and len(b.paint.fill) == 1:
-                b.paint = b.paint.but(
-                    fill=np.repeat(b.paint.fill, len(b.points), axis=0)
-                )
-        self.paint, mobject.paint = Paint.aligned(self.paint, mobject.paint)
+        self.paint, mobject.paint = Paint.aligned(
+            self.paint, mobject.paint, gradient=False
+        )
         return self
 
     def _take_shape(self, mobject: Mobject) -> None:
         if isinstance(mobject, MeshMobject):
             self._topology, self._uvs = mobject._topology, mobject.uvs
+
+    def _shape(self) -> tuple[object, ...]:
+        return self._topology, self._uvs
 
     def get_point_mobject(self, center: Point3DLike | None = None) -> "MeshMobject":
         c = self.get_center() if center is None else np.asarray(center, dtype=float)
@@ -6778,7 +7075,7 @@ class MeshMobject(Mobject):
         mobject1: Mobject,
         mobject2: Mobject,
         alpha: float,
-        path_func: PathFunc = _MESH_STRAIGHT,
+        path_func: PathFunc = _STRAIGHT,
     ) -> Self:
         super().interpolate(mobject1, mobject2, alpha, path_func)
         if isinstance(mobject1, MeshMobject) and isinstance(mobject2, MeshMobject):

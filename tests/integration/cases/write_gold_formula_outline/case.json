@@ -14,23 +14,23 @@
       ["9acdae89ae00e6f5", 1],
       ["892f37533539a58e", 1],
       ["8d8c771b8621cf91", 1],
-      ["c4fb3e1faa2210ad", 1],
-      ["9da618af40b91a56", 1],
-      ["be74f3b7db980f5c", 1],
-      ["a72fd0c3cf7da5f9", 1],
+      ["e52311fbadfe3c6b", 1],
+      ["3bf44714c851c534", 1],
+      ["56fae36f96f510a1", 1],
+      ["990b77e83adbe9a3", 1],
       ["bc97c17a85f41c8c", 1],
       ["8c57327b20c60745", 1],
-      ["f8ad66a9bda590b0", 1],
-      ["091aec22431a6fe4", 1],
-      ["c5a74b8bd617bafd", 1],
-      ["aefe7acb5104d689", 1],
+      ["aed3f67a4d5f2e3a", 1],
+      ["98e89a6c6023179a", 1],
+      ["00b067d25b2efc06", 1],
+      ["b12afdbab0a8b346", 1],
       ["e5c21cb4707c5d1f", 1],
       ["e844834b019d9089", 6]
     ],
     "timeline": [
       [0.0, 26]
     ],
-    "id": "sha256:7906b1599026148ffe1f8afb7129cb00ad83d775ceef6fa5886ea8cc42e6a1f7"
+    "id": "sha256:dc6a141302b7a21c50dfbc7fc566705be19ab033b1fa323a93f8ab49e33fe527"
   },
   "ce": {
     "manim": "0.21.0",

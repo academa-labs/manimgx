@@ -75,7 +75,18 @@ def written_otherwise(settings: dict[str, object]) -> dict[str, object]:
     }
 
 
-models = st.sampled_from(sorted(fal._MODELS))
+MODELS: dict[fal.Model, tuple[type, str, dict[str, object]]] = {
+    "fal-ai/elevenlabs/tts/eleven-v3": (fal.ElevenV3, "text", {"timestamps": True}),
+    "fal-ai/minimax/speech-2.8-hd": (fal.MiniMax, "prompt", {}),
+    "google/gemini-3.8-flash-tts": (fal.Gemini, "prompt", {}),
+    "fal-ai/inworld-tts": (fal.Inworld, "text", {}),
+    "fal-ai/qwen-3-tts/text-to-speech/1.7b": (
+        fal.Qwen,
+        "text",
+        {"max_new_tokens": 8192},
+    ),
+}
+models = st.sampled_from(sorted(MODELS))
 # `Fal` for a model drawn at run time: no type checker reads the settings it is given
 untyped = cast("Callable[..., Fal]", Fal)
 
@@ -84,7 +95,7 @@ def settings_of(model: fal.Model) -> st.SearchStrategy[dict[str, object]]:
     """Any settings a model's schema allows."""
     return cast(
         "st.SearchStrategy[dict[str, object]]",
-        st.from_type(fal._MODELS[model].settings),
+        st.from_type(MODELS[model][0]),
     )
 
 
@@ -93,7 +104,7 @@ class TestAsking:
     def test_a_model_is_asked_for_its_text(
         self, model: fal.Model, data: st.DataObject, text: str
     ) -> None:
-        spec = fal._MODELS[model]
+        _, text_field, defaults = MODELS[model]
         settings = data.draw(settings_of(model), label="settings")
         fake = Service()
         with pytest.MonkeyPatch.context() as patch:
@@ -102,12 +113,10 @@ class TestAsking:
         (url, body, headers), (audio_url, nothing, _) = fake.asked
         assert url == f"https://fal.run/{model}"
         assert headers == {"Authorization": "Key k"}
-        # what ManimGX sends unless told otherwise, the settings over it, what is always sent
         assert body == {
-            **dict(spec.defaults),
+            **defaults,
             **settings,
-            **dict(spec.fixed),
-            spec.text: text,
+            text_field: text,
         }
         assert (audio_url, nothing) == (AUDIO_URL, None)
         assert speech.text == text
@@ -148,7 +157,7 @@ class TestNaming:
         same = json.dumps(other, sort_keys=True) == json.dumps(settings, sort_keys=True)
         named = _identity(untyped(model, **other))
         assert (named == _identity(voice)) == same
-        for another in fal._MODELS.keys() - {model}:
+        for another in MODELS.keys() - {model}:
             assert _identity(Fal(another)) != _identity(voice)
 
 

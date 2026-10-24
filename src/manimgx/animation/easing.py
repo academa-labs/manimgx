@@ -308,7 +308,7 @@ def not_quite_there(func: RateFunc = smooth, proportion: float = 0.7) -> RateFun
 @unit_interval
 def lingering(t: float) -> float:
     """Runs evenly to the end by 0.8 of the time, then lingers there."""
-    return squish_rate_func(lambda x: x, 0, 0.8)(t)
+    return min(t / 0.8, 1)
 
 
 @unit_interval

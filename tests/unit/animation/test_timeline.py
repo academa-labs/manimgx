@@ -50,6 +50,7 @@ ChangeSpeed plays an animation along a speed profile, and its clock keeps pace.
 """
 
 from collections.abc import Callable
+from copy import deepcopy
 from fractions import Fraction
 from itertools import pairwise
 from typing import Unpack
@@ -87,8 +88,6 @@ from manimgx.animation.timeline import (
     animation_defaults,
     keyframe_at,
     prepare,
-    schedule,
-    warp,
     windows,
 )
 from manimgx.animation.transform import Transform, TransformOptions
@@ -183,10 +182,9 @@ class TestEnds:
                     getattr(got.paint, name), getattr(want.paint, name)
                 )
 
-    @pytest.mark.parametrize("fast", [True, False])
     @given(shapes=st.lists(st.sampled_from(sorted(SHAPES)), min_size=3, max_size=3))
     def test_a_transform_ends_as_its_target_whatever_came_before(
-        self, fast: bool, shapes: list[str]
+        self, shapes: list[str]
     ) -> None:
         """Not the points and members its frames needed in between, nor what it was."""
         mob, first, then = (SHAPES[name]() for name in shapes)
@@ -197,15 +195,14 @@ class TestEnds:
             s.play(m.Transform(mob, first))
             s.play(m.Transform(mob, then))
 
-        record(story, fast=fast)
+        record(story)
         assert value(mob) == value(expected)
 
-    @pytest.mark.parametrize("fast", [True, False])
     @given(
         start=st.sampled_from(sorted(SHAPES)), between=st.sampled_from(sorted(SHAPES))
     )
     def test_a_restore_brings_back_exactly_what_was_saved(
-        self, fast: bool, start: str, between: str
+        self, start: str, between: str
     ) -> None:
         mob = SHAPES[start]().save_state()
         saved = value(mob)
@@ -215,15 +212,14 @@ class TestEnds:
             s.play(m.Transform(mob, SHAPES[between]()))
             s.play(m.Restore(mob))
 
-        record(story, fast=fast)
+        record(story)
         assert value(mob) == saved
 
-    @pytest.mark.parametrize("fast", [True, False])
     @given(
         start=st.sampled_from(sorted(SHAPES)), target=st.sampled_from(sorted(SHAPES))
     )
     def test_one_that_comes_back_ends_as_its_mobject_began(
-        self, fast: bool, start: str, target: str
+        self, start: str, target: str
     ) -> None:
         """Not as its frames aligned it with the target."""
         mob = SHAPES[start]()
@@ -233,7 +229,7 @@ class TestEnds:
             s.add(mob)
             s.play(m.Transform(mob, SHAPES[target](), rate_func=rf.there_and_back))
 
-        record(story, fast=fast)
+        record(story)
         assert value(mob) == began
 
     @pytest.mark.parametrize(
@@ -571,14 +567,21 @@ class TestLayout:
     def test_a_part_over_the_whole_group_gets_its_time_bit_for_bit(
         self, alpha: list[float]
     ) -> None:
+        handed: list[float] = []
+
+        class Handed(m.Animation):
+            def interpolate(self, alpha: float) -> None:
+                handed.append(alpha)
+
         group = m.AnimationGroup(
-            m.Animation(m.Mobject(), run_time=2),
+            Handed(m.Mobject(), run_time=2),
             m.Animation(m.Mobject(), run_time=1),
             rate_func=rf.smooth,
         )
-        a = np.array(alpha)
-        (_, whole, _), _ = schedule(group, a)
-        np.testing.assert_array_equal(whole, warp(rf.smooth, a))
+        group.begin()
+        for a in alpha:
+            group.interpolate(a)
+        assert handed == [rf.smooth(a) for a in alpha]
 
 
 def held(before: list[m.Mobject], play: Animation, at: Fraction) -> list[m.Mobject]:
@@ -688,12 +691,15 @@ GATHERING: dict[str, Callable[[m.Mobject, m.Mobject], Animation]] = {
     "grouped", [False, True], ids=["new", "in a group in the scene"]
 )
 @pytest.mark.parametrize("name", sorted(GATHERING))
+@pytest.mark.parametrize("copied", [False, True], ids=["original", "copied"])
 def test_an_animation_of_several_mobjects_acts_on_them_where_they_are(
-    name: str, grouped: bool
+    name: str, grouped: bool, copied: bool
 ) -> None:
     a, b = m.Square(), m.Circle()
-    group, first, last = m.VGroup(a, b), m.Dot(m.UP), m.Dot(m.DOWN)
     animation = GATHERING[name](a, b)
+    if copied:
+        a, b, animation = deepcopy((a, b, animation))
+    group, first, last = m.VGroup(a, b), m.Dot(m.UP), m.Dot(m.DOWN)
 
     def construct(s: m.Scene) -> None:
         s.add(first, *([group] if grouped else []), last)
@@ -875,3 +881,50 @@ class TestSpeedClock:
         record(story)
         assert ends[0] == pytest.approx(2.25)
         assert ends[1] == pytest.approx(0.25 * 2 + 2 * 0.5)
+
+
+@pytest.mark.parametrize("ends", ["alone", "beside a longer play"])
+def test_a_play_that_ends_holds_nothing(ends: str) -> None:
+    """A play lets go of all it held once nothing holding it still plays: no member keeps a hold,
+    so nothing an updater does later is weighed against what plays held."""
+    from manimgx.mobject import _HELD
+
+    dots = m.VGroup(*(m.Dot() for _ in range(5)))
+
+    def tell(s: Recorder) -> None:
+        s.add(dots)
+        if ends == "alone":
+            s.play(dots.animate.shift(m.UP))
+        else:
+            s.play(
+                dots[0].animate.shift(m.UP), dots.animate(run_time=2).set_color(m.RED)
+            )
+
+    record(tell)
+    assert all(getattr(d, "_hold", None) is None for d in dots.get_family())
+    assert all(id(d) not in _HELD for d in dots.get_family())
+
+
+@pytest.mark.parametrize(
+    "rate", [rf.smooth, rf.there_and_back, rf.wiggle, rf.there_and_back_with_pause]
+)
+def test_a_window_opens_where_the_play_begins_its_part(rate: rf.RateFunction) -> None:
+    """Where a play schedules its parts (a sound's start, an instant of its own between
+    frames) is where it begins them, whatever its group's rate: one that eases time back
+    (`there_and_back`) reaches a window long before the play ends."""
+    began: list[float] = []
+
+    class Noted(m.Animation):
+        def begin(self) -> None:
+            began.append(float(clock.now))
+            super().begin()
+
+    parts = [Noted(m.Square()) for _ in range(3)]
+    group = m.AnimationGroup(*parts, lag_ratio=1.0, rate_func=rate, run_time=3)
+
+    def tell(s: Recorder) -> None:
+        s.play(group)
+
+    record(tell, fps=30)
+    opens = [float(w.opens) * 3 for w in windows(group)]
+    assert began == pytest.approx(opens[: len(began)], abs=1e-9)

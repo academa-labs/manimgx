@@ -38,9 +38,10 @@ class Result:
 
 def environment() -> dict[str, str]:
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        p for p in (str(ROOT), env.get("PYTHONPATH", "")) if p
-    )
+    roots = [str(ROOT)]
+    if path := env.get("PYTHONPATH"):
+        roots.extend(os.path.abspath(p) for p in path.split(os.pathsep))
+    env["PYTHONPATH"] = os.pathsep.join(roots)
     env["PYTHONHASHSEED"] = "0"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env

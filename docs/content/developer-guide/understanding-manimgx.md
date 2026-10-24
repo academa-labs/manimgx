@@ -234,10 +234,13 @@ On top of them:
   carries them out on the mobject as it is then, and tweens to the result.
 - [`AnimationGroup`][manimgx.AnimationGroup], [`LaggedStart`][manimgx.LaggedStart] and
   [`Succession`][manimgx.Succession] are one class. A group gives each part a window of its
-  own time, and a part's α is a function of that time alone, so a group can be evaluated at
-  any number of instants at once.
-- Tweens that begin together on one leaf compose: its motion chains all of theirs, and
-  each paint field is the last changer's.
+  own time, and a part's α is a function of that time alone: a part begins and ends at its
+  window, at an instant of its own where no frame falls there.
+- A play holds what it animates: each member keeps its own value, which the plays on it
+  show their changes over, and what any updater changes of it (its own, its group's,
+  another mobject's, the scene's) changes that own value, beneath them. Tweens on one leaf
+  compose: their changes add over its own value, their motions carried one by the other,
+  each paint field the last changer's.
 
 See [`animation/`](https://github.com/academa-labs/manimgx/tree/main/src/manimgx/animation):
 [`timeline.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/animation/timeline.py)
@@ -271,21 +274,22 @@ computed durations as fractions; observation and animation evaluation use floats
 - Then the world is brought to _T_ + _d_ itself, where `construct` goes on.
 - When `construct` returns, a closing frame shows the scene as it ends.
 
-At each instant, the playing animation is evaluated at its point in its window of time,
-then the updaters run, then the recorders (such as a [`TracedPath`][manimgx.TracedPath]).
-A per-frame updater restores a relation. A time-based updater that is a *flow* is exact at
-any instant; any other time-based updater is *simulated*, stepped on a clock of its own
+At each instant, in one order: the plays show themselves at their points in their windows,
+over what they hold as the last instant left it; the updaters that take time run, mobject by
+mobject in the scene's order, and the scene's own last, each beneath the plays holding what
+it changes (which then show themselves over what it made of it); at a frame, the relations
+follow (a procedure such as [`UpdateFromFunc`][manimgx.UpdateFromFunc], then the per-frame
+updaters), and the parts whose windows close there let go, those that open begin; the
+recorders (such as a [`TracedPath`][manimgx.TracedPath]) look last. A per-frame updater
+restores a relation. A time-based updater that is a *flow* is exact at any instant; any
+other time-based updater is *simulated*, stepped on a clock of its own
 (`config.simulation_rate` ticks a second, 60 by default), independently of the output frame
 rate. A per-frame callback that accumulates a change on each invocation still depends on
 how many frames are requested; express such motion in time or as a restored relation.
 
-The frames of a play are computed in one of two ways:
-
-- **One instant at a time**, in general: the play's step, then the updaters, for each frame.
-- **All at once**, for a play that is a pure function of time: tweens between fixed
-  keyframes, in a scene with no updaters. Its frames are computed together, as arrays.
-
-A wait in which nothing can change is one frame, held.
+Every play is computed this way, one instant at a time; a tween writes a part again only
+when its progress, its keyframes or the part changed. A wait in which nothing can change is
+one frame, held.
 
 See [`animation/clock.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/animation/clock.py) and,
 in [`scene.py`](https://github.com/academa-labs/manimgx/blob/main/src/manimgx/scene.py),
@@ -382,8 +386,7 @@ When you run `manimgx render scene.py`:
 1. **Run**: the scene's `construct` runs once; `play` and `wait` move its exact clock.
 2. **Change**: animations and updaters change mobjects, whose geometry is a blend of
    immutable shapes and whose style is one immutable paint.
-3. **Sample**: frame _k_ shows the world at _k_/fps; a pure play's frames are computed at
-   once.
+3. **Sample**: frame _k_ shows the world at _k_/fps, computed there.
 4. **Feed**: each frame becomes a view and a 336-byte record per object; shapes cross to
    the engine once.
 5. **Draw and encode**: the engine draws each frame on the GPU and encodes what changed

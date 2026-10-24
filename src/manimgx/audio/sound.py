@@ -1,16 +1,17 @@
 """Sounds and timed speech: sources, edits, placement and soundtrack mixing."""
 
 import dataclasses
-import marshal
+import inspect
 import math
 import os
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
+from functools import cached_property, partial
 from itertools import pairwise
 from pathlib import Path
-from types import CodeType
+from types import MemberDescriptorType
 from typing import TYPE_CHECKING, ClassVar, Self
 from warnings import deprecated
 
@@ -101,7 +102,7 @@ class Sound(Animation[Mobject]):
         other = object.__new__(type(self))
         other.__dict__.update(self.__dict__)
         other._edit = dataclasses.replace(self._edit, **changes)
-        other.__dict__.pop("_made", None)
+        other.__dict__.pop("samples", None)
         return other
 
     def gain(self, decibels: float) -> Self:
@@ -160,13 +161,33 @@ class Sound(Animation[Mobject]):
         return cls(np.asarray(function(t), np.float32), rate=RATE)
 
     # ── what it is ──────────────────────────────────────────────────────────────
-    @property
+    @cached_property
     def samples(self) -> np.ndarray:
-        """Its samples at `RATE`: floats, one column per channel (1 or 2)."""
-        made = self.__dict__.get("_made")
-        if made is None:
-            made = self.__dict__["_made"] = _make(self)
-        return made
+        """Its samples at `RATE`: floats, one column per channel (1 or 2).
+
+        Its source is trimmed, sped, looped, with its gain, fades and pan applied. An
+        endless loop is one round of it, without fades: the mix repeats it for as long
+        as its clip plays, and fades it where the clip starts and ends.
+        """
+        e = self._edit
+        data = _source_samples(self)
+        data = data[
+            round(e.start * RATE) : None if e.end is None else round(e.end * RATE)
+        ]
+        if e.speed != 1:
+            data = _resample(data, RATE * e.speed, RATE)
+        if e.loop is not None and math.isfinite(e.loop) and len(data):
+            n = round(e.loop * RATE)
+            data = np.tile(data, (-(-n // len(data)), 1))[:n]
+        data = data * np.float32(10 ** (e.gain / 20))
+        if e.loop != math.inf:
+            _ramp(data, e.fade_in, e.fade_out)
+        if e.pan:
+            if data.shape[1] == 1:
+                data = np.repeat(data, 2, axis=1)
+            data[:, 0] *= min(1.0, 1 - e.pan)
+            data[:, 1] *= min(1.0, 1 + e.pan)
+        return data
 
     @property
     def duration(self) -> float:
@@ -258,29 +279,6 @@ def _resample(data: np.ndarray, rate: float, to: float) -> np.ndarray:
     return np.frombuffer(out, np.float32).reshape(-1, channels)
 
 
-def _make(sound: Sound) -> np.ndarray:
-    """The sound's samples: its source trimmed, sped, looped, its gain, fades and pan. An
-    endless loop is one round of it, without fades: the mix repeats it for as long as its
-    clip plays, and fades it where the clip starts and ends."""
-    e = sound._edit
-    data = _source_samples(sound)
-    data = data[round(e.start * RATE) : None if e.end is None else round(e.end * RATE)]
-    if e.speed != 1:
-        data = _resample(data, RATE * e.speed, RATE)
-    if e.loop is not None and math.isfinite(e.loop) and len(data):
-        n = round(e.loop * RATE)
-        data = np.tile(data, (-(-n // len(data)), 1))[:n]
-    data = data * np.float32(10 ** (e.gain / 20))
-    if e.loop != math.inf:
-        _ramp(data, e.fade_in, e.fade_out)
-    if e.pan:
-        if data.shape[1] == 1:
-            data = np.repeat(data, 2, axis=1)
-        data[:, 0] *= min(1.0, 1 - e.pan)
-        data[:, 1] *= min(1.0, 1 + e.pan)
-    return data
-
-
 def _ramp(data: np.ndarray, fade_in: float, fade_out: float) -> None:
     """Fade the ends of `data` in place: linear ramps of those lengths."""
     for seconds, head in ((fade_in, True), (fade_out, False)):
@@ -321,6 +319,9 @@ def mix(clips: list[Clip], duration: Fraction) -> np.ndarray | None:
         elif len(data) > span:
             data = data[:span].copy()
             _ramp(data, 0, max(stop, CUT))
+        skip = max(0, -at)
+        data = data[skip:]
+        at += skip
         if e.duck:
             data = data * _ducked(clips, e.duck, at, len(data))[:, None]
         out[at : at + len(data)] += data  # mono into each channel of stereo
@@ -560,7 +561,7 @@ def times(speech: Speech, span: tuple[int, int]) -> tuple[float, float]:
     if begin < end and inside:
         return inside[0].start, inside[-1].end
     ahead = (w.start for w, (_, b) in zip(words, places) if b > begin)
-    start = next(ahead, words[-1].end)
+    start = next(ahead, words[-1].end if words else 0.0)
     return start, start
 
 
@@ -573,6 +574,8 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
 
     The audio may be replaced (a recording of the same words, in any format the engine
     reads, under the same name): its words are then timed again, from it.
+    Missing or unreadable entries are spoken again. Function voices need readable source;
+    generated voices can declare their identity with a dataclass of their settings.
     """
     from manimgx._engine import digest
 
@@ -581,13 +584,18 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40]
     stem = folder / f"{slug}-{key[:10]}"
     meta = stem.with_suffix(".json")
-    if meta.exists():
+    try:
         record = json.loads(meta.read_text(encoding="utf-8"))
         audio = stem.with_suffix(record["suffix"]).read_bytes()
         same = record.get("audio") == f"{digest(audio):016x}"
         words = [Word(*w) for w in record["words"]] if same else []
         speech = Speech(audio, text=text, words=words)
         speech._edit = _Edit(**record.get("edit", {}))
+        # Decode here: an unreadable recording is a cache miss, not a delayed failure.
+        _ = speech.samples
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        pass
+    else:
         return speech
     speech = voice(text)
     folder.mkdir(parents=True, exist_ok=True)
@@ -597,7 +605,7 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
         json.dumps(
             {
                 "text": text,
-                "voice": identity,
+                "voice": f"{digest(identity.encode()):016x}",
                 "suffix": suffix,
                 "audio": f"{digest(data):016x}",
                 "edit": dataclasses.asdict(speech._edit),
@@ -612,61 +620,87 @@ def cached(voice: Voice, text: str, folder: Path) -> Speech:
 
 
 def _identity(voice: Voice) -> str:
-    """What names a voice in the cache: what decides what it says. A dataclass's repr (its
-    settings; a key is left out of it); a function's name, its code and the plain values it
-    holds (in its closure, its defaults, and the fields of the object a method is bound
-    to); another callable's type and plain fields. A plain value is immutable: a string, a
-    number, a boolean, None, or a tuple of them — a voice's settings, not its state (a
-    client, a list it appends to)."""
+    """Name a voice by its source and settings, independently of Python's compiler.
+
+    Dataclasses define their settings through repr. Functions need readable source;
+    dynamically generated voices can supply an explicit identity as a dataclass instead.
+    Settings include mappings and slots; mutable lists and client objects are state.
+    Only a digest of this identity is written to the speech cache.
+    """
     if hasattr(voice, "__dataclass_fields__"):
         return repr(voice)
-    fn = getattr(
-        voice, "__func__", voice
-    )  # a bound method: its function, and its object
-    code = getattr(fn, "__code__", None)
-    if code is None:  # an object with __call__
-        return f"{type(voice).__module__}.{type(voice).__qualname__}{_fields(voice)!r}"
+    if isinstance(voice, partial):
+        return (
+            f"{_identity(voice.func)}{_plain(voice.args)!r}{_plain(voice.keywords)!r}"
+        )
+    fn = getattr(voice, "__func__", voice)
+    owner = getattr(voice, "__self__", None)
+    if not inspect.isroutine(fn):
+        owner, fn = voice, type(voice).__call__
     from manimgx._engine import digest
 
-    body = digest(marshal.dumps(_code(code)))
+    body = digest(_source(fn).encode())
     cells = tuple(c.cell_contents for c in getattr(fn, "__closure__", None) or ())
-    defaults = getattr(fn, "__defaults__", None) or ()
-    keywords = getattr(fn, "__kwdefaults__", None) or {}
     held = (
         _plain(cells),
-        _plain(defaults),
-        _plain(tuple(sorted(keywords.items()))),
-        _fields(getattr(voice, "__self__", None)),
+        _plain(getattr(fn, "__defaults__", None)),
+        _plain(getattr(fn, "__kwdefaults__", None)),
+        _fields(owner),
     )
-    name = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', '')}"
-    return f"{name}#{body:016x}{held!r}"
+    return f"{fn.__module__}.{fn.__qualname__}#{body:016x}{held!r}"
 
 
-def _code(code: CodeType) -> CodeType:
-    """A voice's code without source locations, including its nested functions."""
-    return code.replace(
-        co_filename="",
-        co_firstlineno=0,
-        co_linetable=b"",
-        co_consts=tuple(
-            _code(c) if isinstance(c, CodeType) else c for c in code.co_consts
-        ),
+def _source(fn: Callable) -> str:
+    """Source tokens without layout or comments; never interpreter bytecode."""
+    import io
+    import textwrap
+    import tokenize
+
+    try:
+        source = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError) as error:
+        raise ValueError(
+            "a function voice needs readable source for its cache identity; "
+            "give a generated voice explicit settings in a dataclass"
+        ) from error
+    ignored = {tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE, tokenize.ENDMARKER}
+    return repr(
+        [
+            (tokenize.tok_name[t.type], "" if t.type == tokenize.INDENT else t.string)
+            for t in tokenize.generate_tokens(io.StringIO(source).readline)
+            if t.type not in ignored
+        ]
     )
 
 
 def _fields(owner: object) -> tuple[tuple[str, object], ...]:
-    """An object's plain fields, in order of their names."""
-    plain = ((k, _plain(v)) for k, v in sorted(getattr(owner, "__dict__", {}).items()))
+    """An object's plain fields, including inherited slots, ordered by name."""
+    fields = dict(getattr(owner, "__dict__", {}))
+    for cls in type(owner).__mro__:
+        for name, descriptor in vars(cls).items():
+            if isinstance(descriptor, MemberDescriptorType) and hasattr(owner, name):
+                fields[name] = getattr(owner, name)
+    plain = ((k, _plain(v)) for k, v in sorted(fields.items()))
     return tuple((k, v) for k, v in plain if v is not _OTHER)
 
 
-def _plain(value: object) -> object:
-    """`value` if it is plain (immutable: a string, number, boolean, None, or a tuple of
-    them, whose other items are left out); else `_OTHER`."""
+def _plain(value: object, parents: frozenset[int] = frozenset()) -> object:
+    """Canonical settings: scalar values, tuples and mappings, with state left out."""
     if value is None or isinstance(value, str | int | float | bool | bytes):
         return value
+    if id(value) in parents:
+        return _OTHER
+    parents = parents | {id(value)}
     if isinstance(value, tuple):
-        return tuple(v for v in map(_plain, value) if v is not _OTHER)
+        return tuple(v for x in value if (v := _plain(x, parents)) is not _OTHER)
+    if isinstance(value, dict):
+        pairs = [
+            (key, item)
+            for k, v in value.items()
+            if (key := _plain(k, parents)) is not _OTHER
+            and (item := _plain(v, parents)) is not _OTHER
+        ]
+        return ("mapping", tuple(sorted(pairs, key=repr)))
     return _OTHER
 
 
@@ -676,23 +710,11 @@ _OTHER = object()  # not a plain value: left out of a voice's name
 def _stored(speech: Speech) -> tuple[str, bytes]:
     source = speech.source
     if isinstance(source, bytes):
-        return _sniff(source), source
+        return ".bin", source
     if isinstance(source, np.ndarray):
         return ".wav", _wav(_source_samples(speech))
     path = Path(source)
     return path.suffix or ".bin", path.read_bytes()
-
-
-def _sniff(data: bytes) -> str:
-    if data[:4] == b"RIFF":
-        return ".wav"
-    if data[:4] == b"fLaC":
-        return ".flac"
-    if data[:4] == b"OggS":
-        return ".ogg"
-    if data[4:8] == b"ftyp":
-        return ".m4a"
-    return ".mp3"
 
 
 def _wav(samples: np.ndarray) -> bytes:

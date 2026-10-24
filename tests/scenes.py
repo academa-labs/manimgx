@@ -5,9 +5,8 @@
 keeps what `probe` sees of a scene at every instant it computes.
 
 A scene with no video and no pixel sink counts its frames without drawing them, so a story
-costs milliseconds. `record(story, fps, fast)` tells a story and keeps what each frame shows of
-the stage (the mobjects the story puts on it), leaf by leaf, on the path the scene takes: a play
-computed ahead of time ("fast", as the film receives it) or frame by frame (`fast=False`).
+costs milliseconds. `record(story, fps)` tells a story and keeps what each frame shows of the
+stage (the mobjects the story puts on it), leaf by leaf.
 `stories()` draws random stories: a stage of shapes, then plays of animation trees, as data
 Hypothesis can shrink.
 """
@@ -25,12 +24,9 @@ from manimgx.animation import easing as rf
 from manimgx.drawing.geometry import bezier_remap
 from manimgx.drawing.paint import Paint
 from manimgx.rendering.film import Frame
-from manimgx.scene import _tracks
 from manimgx.settings import config
 
 if TYPE_CHECKING:
-    from manimgx.animation.transform import Transform
-    from manimgx.drawing.geometry import Path
     from manimgx.scene import Act
 
 
@@ -72,8 +68,7 @@ def instants[T](
     construct: Callable[[m.Scene], None], probe: Callable[[m.Scene], T]
 ) -> dict[Fraction, T]:
     """What `probe` sees of the scene at every instant it computes (frames, plays' ends, the
-    closing frame), every frame computed (none ahead): the world at each instant, once what
-    opens at it has begun."""
+    closing frame): the world at each instant, once what opens at it has begun."""
     seen: dict[Fraction, T] = {}
 
     class Probed(m.Scene):
@@ -89,9 +84,6 @@ def instants[T](
         ) -> None:
             super()._instant(t, act, stepping, framing)
             seen[t] = probe(self)
-
-        def _pure_tweens(self, anim: m.Animation, alpha: list[float]) -> None:
-            return None
 
     Probed().render()
     return seen
@@ -149,13 +141,11 @@ def assert_same_frames(a: dict[int, Shot], b: dict[int, Shot]) -> None:
         assert_same_shots(a[k], b[k], f"frame {k}")
 
 
-def outcome(
-    story: Callable[["Recorder"], None], fps: int = 10, fast: bool = True
-) -> "Recorder | type":
+def outcome(story: Callable[["Recorder"], None], fps: int = 10) -> "Recorder | type":
     """What telling a story comes to: its recording, or the kind of error it raises (a story
     may ask the impossible, as two replacements of one mobject in one play)."""
     try:
-        return record(story, fps, fast)
+        return record(story, fps)
     except ValueError as error:
         return type(error)
 
@@ -189,15 +179,14 @@ def assert_same_instants(a: "Recorder", b: "Recorder") -> None:
         )
 
 
-def seen(looks: list[Look | None], paints: list[Paint]) -> Shot:
+def seen(looks: list[Look], paints: list[Paint]) -> Shot:
     """What a frame shows: the looks of the leaves drawn, in drawing order, but those no one
     can see (every brush transparent, to the 9 decimals looks are compared to: an invisible
     part alignment added, a rounding past its fading in)."""
     return tuple(
         x
         for x, p in zip(looks, paints, strict=True)
-        if x is not None
-        and max(p.fill[:, 3].max(), p.stroke[:, 3].max(), p.background[:, 3].max())
+        if max(p.fill[:, 3].max(), p.stroke[:, 3].max(), p.background[:, 3].max())
         > 1e-9
     )
 
@@ -206,81 +195,32 @@ class Recorder(m.Scene):
     """Tells `story(self)`; `frames[k]` is what frame k shows: the looks of the leaves it
     draws, in drawing order (see `seen`), however their families are structured."""
 
-    def __init__(
-        self, story: Callable[["Recorder"], None], fast: bool, fps: int
-    ) -> None:
+    def __init__(self, story: Callable[["Recorder"], None], fps: int) -> None:
         super().__init__()
-        self.story, self.fast, self.fps = story, fast, fps
+        self.story, self.fps = story, fps
         self.stage: list[m.Mobject] = []
         self.frames: dict[int, Shot] = {}
 
     def construct(self) -> None:
         self.story(self)
 
-    def shot(
-        self, looks: dict[int, Look | None], paints: dict[int, Paint] | None = None
-    ) -> Shot:
-        drawn, paints = self.display_list(), paints or {}
-        return seen(
-            [looks[id(leaf)] if id(leaf) in looks else look(leaf) for leaf in drawn],
-            [paints.get(id(leaf), leaf.paint) for leaf in drawn],
-        )
+    def shot(self) -> Shot:
+        drawn = self.display_list()
+        return seen([look(leaf) for leaf in drawn], [leaf.paint for leaf in drawn])
 
     def _emit(self, repeat: int = 1) -> None:
-        shot = self.shot({})
+        shot = self.shot()
         for k in range(self.frame, self.frame + max(repeat, 0)):
             self.frames[k] = shot
         super()._emit(repeat)
 
-    def _pure_tweens(
-        self, anim: m.Animation, alpha: list[float]
-    ) -> "tuple[list[tuple[Transform, Path]], set[int]] | None":
-        return super()._pure_tweens(anim, alpha) if self.fast else None
 
-    def _advance_tweens(
-        self,
-        anim: m.Animation,
-        tweens: "list[tuple[Transform, Path]]",
-        alpha: list[float],
-        introduced: set[int],
-    ) -> None:
-        # each frame of a play computed ahead, as the film receives it: a leaf between its
-        # keyframes at its t, as it was before its part began (-1), or absent (-2)
-        tracks = {
-            id(leaf): (keys, path, index, t)
-            for leaf, keys, path, index, t in _tracks(
-                anim, tweens, np.array(alpha), introduced
-            )
-        }
-        for f in range(len(alpha)):
-            looks: dict[int, Look | None] = {}
-            paints: dict[int, Paint] = {}
-            for leaf in self.display_list():
-                track = tracks.get(id(leaf))
-                if track is None:
-                    continue
-                keys, path, index, t = track
-                if index[f] == -1:
-                    continue
-                if index[f] == -2:
-                    looks[id(leaf)] = None
-                    continue
-                saved = leaf._geometry, leaf.paint
-                leaf.interpolate(keys[index[f]], keys[index[f] + 1], float(t[f]), path)
-                looks[id(leaf)], paints[id(leaf)] = look(leaf), leaf.paint
-                leaf._geometry, leaf.paint = saved
-            self.frames[self.frame + f] = self.shot(looks, paints)
-        super()._advance_tweens(anim, tweens, alpha, introduced)
-
-
-def record(
-    story: Callable[[Recorder], None], fps: int = 10, fast: bool = True
-) -> Recorder:
-    """Tell a story at `fps` on the scene's path (or frame by frame) and keep its frames."""
+def record(story: Callable[[Recorder], None], fps: int = 10) -> Recorder:
+    """Tell a story at `fps` and keep its frames."""
     saved = config.frame_rate
     config.frame_rate = fps
     try:
-        scene = Recorder(story, fast, fps)
+        scene = Recorder(story, fps)
         scene.render()
     finally:
         config.frame_rate = saved
@@ -450,3 +390,10 @@ def stories(
         )
     )
     return Story(stage, added, plays)
+
+
+def silence(text: str, seconds: float = 0.5, level: float = 0.0) -> m.Speech:
+    """A voice that says `text` as `seconds` of a constant `level`, timing nothing."""
+    return m.Speech(
+        np.full(round(seconds * 48000), level, np.float32), text=text, rate=48000
+    )

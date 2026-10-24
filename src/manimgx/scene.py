@@ -19,12 +19,14 @@ from manimgx.settings import config
 
 if TYPE_CHECKING:
     from manimgx.animation.transform import Animate
+import bisect
 import inspect
 import os
 import pathlib
 from collections.abc import Callable, Sequence
 from fractions import Fraction
-from typing import TYPE_CHECKING, NamedTuple, Self, Unpack, cast
+from operator import itemgetter
+from typing import TYPE_CHECKING, NamedTuple, Self, Unpack
 from warnings import deprecated
 
 import numpy as np
@@ -42,9 +44,8 @@ from manimgx.mobject import (
     _family,
     _has_updater,
     _per_frame,
-    _Recorder,
+    _run_beneath,
     flow,
-    records,
     remove_list_redundancies,
     simulated,
 )
@@ -65,10 +66,9 @@ from manimgx.typing import Point3D, Point3DLike, Vector3DLike
 
 if TYPE_CHECKING:
     from manimgx.animation.timeline import Animation, Route, Window
-    from manimgx.animation.transform import Compositor, Transform, TransformOptions
+    from manimgx.animation.transform import Transform, TransformOptions
     from manimgx.audio import Speech, Voice
     from manimgx.audio.sound import Clip, Sound
-    from manimgx.drawing.geometry import Path
     from manimgx.mobject import ValueTracker
     from manimgx.mobjects.images import ImageCameraOptions
 from dataclasses import dataclass
@@ -481,9 +481,48 @@ class Camera:
             self._fixed_in_frame.pop(mob, None)
 
 
-type Act = Callable[[Fraction, "Route | None"], Callable[[], None] | None]
-"""A play's step at an instant: it brings what runs there (of the parts given, if any), and
-returns what opens there (to run once the world is there), if anything."""
+class Act:
+    """A play's step at an instant (`Scene._instant`): called, it shows the play there (of the
+    parts given, if any), and returns what closes and opens there, to run once the world is
+    there, if anything; `relate`, at a frame, runs its procedures' relations. At its end it
+    shows its end, and lets go once the world is there."""
+
+    def __init__(
+        self, scene: Scene, anim: Animation, start: Fraction, end: Fraction
+    ) -> None:
+        self.scene, self.anim, self.start, self.end = scene, anim, start, end
+        self.finished = False
+
+    def __call__(self, t: Fraction, only: Route | None) -> Callable[[], None] | None:
+        from manimgx.animation.timeline import _nested
+
+        anim = self.anim
+        if self.finished:  # the end computed again, as the next play's first instant
+            return None
+        ending = t >= self.end
+        alpha = 1.0 if ending else float((t - self.start) / (self.end - self.start))
+        later: Callable[[], None] | None = None
+        if _nested(anim):  # its parts close and open once all is at t
+            anim.advance(t, only)
+            later = anim._step(alpha, only)
+        else:
+            anim.advance(t)
+            anim.interpolate(alpha)
+        if not ending:
+            return later
+
+        def end() -> None:  # it lets go once all is at its end
+            if later is not None:
+                later()
+            anim.finish()
+            anim.clean_up_from_scene(self.scene)
+            self.finished = True
+
+        return end
+
+    def relate(self, t: Fraction) -> None:
+        if not self.finished:
+            self.anim._relate(t)
 
 
 class Concern(NamedTuple):
@@ -540,7 +579,6 @@ class Scene:
     three_d: bool = False
     """Whether the scene's camera sees in three dimensions: True for a
     [`ThreeDScene`][manimgx.ThreeDScene]."""
-    compositor: Compositor | None = None  # a play's: its tweens' leaves (`play`)
 
     def __init__(self) -> None:
         clock.reset()  # a new world: its clock at 0
@@ -565,9 +603,9 @@ class Scene:
         self.frame = 0
         """How many frames the scene has recorded: the number of the next one, which
         shows the world at `frame / fps` seconds."""
-        self._records = False  # does anything record the world (`_recording`), this run
-        # the play's instants no frame shows, with what each concerns (`_exact`, `_ticks`)
-        self._events: dict[Fraction, Concern | None] = {}
+        # the play's instants no frame shows, in order, with what each concerns (`_exact`,
+        # `_ticks`)
+        self._events: list[tuple[Fraction, Concern | None]] = []
         self._playing: list[Mobject] = []  # what the play running acts on (`_running`)
         # while animations begin together (`_together`): what the scene held, by id, and
         # the list of mobjects it was found in (`_introduce`)
@@ -623,10 +661,6 @@ class Scene:
 
         It does nothing unless overridden.
         """
-
-    @staticmethod
-    def _fps() -> Fraction:
-        return clock.rational(config.frame_rate)
 
     def render(
         self,
@@ -685,11 +719,10 @@ class Scene:
             self.setup()
             self.construct()
             self.tear_down()
-            closing = Fraction(self.frame) / self._fps()
+            closing = Fraction(self.frame) / self.film.fps
             if float(closing) > float(
                 clock.now
             ):  # the scene ended between frames: the world at frame N
-                self._records = self._recording()
                 self._frame(closing, self._simulation_rate())
             self._emit()
         except Cut:
@@ -740,7 +773,7 @@ class Scene:
         at the frame it holds after. A frozen run, or one where nothing can change, is one held frame;
         while anything is simulated, the world also steps at the simulation clock's ticks.
         """
-        fps, stopped = self._fps(), False
+        fps, stopped = self.film.fps, False
         limit = clock.frame_at(end, fps)
         if frozen or (act is None and stop is None and not self._anything_runs()):
             self._emit(limit - self.frame)
@@ -751,7 +784,6 @@ class Scene:
                 clock.now = end
         else:
             rate = self._simulation_rate()
-            self._records = self._recording()
             while self.frame < limit:
                 t = self._sample(Fraction(self.frame) / fps, boundaries)
                 self._frame(t, rate, act)
@@ -785,11 +817,6 @@ class Scene:
             return config.simulation_rate
         return None
 
-    def _recording(self) -> bool:
-        """Does anything in the scene, or that the play running runs, record the world (a
-        traced path)?"""
-        return any(records(u) for m in self._running() for u in m.updaters)
-
     def _running(self) -> list[Mobject]:
         """The scene's members, and the mobjects the play running acts on and their
         families (it may bring them into the scene, or run a target's updaters)."""
@@ -815,7 +842,9 @@ class Scene:
                 for k in range(clock.now * rate // 1 + 1, -(-until * rate // 1))
             }
         )
-        events = {e: c for e, c in self._events.items() if clock.now < e < until}
+        first = bisect.bisect_right(self._events, clock.now, key=itemgetter(0))
+        last = bisect.bisect_left(self._events, until, key=itemgetter(0))
+        events = dict(self._events[first:last])
         for t in sorted(ticks | events.keys()):
             concern = events.get(t)
             if act is None or t in ticks or concern is None:
@@ -848,33 +877,21 @@ class Scene:
         stepping: bool = True,
         framing: bool = True,
     ) -> None:
-        """The world at `t`: the play's step, then every updater brought to `t` (simulated ones only
-        where `stepping`, per-frame ones only where `framing`), then the recorders. In a scene
-        that records (`_records`), a frame or an event is computed twice: the world as time
-        brought it there (as a tick sees it), then with its per-frame updaters run; the
-        recorders record both (`TracedPath` spreads what the per-frame updaters changed over the
-        frame)."""
-        if framing and self._records:
-            self._pass(t, act, stepping, False)
-            self._pass(t, act, False, True)
-        else:
-            self._pass(t, act, stepping, framing)
-        clock.stepping = clock.framing = True
-
-    def _pass(
-        self,
-        t: Fraction,
-        act: Act | None,
-        stepping: bool,
-        framing: bool,
-    ) -> None:
-        clock.now, clock.stepping, clock.framing = t, stepping, framing
-        # the play brings what runs to `t`, then the updaters; then what opens at `t` begins,
-        # the world at `t`
+        """The world at `t`, computed once, in one order: the play's step (its parts shown at
+        `t`, over what they hold as the last instant left it); every updater that takes time,
+        mobject by mobject in the scene's order (a held one beneath the plays holding it,
+        which show themselves again over it), the scene's own last (simulated ones only
+        where `stepping`); at a frame or an end (`framing`), the recorders' first look, at
+        what time alone brought here, then the play's procedures' relations, then every
+        per-frame updater, in the same order; then what closes at `t` lets go, and what
+        opens there begins; then the recorders look (at a frame, again: `TracedPath` spreads
+        what the per-frame updaters changed over the frame). An instant computed again (a
+        play's end at a frame, after what was done since, as the next play's first) takes no
+        time: the updaters that take time run again with none."""
+        clock.now, clock.stepping, clock.framing = t, stepping, False
+        clock.recorders = {}
         opening = act(t, None) if act is not None else None
-        recorders: list[_Recorder] | None = [] if self._records else None
-        for mob in self.mobjects:
-            mob.advance(t, recorders=recorders)
+        self._walk(t)
         updaters = self.updaters
         for func in updaters:
             if updaters is not self.updaters and not _has_updater(self.updaters, func):
@@ -883,130 +900,32 @@ class Scene:
                 continue
             since = self._since.get(func, t)
             self._since[func] = t
-            func(float(t - since))
+            # beneath the plays holding what it moves, as a mobject's updater runs
+            _run_beneath((), None, lambda func=func, dt=float(t - since): func(dt))
+        if framing:
+            self._look(t)
+            clock.framing = clock.relating = True
+            clock.recorders = {}
+            if act is not None:
+                act.relate(t)
+            self._walk(t)
         if opening is not None:
             self._together(opening)
-        for mob, recorder, _ in recorders or ():  # if still there when its turn comes
-            if not mob.updating_suspended and _has_updater(mob.updaters, recorder):
-                mob._bring(recorder, t)
+        self._look(t)
+        clock.stepping, clock.framing, clock.relating = True, True, False
+        clock.recorders = None
 
-    def _pure_tweens(
-        self, anim: Animation, alpha: list[float]
-    ) -> tuple[list[tuple[Transform, Path]], set[int]] | None:
-        """A play that is a pure function of time — its tweens (Transforms along a `Path` between
-        fixed keyframes, one per leaf, under compositions that only time them, going forward) and the
-        objects it introduces; None if anything else acts (updaters, procedures, a camera's picture),
-        and then every frame is computed. Its groups begin every part now (`begin_all`): nothing a
-        part reads when it begins can change before its window opens."""
-        from manimgx.animation.timeline import (
-            Animation,
-            AnimationGroup,
-            Wait,
-            _held,
-            _updating,
-            walk,
-        )
-        from manimgx.animation.transform import Transform
-        from manimgx.audio.sound import Sound
-        from manimgx.drawing.geometry import Path
+    def _walk(self, t: Fraction) -> None:
+        """Bring the scene's mobjects to `t`, in the instant's phase: each member once,
+        wherever the scene holds it."""
+        seen: set[int] = set()
+        for mob in self.mobjects:
+            mob._advance(t, True, seen)
 
-        members = self.get_mobject_family_members()
-        if self.updaters or any(
-            m.updaters or isinstance(m.paint.texture, Camera) for m in members
-        ):
-            return None
-        tweens: list[tuple[Transform, Path]] = []
-        begins: list[int] = []  # the frame each tween begins at
-        for node, progress, closes in walk(anim, np.array(alpha)):
-            if not _forward(progress):
-                return None
-            if isinstance(node, AnimationGroup):  # it only times its parts
-                if type(node).interpolate is not AnimationGroup.interpolate or (
-                    closes.any()  # and closes before the play ends, changing the
-                    and type(node).clean_up_from_scene  # scene only as its parts do
-                    is not AnimationGroup.clean_up_from_scene
-                ):
-                    return None
-                continue
-            if isinstance(node, Sound | Wait):  # acts on nothing
-                continue
-            if not isinstance(node, Transform):
-                return None
-            kind, path = type(node), node.path_func
-            if not (
-                isinstance(path, Path)
-                and kind.interpolate is Animation.interpolate
-                and kind.interpolate_mobject is Animation.interpolate_mobject
-                and kind.interpolate_keyframes is Transform.interpolate_keyframes
-                and kind.hidden is Animation.hidden  # (it hides nothing)
-                and not _updating(node.mobject)  # (no updaters act while it plays)
-                and node.moving_target() is None
-            ):
-                return None
-            if closes.any() and (  # it leaves before the play ends: as a remover
-                node.replace_mobject_with_target_in_scene  # (showing nothing as it
-                or not (  # leaves), or changing nothing
-                    node.is_remover()
-                    or kind.clean_up_from_scene is Transform.clean_up_from_scene
-                )
-            ):
-                return None
-            tweens.append((node, path))
-            begun = progress == progress
-            begins.append(int(np.argmax(begun)) if begun.any() else len(alpha))
-        driven = [id(m) for tween, _ in tweens for m in tween.mobject.get_family()]
-        if len(driven) != len(
-            set(driven)
-        ):  # a leaf two tweens drive: every frame computed
-            return None
-        for (tween, _), first in zip(tweens, begins, strict=True):
-            target = {
-                id(m)
-                for key in tween.keys
-                if isinstance(key, Mobject)
-                for m in key.get_family()
-            }
-            if first == 0 or not target:
-                continue
-            if any(
-                begin < first
-                and not target.isdisjoint(id(m) for m in other.mobject.get_family())
-                for (other, _), begin in zip(tweens, begins, strict=True)
-            ):  # its target is moved before it begins: every frame computed
-                return None
-        present = {id(m) for m in self.mobjects}
-        if isinstance(anim, AnimationGroup):
-            self._together(anim.begin_all)
-        # what the parts brought into the scene as they began (not the parts aligning a
-        # mobject split out of it: those were there, and show until their part's window
-        # opens), in the order they begin, as frame by frame
-        opens = {
-            id(mob): b
-            for (t, _), b in zip(tweens, begins, strict=True)
-            for mob in _held(t.mobject)
-        }
-        new = [root for root in self.mobjects if id(root) not in present]
-        new.sort(key=lambda root: opens.get(id(root), 0))
-        self.mobjects = [r for r in self.mobjects if id(r) in present] + new
-        introduced = {id(x) for root in new for x in root.get_family()}
-        # each tween's path as its beginning decided it (`.animate` makes its turns a motion
-        # when it begins): read now, not before its part began (a Path stays a Path)
-        return [
-            (tween, cast("Path", tween.path_func)) for tween, _ in tweens
-        ], introduced
-
-    def _advance_tweens(
-        self,
-        anim: Animation,
-        tweens: list[tuple[Transform, Path]],
-        alpha: list[float],
-        introduced: set[int],
-    ) -> None:
-        """A pure play at once: each tween's alpha at every frame from its compositions' clocks
-        (`schedule`); the film mixes the frames."""
-        leaves = _tracks(anim, tweens, np.array(alpha), introduced)
-        self.film.tween(self.camera, self.display_list(), leaves)
-        self.frame += len(alpha)
+    def _look(self, t: Fraction) -> None:
+        """Run the recorders the instant's phase gathered, once everything else is there."""
+        for mob, recorder in (clock.recorders or {}).values():
+            mob._record(recorder, t)
 
     # ── membership (CE semantics, including group restructuring) ────────────────
     def add(self, *mobjects: Mobject) -> Self:
@@ -1040,12 +959,7 @@ class Scene:
                     self.wait()
             ```
         """
-        if any(m.updaters for mob in mobjects for m in mob.get_family()):
-            present = {id(m) for m in self.get_mobject_family_members()}
-            for mob in mobjects:  # joining the world: its updaters are live from now
-                for m in mob.get_family():
-                    if id(m) not in present:
-                        m._stamp(clock.now, recursive=False)
+        self._joining(mobjects)
         new = remove_list_redundancies([*mobjects, *self.foreground_mobjects])
         self.mobjects = _restructure(self.mobjects, new) + new
         return self
@@ -1121,9 +1035,20 @@ class Scene:
         Args:
             *mobjects: The mobjects, in order: the first is drawn at the bottom.
         """
+        self._joining(mobjects)
         self.remove(*mobjects)
         self.mobjects = [*mobjects, *self.mobjects]
         return self
+
+    def _joining(self, mobjects: Sequence[Mobject]) -> None:
+        """Mobjects about to join the scene, whichever way: the updaters of the members it does
+        not hold yet are live from now (a time-based one's first `dt` counts from now)."""
+        joining = [m for m in _family(mobjects) if m.updaters]
+        if joining:
+            present = {id(m) for m in _family(self.mobjects)}
+            for m in joining:
+                if id(m) not in present:
+                    m._stamp(clock.now, recursive=False)
 
     def clear(self) -> Self:
         """Take every mobject out of the scene, the foreground ones too; the scene's own
@@ -1154,6 +1079,7 @@ class Scene:
                     return True
             return any(replace_in(m.submobjects) for m in lst)
 
+        self._joining([new])
         if not (replace_in(self.mobjects) or replace_in(self.foreground_mobjects)):
             raise ValueError(f"Could not find {old} in scene")
         self._holding = None  # (what it holds changed in place)
@@ -1245,7 +1171,6 @@ class Scene:
             ```
         """
         from manimgx.animation.timeline import AnimationGroup, Wait, _flatten, prepare
-        from manimgx.animation.transform import Compositor
 
         anims = [prepare(a) for a in _flatten(animations)]
         if not anims:
@@ -1269,107 +1194,67 @@ class Scene:
                 )
             )
             end = start + anim._duration
-            self.compositor, self._animation = Compositor(), anim
+            self._animation = anim
             try:
                 self._play(anim, start, end)
             finally:
-                self.compositor, self._animation = None, None
+                self._animation = None
         self.film.played(Play(index, start, self.clock, where), tuple(anims))
 
     def _play(self, anim: Animation, start: Fraction, end: Fraction) -> None:
-        from manimgx.animation.timeline import AnimationGroup, Wait, windows
+        from manimgx.animation.timeline import Wait, windows
         from manimgx.audio.sound import Clip, Sound
 
         self._bring(anim)
         anim._setup_scene(self)
         anim.begin()
+        parts = windows(anim)
         # its sounds start as their windows open: where the layout puts them, whatever path
         # computes the frames
-        if _sounds(anim):
-            for window in windows(anim):
-                if isinstance(window.part, Sound):
-                    at = start + window.opens * (end - start)
-                    self.film.clips.append(Clip(window.part, at))
-        if all(isinstance(p, Sound | Wait) for p in _leaves(anim)):
-            self._run(end)  # nothing on screen moves: as a wait
+        for window in parts:
+            if isinstance(window.part, Sound):
+                at = start + window.opens * (end - start)
+                self.film.clips.append(Clip(window.part, at))
+        if all(isinstance(p, Sound | Wait) for p in _leaves(anim)) and not _warps(anim):
+            self._run(end)  # nothing on screen moves, nor any clock: as a wait
             anim.finish()
             anim.clean_up_from_scene(self)
             return
-        finished = False
-
-        def act(t: Fraction, only: Route | None) -> Callable[[], None] | None:
-            nonlocal finished
-            if finished:  # the end again, with its per-frame updaters (`_instant`)
-                return None
-            if t < end:
-                alpha = float((t - start) / (end - start))
-                if (  # its parts open once all is at t
-                    isinstance(anim, AnimationGroup)
-                    and type(anim).interpolate is AnimationGroup.interpolate
-                ):
-                    anim.advance(t, only)
-                    return anim._step(alpha, only)
-                anim.advance(t)
-                anim.interpolate(alpha)
-                return None
-            # the end: the model as time brought it here; the object's per-frame updaters run
-            # once, in this instant's pass, not on the model as well
-            framing, clock.framing = clock.framing, False
-            anim.advance(t)
-            clock.framing = framing
-            anim.finish()
-            anim.clean_up_from_scene(self)
-            finished = True
-            return None
-
-        fps = self._fps()
-        parts = windows(anim)
-        boundaries: dict[float, Fraction] = {}
-        for part in parts:
-            for at in (part.opens, part.closes):
-                if at is not None:
-                    time = start + at * (end - start)
-                    boundaries[float(time)] = max(
-                        boundaries.get(float(time), time), time
-                    )
-        frames = range(self.frame, clock.frame_at(end, fps))
-        alpha = [
-            float((self._sample(Fraction(k) / fps, boundaries) - start) / (end - start))
-            for k in frames
+        act = Act(self, anim, start, end)
+        # its parts begin and finish at their windows, whatever the frame rate: at instants
+        # of their own where that shows (then the first at its start)
+        self._events = [
+            (start + x * (end - start), concern)
+            for x, concern in self._exact(parts).items()
         ]
-        pure = self._pure_tweens(anim, alpha)
-        if pure is None:
-            # its parts begin and finish at their windows, whatever the frame rate: at
-            # instants of their own where that shows (then the first at its start)
-            self._playing = _acted_on(anim)
-            self._events = {
-                start + x * (end - start): concern
-                for x, concern in self._exact(parts).items()
-            }
-            try:
-                if self._events and Fraction(self.frame) / fps != start:
-                    self._instant(start, act, framing=False)
-                self._run(end, act, boundaries=boundaries)
-            finally:
-                self._events, self._playing = {}, []
-        else:
-            tweens, introduced = pure
-            self._advance_tweens(anim, tweens, alpha, introduced)
-            self._instant(end, act)
-            self.clock = end
+        # where a frame's time is a boundary's to the float, the boundary (the later, of
+        # several), so that no frame comes before an event it observes
+        boundaries = {float(t): t for t in (start, *(t for t, _ in self._events), end)}
+        self._playing = _acted_on(anim)
+        try:
+            self._open(start, act)
+            self._run(end, act, boundaries=boundaries)
+        finally:
+            self._events, self._playing = [], []
 
     def _exact(self, parts: list[Window]) -> dict[Fraction, Concern | None]:
         """Where in the play (its progress) its parts begin and finish: each an instant the
         scene computes, a frame there or not, with what it concerns: the parts beginning or
         finishing there, the parts running across it that drive what those read or drive,
-        and, among what those read or drive, the mobjects with time-based updaters. None:
-        everything (a scene's own time-based updater may move anything)."""
+        and, among what those read or drive and the mobjects holding them, the mobjects with
+        time-based updaters (a group's moves its members). None: everything (a scene's own
+        time-based updater may move anything, and a part that derives through a function of
+        the user's may read anything)."""
         full = any(not _per_frame(u) for u in self.updaters)
+        whole: set[Fraction] = set()
+        running = self._running()
         moving = {
-            id(m): m
-            for m in self._running()
-            if any(not _per_frame(u) for u in m.updaters)
+            id(m): m for m in running if any(not _per_frame(u) for u in m.updaters)
         }
+        holders: dict[int, list[Mobject]] = {}
+        for mob in running:
+            for sub in mob.submobjects:
+                holders.setdefault(id(sub), []).append(mob)
         from manimgx.animation.timeline import route
 
         writers: dict[int, list[tuple[int, Fraction, Fraction | None]]] = {}
@@ -1388,13 +1273,18 @@ class Scene:
                     for other, o, c in writers.get(id(m), ())
                     if o < at and (c is None or at < c)  # running across it
                 )
-                if id(m) in moving:
-                    mobs[id(m)] = m
+                for held in _lineage(m, holders):
+                    if id(held) in moving:
+                        mobs.setdefault(id(held), held)
 
         for part, opens, closes, _ in parts:
+            if 0 < opens < 1 and part._opaque():
+                whole.add(opens)
             if 0 < opens < 1:
-                reads = [part.mobject] + [
-                    k for k in part.keys if isinstance(k, Mobject)
+                reads = [
+                    part.mobject,
+                    *(k for k in part.keys if isinstance(k, Mobject)),
+                    *part._follows(),
                 ]
                 concern(opens, part, [m for key in reads for m in key.get_family()])
             if closes is not None and 0 < closes < 1:
@@ -1402,11 +1292,21 @@ class Scene:
         return {
             at: (
                 None
-                if full
+                if full or at in whole
                 else Concern(route(paths[i] for i in ids), list(mobs.values()))
             )
             for at, (ids, mobs) in sorted(found.items())
         }
+
+    def _open(self, t: Fraction, act: Act) -> None:
+        """A play's first instant, where the world is already (the last one's end, and what
+        was done since): the play shows itself there, and its parts whose windows open at its
+        start begin there, as it does; nothing else runs again."""
+        clock.now, clock.framing = t, False
+        later = act(t, None)
+        if later is not None:
+            self._together(later)
+        clock.framing = True
 
     def _event(self, t: Fraction, act: Act, concern: Concern) -> None:
         """An instant no frame shows, where parts of the play begin or finish: only what it
@@ -1465,31 +1365,28 @@ class Scene:
         in their order, each by itself (what it holds stays in place): all but what an
         animation introduces (it joins as that animation begins) and what a replacement
         puts in (as it finishes)."""
-        from manimgx.animation.timeline import AnimationGroup, _held, _lacks
+        from manimgx.animation.timeline import _held
         from manimgx.animation.transform import Transform
 
-        promised: set[int] = set()
-        members = self.get_mobject_family_members()
+        promised = {id(m) for m in _family(self.mobjects)}
 
-        def visit(anim: Animation) -> None:
-            if isinstance(anim, AnimationGroup):
-                for part in anim.animations:
-                    visit(part)
-            elif anim.is_introducer():
-                promised.update(id(mob) for mob in _held(anim.mobject))
-            else:
-                for mob in _held(anim.mobject):
-                    if id(mob) not in promised and _lacks(mob, members):
-                        self.add(mob)
-                        members.extend(mob.get_family())
-                if (
-                    isinstance(anim, Transform)
-                    and anim.replace_mobject_with_target_in_scene
-                    and anim.target_mobject is not None
-                ):
-                    promised.add(id(anim.target_mobject))
+        def bring() -> None:
+            for part in _leaves(anim):
+                if part.is_introducer():
+                    promised.update(id(mob) for mob in _held(part.mobject))
+                else:
+                    for mob in _held(part.mobject):
+                        if id(mob) not in promised:
+                            self._introduce([mob])
+                            promised.update(id(m) for m in mob.get_family())
+                    if (
+                        isinstance(part, Transform)
+                        and part.replace_mobject_with_target_in_scene
+                        and part.target_mobject is not None
+                    ):
+                        promised.add(id(part.target_mobject))
 
-        visit(anim)
+        self._together(bring)
 
     def wait(
         self,
@@ -1594,7 +1491,7 @@ class Scene:
             skip_animations: Accepted for Manim compatibility; ignored.
             notes: What the presenter reads during the section.
         """
-        fps = self._fps()
+        fps = self.film.fps
         at = Fraction(self.frame) / fps
         if at != self.clock:  # to its frame, the world held still
             self._run(at, frozen=True)
@@ -2199,37 +2096,6 @@ class ThreeDScene(Scene):
         self.camera.remove_fixed_in_frame_mobjects(*mobjects)
 
 
-def _tracks(
-    anim: Animation,
-    tweens: list[tuple[Transform, Path]],
-    alpha: np.ndarray,
-    introduced: set[int],
-) -> list[tuple[Mobject, list[Mobject], Path, np.ndarray, np.ndarray]]:
-    """A pure play at these alphas: per leaf, its keyframes, path, and per instant its interval
-    and t (-1: not begun, as the play found it; -2: absent, before the part that brings it
-    begins or after a remover's window closes)."""
-    from manimgx.animation.timeline import keyframe_at, schedule
-
-    alphas = {id(tween): (a, c) for tween, a, c in schedule(anim, alpha)}
-    out = []
-    for tween, path in tweens:
-        family = list(tween.get_all_families_zipped())
-        steps = len(family[0]) - 2 if family else 0  # keyframe intervals
-        progress, closed = alphas[id(tween)]
-        for i, (leaf, *keys) in enumerate(family):
-            index = np.full(len(alpha), -2 if id(leaf) in introduced else -1)
-            fraction = np.zeros(len(alpha))
-            for f, a in enumerate(progress):
-                if a == a:  # begun
-                    index[f], fraction[f] = keyframe_at(
-                        steps, tween.get_sub_alpha(float(a), i, len(family))
-                    )
-            if tween.is_remover():  # gone once its window closed
-                index[closed] = -2
-            out.append((leaf, keys, path, index, fraction))
-    return out
-
-
 def _voice_folder(scene: Scene) -> pathlib.Path:
     """Where a scene keeps what its voices said: `voice/` beside its file; for a scene
     with no file (a notebook's), the user's cache."""
@@ -2237,6 +2103,17 @@ def _voice_folder(scene: Scene) -> pathlib.Path:
         return pathlib.Path(inspect.getfile(type(scene))).parent / "voice"
     except (TypeError, OSError):
         return pathlib.Path.home() / ".cache" / "manimgx" / "voice"
+
+
+def _warps(anim: Animation) -> bool:
+    """Does a `ChangeSpeed` under `anim` warp its updaters' clock as its window opens (one
+    that is `anim` itself warps it as the play begins)?"""
+    from manimgx.animation.timeline import AnimationGroup, ChangeSpeed
+
+    return isinstance(anim, AnimationGroup) and any(
+        (isinstance(part, ChangeSpeed) and part.affects_speed_updaters) or _warps(part)
+        for part in anim.animations
+    )
 
 
 def _leaves(anim: Animation) -> Iterable[Animation]:
@@ -2250,10 +2127,21 @@ def _leaves(anim: Animation) -> Iterable[Animation]:
         yield anim
 
 
-def _sounds(anim: Animation) -> bool:
-    from manimgx.audio.sound import Sound
+def _lineage(mob: Mobject, holders: dict[int, list[Mobject]]) -> list[Mobject]:
+    """The mobjects holding a mobject, outermost first, then the mobject: the order the
+    scene brings them in."""
+    out: list[Mobject] = []
+    seen: set[int] = set()
 
-    return any(isinstance(p, Sound) for p in _leaves(anim))
+    def up(m: Mobject) -> None:
+        if id(m) not in seen:
+            seen.add(id(m))
+            for holder in holders.get(id(m), ()):
+                up(holder)
+            out.append(m)
+
+    up(mob)
+    return out
 
 
 def _acted_on(anim: Animation) -> list[Mobject]:
@@ -2267,13 +2155,6 @@ def _acted_on(anim: Animation) -> list[Mobject]:
             *(key for key in part.keys if isinstance(key, Mobject)),
         ]
     ]
-
-
-def _forward(alpha: np.ndarray) -> bool:
-    """Does a part's alpha only go forward — once begun, never not begun again, never back?"""
-    begun = alpha == alpha
-    first = int(np.argmax(begun)) if begun.any() else len(alpha)
-    return bool(begun[first:].all() and np.all(np.diff(alpha[first:]) >= 0))
 
 
 _PACKAGE = os.path.dirname(__file__) + os.sep

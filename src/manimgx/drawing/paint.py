@@ -10,9 +10,11 @@ appearance of a drawing; its geometry kind gives each brush row its meaning.
 """
 
 import colorsys
+import math
 import random
 import re
-from collections.abc import Iterable, Sequence
+import weakref
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePath
@@ -25,7 +27,7 @@ from typing_extensions import TypedDict
 
 from manimgx.caches import Memo, unchanged
 from manimgx.constants import UL, CapStyleType, LineJointType
-from manimgx.drawing.geometry import Floats, interpolate
+from manimgx.drawing.geometry import Floats, Path, interpolate
 from manimgx.typing import RGBA_Array, Vector3D, Vector3DLike
 
 __all__ = [
@@ -179,8 +181,12 @@ def to_oklab(rgb: Floats) -> Floats:
     Returns:
         Lightness L and the axes a and b, as an array of the same shape.
     """
-    linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
-    return np.cbrt(linear @ _LMS.T) @ _LAB.T
+    return np.cbrt(linear_light(rgb) @ _LMS.T) @ _LAB.T
+
+
+def linear_light(rgb: Floats) -> Floats:
+    """sRGB-encoded colors in linear light (what light adds), each channel by itself."""
+    return np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
 
 
 @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
@@ -215,8 +221,6 @@ def _lab(rgba: Floats) -> Floats:
             return _COLOR_LABS.recall(rgb.tobytes(), lambda: frozen(to_oklab(rgb)))
         return to_oklab(rgba[..., :3])
     known = _LABS.recall(id(rgba), lambda: (rgba, to_oklab(rgba[..., :3])))
-    if known[0] is not rgba:  # another array, since gone, had its id
-        known = _LABS[id(rgba)] = (rgba, to_oklab(rgba[..., :3]))
     return known[1]
 
 
@@ -289,9 +293,7 @@ def _mix_color(a: Floats, b: Floats, t: float) -> Floats:
     opacity = wa + wb
     la, lb = _lab(a).tolist(), _lab(b).tolist()
     if opacity > 1e-9:
-        lab = [
-            (x * wa + y * wb) / max(opacity, 1e-9) for x, y in zip(la, lb, strict=True)
-        ]
+        lab = [(x * wa + y * wb) / opacity for x, y in zip(la, lb, strict=True)]
     else:
         lab = [x * (1.0 - t) + y * t for x, y in zip(la, lb, strict=True)]
     return np.array([*from_oklab(np.array(lab)).tolist(), opacity])
@@ -788,18 +790,14 @@ def color_gradient(
     """
     if length_of_output == 0:
         return []
-    if len(reference_colors) == 1:
-        return [ManimColor(reference_colors[0])] * length_of_output
-    rgbas = [ManimColor(c).to_rgba() for c in reference_colors]
-    alphas = np.linspace(0, len(rgbas) - 1, length_of_output)
-    floors = alphas.astype(int)
-    alphas_mod1 = alphas % 1
-    alphas_mod1[-1] = 1
-    floors[-1] = len(rgbas) - 2
-    return [
-        ManimColor(tuple(mix_rgba(rgbas[i], rgbas[i + 1], float(a))))
-        for i, a in zip(floors, alphas_mod1, strict=True)
-    ]
+    if len(reference_colors) == 1 or length_of_output == 1:
+        return [ManimColor(reference_colors[-1])] * length_of_output
+    if length_of_output == 2:
+        return [ManimColor(reference_colors[i]) for i in (0, -1)]
+    end = len(reference_colors) - 1
+    return colors_by_value(
+        reference_colors, np.linspace(0, end, length_of_output), 0, end
+    )
 
 
 def average_color(*colors: ParsableManimColor) -> ManimColor:
@@ -889,10 +887,7 @@ def rgbas_by_value(
     ia, ib = np.clip(i - 1, 0, len(pivots) - 1), np.minimum(i, len(pivots) - 1)
     span = np.where(inside, pivots[ib] - pivots[ia], 1.0)
     t = np.where(inside, np.minimum(1.0, (v - pivots[ia]) / span), 0.0)
-    mixed = mix_rgba(colors[ia], colors[ib], t)
-    return np.where(
-        inside[:, None], mixed, colors[np.where(i == 0, 0, len(pivots) - 1)]
-    )
+    return mix_rgba(colors[ia], colors[ib], t)
 
 
 def random_color() -> ManimColor:
@@ -1414,7 +1409,8 @@ def stretch[T](values: list[T], n: int) -> list[T]:
 def stretch_array(array: np.ndarray, n: int) -> np.ndarray:
     """Stretch an array to `n` items, repeating its items evenly, in order.
 
-    Item `i` of the result is item `i * len(array) // n` of the array.
+    Item `i` of the result is item `i * len(array) // n` of the array. An empty array
+    grows with zero entries, preserving its trailing dimensions and dtype.
 
     Args:
         array: The items, along its first axis.
@@ -1429,6 +1425,8 @@ def stretch_array(array: np.ndarray, n: int) -> np.ndarray:
         return array
     if cur > n:
         raise ValueError("Can't stretch array to a shorter length")
+    if cur == 0:
+        return np.zeros((n, *array.shape[1:]), dtype=array.dtype)
     return array[(np.arange(n) * cur // n).astype(int)]
 
 
@@ -1452,6 +1450,12 @@ def frozen(values: npt.ArrayLike, held: object = None) -> np.ndarray:
             array = array.copy()
         array.flags.writeable = False
     return array
+
+
+# what differs between two paints, as a mix reads it (see `Paint._toward`)
+type _Toward = tuple[
+    tuple[str, ...], tuple[str, ...], tuple[str, ...], bool, bool, bool
+]
 
 
 class Paint:
@@ -1527,11 +1531,22 @@ class Paint:
         index = _BRUSHES.index(name)
         return a[index], b[index]
 
+    @property
+    def graded(self) -> bool:
+        """Whether the fill or stroke uses multiple rows, remembered for this paint value."""
+        known = self._derived.get(("graded",))
+        if known is None:
+            known = self._derived[("graded",)] = (
+                len(self.ends("fill")[0]) > 1 or len(self.ends("stroke")[0]) > 1
+            )
+        return cast("bool", known)
+
     def but(self, **changes: object) -> "Paint":
         """This paint with some fields changed (`fill`, `stroke`, `background`: brushes) —
         itself when they change nothing (arrays equal to those it holds), and the same paint
-        for the same plain changes, so what was derived from it holds too. Textures are
-        borrowed resources: equal only by identity, and their changes are not remembered.
+        for the same plain changes while that one is held, so what was derived from it holds
+        too. Textures are borrowed resources: equal only by identity, and their changes are
+        not remembered.
 
         Internal brush and direction arrays transfer ownership: callers must not
         change them or their aliases afterward. Public mobject style setters
@@ -1544,19 +1559,29 @@ class Paint:
             )
         except TypeError:
             key = None
-        derived = self._derived
-        if key is not None and (known := derived.get(key)) is not None:
-            return cast("Paint", known)
+        if key is not None and (known := self._known(key)) is not None:
+            return known
         new = self._but(changes)
         if key is not None and all(
             not isinstance(value, np.ndarray)
             or value is getattr(new, _SLOTS.get(name, name), None)
             for name, value in changes.items()
         ):
-            if len(derived) > 32:
-                derived.clear()
-            derived[key] = new
+            self._remember(key, new)
         return new
+
+    def _known(self, key: tuple[object, ...]) -> "Paint | None":
+        """The paint derived from this one for `key`, while something else holds it."""
+        ref = cast("weakref.ref[Paint] | None", self._derived.get(key))
+        return None if ref is None else ref()
+
+    def _remember(self, key: tuple[object, ...], paint: "Paint") -> None:
+        """Remember a paint derived from this one, without keeping it alive: a paint changed
+        frame after frame (an updater's) would otherwise hold every paint after it."""
+        derived = self._derived
+        if len(derived) > 32:
+            derived.clear()
+        derived[key] = weakref.ref(paint)
 
     def _but(self, changes: dict[str, object]) -> "Paint":
         fields = self.__dict__.copy()
@@ -1606,33 +1631,8 @@ class Paint:
         color: ParsableManimColor | Iterable[ParsableManimColor] | None,
         opacity: float | Iterable[float] | None,
     ) -> "Paint":
-        """CE `update_rgbas_array`: colors and/or opacities written into one brush — remembered,
-        and the paint itself when nothing changes."""
-        try:
-            key: tuple[object, ...] | None = (
-                "updated",
-                name,
-                key_of(color),
-                key_of(opacity),
-            )
-        except TypeError:
-            key = None
-        derived = self._derived
-        if key is not None and (known := derived.get(key)) is not None:
-            return cast("Paint", known)
-        result = self._updated(name, color, opacity)
-        if key is not None:
-            if len(derived) > 32:
-                derived.clear()
-            derived[key] = result
-        return result
-
-    def _updated(
-        self,
-        name: str,
-        color: ParsableManimColor | Iterable[ParsableManimColor] | None,
-        opacity: float | Iterable[float] | None,
-    ) -> "Paint":
+        """CE `update_rgbas_array`: colors and/or opacities written into one brush; the paint
+        itself when nothing changes (and the paint `but` made before, for the same brush)."""
         new = rgbas(color, opacity)
         if self.sheen_factor != 0 and len(new) == 1:
             light = new.copy()
@@ -1657,68 +1657,176 @@ class Paint:
         return self.but(**{name: out})
 
     @staticmethod
-    def aligned(a: "Paint", b: "Paint") -> tuple["Paint", "Paint"]:
-        """Both paints with the same number of brush rows (CE `align_rgbas`)."""
+    def aligned(
+        a: "Paint", b: "Paint", *, gradient: bool = True
+    ) -> tuple["Paint", "Paint"]:
+        """Align brushes by their domain: refine gradient intervals, repeat element rows.
+
+        A common refinement retains every original stop. Inserted stops mix in
+        premultiplied OKLab; clipping a stop outside the gamut can change its segment.
+        """
         changes_a: dict[str, np.ndarray] = {}
         changes_b: dict[str, np.ndarray] = {}
         for name in _BRUSHES:
-            x, y = getattr(a, name), getattr(b, name)
-            if len(x) > len(y):
-                changes_b[name] = stretch_array(y, len(x))
-            elif len(y) > len(x):
-                changes_a[name] = stretch_array(x, len(y))
+            nx, ny = (max(len(end) for end in p.ends(name)) for p in (a, b))
+            if nx == ny:
+                continue
+            count = (
+                math.lcm(max(nx - 1, 1), max(ny - 1, 1)) + 1
+                if gradient and nx and ny
+                else max(nx, ny)
+            )
+            resample = gradient_stops if gradient else stretch_array
+            if nx < count:
+                changes_a[name] = resample(getattr(a, name), count)
+            if ny < count:
+                changes_b[name] = resample(getattr(b, name), count)
         return (a.but(**changes_a) if changes_a else a), (
             b.but(**changes_b) if changes_b else b
         )
 
-    def mixed(self, a: "Paint", b: "Paint", alpha: float) -> "Paint":
-        """This paint with a's numeric fields blended into b's (joint, cap… stay this paint's):
-        brushes left to the tween (`mix`, OKLab, by the player), the rest linearly."""
-        changes: dict[str, object] = {
-            "pace": b.pace if alpha == 1.0 or a.pace is None else a.pace,
-            "dash": (
-                (b.dash if alpha >= 0.5 else a.dash)  # dashed ↔ solid: at the middle
+    def mixed(
+        self, a: "Paint", b: "Paint", alpha: float, path: Path | None = None
+    ) -> "Paint":
+        """Mix numeric fields and leave brushes to the player in OKLab.
+
+        The sheen direction follows the path's linear maps, without its translation;
+        other numeric fields interpolate linearly. Joint and cap stay this paint's: the
+        mix is `a` with what differs from `b` mixed (`_toward`), and this paint's own joint,
+        cap, shading and texture; `a` itself where nothing does. A tween mixes its leaves
+        at one progress: those whose paints are the same share one mix (remembered by the
+        ids of what made it, while they all live).
+        """
+        if path is not None and path.fixes and a.sheen_direction is b.sheen_direction:
+            path = None  # it moves no direction of the paint
+        made = (self, a, b, path)
+        key = (*map(id, made), alpha)
+        known = _MIXED.get(key)
+        if (
+            known is not None
+            and (mix := known[-1]()) is not None
+            and _alive(known, made)
+        ):
+            return cast("Paint", mix)
+        mix = self._mix(a, b, alpha, path)
+        _MIXED.keep(key, _refs(*made, mix))
+        return mix
+
+    def _mix(self, a: "Paint", b: "Paint", alpha: float, path: Path | None) -> "Paint":
+        a, b = a._settled(), b._settled()
+        lerped, widths, slots, pace, dash, material = _toward(a, b)
+        changes: dict[str, object] = {}
+        for name in lerped:
+            x, y = getattr(a, name), getattr(b, name)
+            changes[name] = y if alpha == 1.0 else interpolate(x, y, alpha)
+        if path is not None and alpha not in (0.0, 1.0):
+            ls, le, _ = path.coefficients(alpha)
+            changes["sheen_direction"] = ls @ a.sheen_direction + le @ b.sheen_direction
+        # past its ends an overshooting rate function: no width < 0
+        for name in widths:
+            w, v = getattr(a, name), getattr(b, name)
+            width = v if alpha == 1.0 else interpolate(w, v, alpha)
+            changes[name] = 0.0 if width < 0 else width
+        if pace:
+            changes["pace"] = b.pace if alpha == 1.0 or a.pace is None else a.pace
+        if dash:  # dashed ↔ solid: at the middle
+            changes["dash"] = (
+                (b.dash if alpha >= 0.5 else a.dash)
                 if a.dash is None or b.dash is None
                 else tuple(
                     x + (y - x) * alpha for x, y in zip(a.dash, b.dash, strict=True)
                 )
-            ),
-            "mix": None,
-            "material": (
-                (
-                    b.material if alpha >= 0.5 else a.material
-                )  # lit ↔ Manim's shading: at the middle
+            )
+        if material:  # lit ↔ Manim's shading: at the middle
+            changes["material"] = (
+                (b.material if alpha >= 0.5 else a.material)
                 if a.material is None or b.material is None
                 else a.material.mixed(b.material, alpha)
-            ),
-        }
-        for name in _LERPED:
-            x, y = getattr(a, name), getattr(b, name)
-            changes[name] = y if alpha == 1.0 or x is y else interpolate(x, y, alpha)
-        for name, w, v in (
-            ("stroke_width", a.stroke_width, b.stroke_width),
-            ("background_width", a.background_width, b.background_width),
-        ):  # past its ends an overshooting rate function: no width < 0
-            width = v if alpha == 1.0 or w is v else interpolate(w, v, alpha)
-            changes[name] = 0.0 if width < 0 else width
-        for name, slot in _SLOTS.items():
-            x, y = getattr(a, slot), getattr(b, slot)  # None: a tween's
-            if alpha >= 1.0 or alpha <= 0.0:
-                changes[name] = getattr(b if alpha >= 1.0 else a, name)
-            elif x is not None and x is y:
-                changes[name] = x
-            else:
-                changes[name] = None
-                if changes["mix"] is None:
-                    changes["mix"] = (
-                        (a.fill, a.stroke, a.background),
-                        (b.fill, b.stroke, b.background),
-                        alpha,
-                    )
-        return self._but(changes)  # a frame's paint: nothing to remember it by
+            )
+        if slots and alpha >= 1.0:
+            changes.update((name, getattr(b, name)) for name in slots)
+        elif slots and alpha > 0.0:  # left to the player
+            changes.update(dict.fromkeys(slots))
+            changes["mix"] = (
+                (a.fill, a.stroke, a.background),
+                (b.fill, b.stroke, b.background),
+                alpha,
+            )
+        for name in _CARRIED:
+            if (own := getattr(self, name)) is not getattr(a, name):
+                changes[name] = own
+        return a._but(changes)  # a frame's paint: nothing to remember it by
+
+    def _settled(self) -> "Paint":
+        """This paint with the brushes it leaves to a tween mixed in: itself if none."""
+        if self.mix is None:
+            return self
+        known = self._derived.get(("settled",))
+        if known is None:
+            known = self._derived[("settled",)] = self._but(
+                {name: getattr(self, name) for name in _SLOTS}
+            )
+        return cast("Paint", known)
 
 
 _LERPED = ("sheen_direction", "sheen_factor", "trim")
+# what a mixed paint keeps of the paint it replaces (a mix sets all the other fields)
+_CARRIED = ("joint", "cap", "shade_in_3d", "texture", "colormap")
+type _Ref = Callable[[], object]
+# what was worked out from paints, by their ids (checked by weak references: being remembered
+# keeps no paint alive): mixes, and what differs between two paints
+_MIXED: Memo[tuple[object, ...], tuple[_Ref, ...]] = Memo(1 << 6)
+_TOWARD: Memo[tuple[int, int], tuple[tuple[_Ref, ...], _Toward]] = Memo(1 << 12)
+
+
+def _toward(a: Paint, b: Paint) -> _Toward:
+    """What differs between two settled paints, as a mix reads it: the lerped fields, the
+    widths and the brushes that do, and whether the pace, the dash and the material do;
+    worked out once for the two (held only weakly: by their ids, while they live)."""
+    known = _TOWARD.get((id(a), id(b)))
+    if known is not None and _alive(known[0], (a, b)):
+        return known[1]
+    toward: _Toward = (
+        tuple(
+            name for name in _LERPED if not _same(getattr(a, name), getattr(b, name))
+        ),
+        tuple(
+            name
+            for name in ("stroke_width", "background_width")
+            if getattr(a, name) != getattr(b, name)
+        ),
+        tuple(name for name in _SLOTS if not _same(getattr(a, name), getattr(b, name))),
+        a.pace is not b.pace,
+        a.dash != b.dash,
+        a.material != b.material,
+    )
+    _TOWARD.keep((id(a), id(b)), (_refs(a, b), toward))
+    return toward
+
+
+def _refs(*objects: object) -> tuple[_Ref, ...]:
+    """Weak references to objects (None stands for itself)."""
+    return tuple(_none if x is None else weakref.ref(x) for x in objects)
+
+
+def _none() -> None:
+    return None
+
+
+def _alive(refs: tuple[_Ref, ...], objects: tuple[object, ...]) -> bool:
+    """Do the references reach these very objects still?"""
+    return all(ref() is x for ref, x in zip(refs, objects, strict=False))
+
+
+def gradient_stops(rows: Floats, count: int) -> Floats:
+    """Refine each gradient interval equally, retaining the original knots exactly."""
+    if len(rows) <= 1:
+        return stretch_array(rows, count)
+    step = (count - 1) // (len(rows) - 1)
+    index, remainder = np.divmod(np.arange(count - 1), step)
+    return np.vstack(
+        [mix_rgba(rows[index], rows[index + 1], remainder / step), rows[-1]]
+    )
 
 
 def _kept(name: str, value: object) -> object:
@@ -1741,6 +1849,11 @@ _BRUSHES = ("fill", "stroke", "background")
 
 # numbers as concrete classes: `isinstance` on an ABC (`numbers.Real`) is slow
 _NUMBERS = (int, float, np.number)
+
+
+def _same(x: object, y: object) -> bool:
+    """Whether two values of a paint's field are equal (arrays bit for bit)."""
+    return x is y or (unchanged(x, y) if isinstance(x, np.ndarray) else x == y)
 
 
 def _same_number(value: object, held: object) -> bool:

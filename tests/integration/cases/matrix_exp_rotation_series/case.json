@@ -31,21 +31,21 @@
       ["8ec084f0d9f2a15b", 1],
       ["48c7cf1b94b8ab0a", 1],
       ["42ddc364ac22c1ac", 1],
-      ["e6c3e2d689968ab7", 1],
+      ["21e0cb4b703f351c", 1],
       ["cf213eb03bdfca6c", 1],
       ["a5d30b65104679c1", 1],
       ["26e54623347fcbaf", 1],
       ["8d485e76bfe62e72", 1],
-      ["b0761568b2e15581", 1],
+      ["3524b8ffc411a832", 1],
       ["9ee70f22f9030086", 1],
       ["1e532e56bc7ef1f8", 1],
       ["ec52e4c46fb38d5b", 1],
-      ["84c5c3ae225d3ceb", 1],
+      ["47de2c787712514c", 1],
       ["d910bdf9dbcc9fdc", 1],
       ["ea0d348d636fc0ea", 1],
       ["a393c12bdab2cfb8", 1],
       ["ac45467b4e60f6b2", 1],
-      ["fa9d1b3189fa2f19", 1],
+      ["6a2d6f2cea5cebdb", 1],
       ["c6dcf174832ba9c7", 1],
       ["f9daa6e0e3c77ea3", 1],
       ["f7669a1065cbac7e", 1],
@@ -77,7 +77,7 @@
     "timeline": [
       [0.0, 88]
     ],
-    "id": "sha256:925906094cc23c62cccfb57a36d3a8775995ced06cf3c1926b02a4e27f7b3b7f"
+    "id": "sha256:fe9c4bc10ae6b998c806b84257e92d92ab134260be292bd1442c89d704c7bb53"
   },
   "ce": {
     "manim": "0.21.0",

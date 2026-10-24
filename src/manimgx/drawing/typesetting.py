@@ -4,10 +4,7 @@ labelled group's items; the layout owns each glyph's immutable outline and caret
 
 import functools
 import os
-import pickle
-import tempfile
 from dataclasses import dataclass
-from importlib.resources import files
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -21,9 +18,10 @@ from manimgx.drawing.geometry import Shape
 # set in or falls back to, so text is the same on every machine; a system font only by name. The
 # CJK one is not installed in the browser
 FONTS = tuple(
-    str(files(package))
+    path
     for package in ("manimgx_fonts", "manimgx_fonts_cjk")
-    if find_spec(package) is not None
+    if (spec := find_spec(package)) is not None
+    for path in spec.submodule_search_locations or ()
 )
 TYPST_COMPILATION_FONT_SIZE = 10
 TYPST_TEMPLATE = (
@@ -159,9 +157,7 @@ def _glyph(key: int, points: bytes, carets: bytes) -> Glyph:
     record = _GLYPHS.get(key)
     if record is None:
         array = np.frombuffer(points).reshape(-1, 3)
-        record = _GLYPHS.keep(
-            key, (key, Shape(array.copy()) if len(array) else None, carets)
-        )
+        record = _GLYPHS.keep(key, (key, Shape(array) if len(array) else None, carets))
     return record
 
 
@@ -183,6 +179,8 @@ def _files(paths: tuple[str, ...]) -> bytes:
 
 def _read(path: Path) -> Stored | None:
     """A stored layout, if there is one and the fonts it was set with haven't changed."""
+    import pickle
+
     try:
         stored: Stored = pickle.loads(path.read_bytes())
     except (OSError, pickle.UnpicklingError, EOFError, ValueError):
@@ -195,6 +193,9 @@ def _read(path: Path) -> Stored | None:
 
 def _write(path: Path, stored: Stored) -> None:
     """Store a layout: written whole, then renamed, so a reader never sees half of one."""
+    import pickle
+    import tempfile
+
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=path.parent) as own:

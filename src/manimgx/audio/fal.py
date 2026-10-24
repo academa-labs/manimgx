@@ -19,8 +19,6 @@ gives one), or `key=`; it never names the voice in the cache.
 import json
 import math
 import os
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from typing import Literal, Unpack, overload
 
@@ -418,30 +416,6 @@ type Model = Literal[
 """The models `Fal` speaks through."""
 
 
-@dataclass(frozen=True, slots=True)
-class _Spec:
-    """How a model is asked: the input its text goes in, its settings, what is sent unless a
-    setting says otherwise, and what is always sent."""
-
-    text: str
-    settings: type
-    defaults: tuple[tuple[str, object], ...] = ()
-    fixed: tuple[tuple[str, object], ...] = ()
-
-
-_MODELS: dict[Model, _Spec] = {
-    "fal-ai/elevenlabs/tts/eleven-v3": _Spec(
-        "text", ElevenV3, fixed=(("timestamps", True),)
-    ),
-    "fal-ai/minimax/speech-2.8-hd": _Spec("prompt", MiniMax),
-    "google/gemini-3.8-flash-tts": _Spec("prompt", Gemini),
-    "fal-ai/inworld-tts": _Spec("text", Inworld),
-    "fal-ai/qwen-3-tts/text-to-speech/1.7b": _Spec(
-        "text", Qwen, defaults=(("max_new_tokens", 8192),)
-    ),
-}
-
-
 # ── the voice ───────────────────────────────────────────────────────────────────────────────
 
 
@@ -544,13 +518,18 @@ class Fal:
                 "no key for fal.ai: set FAL_KEY (fal's dashboard gives one), or give"
                 " `key=`"
             )
-        spec = _MODELS[self.model]
-        body = {
-            **dict(spec.defaults),
-            **self.settings,
-            **dict(spec.fixed),
-            spec.text: text,
-        }
+        body = self.settings.copy()
+        if self.model == "fal-ai/elevenlabs/tts/eleven-v3":
+            body["timestamps"] = True
+        elif self.model == "fal-ai/qwen-3-tts/text-to-speech/1.7b":
+            body.setdefault("max_new_tokens", 8192)
+        text_field = (
+            "prompt"
+            if self.model
+            in ("fal-ai/minimax/speech-2.8-hd", "google/gemini-3.8-flash-tts")
+            else "text"
+        )
+        body[text_field] = text
         reply = json.loads(
             _fetch(
                 f"https://fal.run/{self.model}", body, {"Authorization": f"Key {key}"}
@@ -605,6 +584,9 @@ def _fetch(
 ) -> bytes:
     """GET `url`, or POST `body` to it as JSON; the response's bytes (an HTTP error says what
     the service said)."""
+    import urllib.error
+    import urllib.request
+
     request = urllib.request.Request(
         url,
         data=None if body is None else json.dumps(body).encode(),

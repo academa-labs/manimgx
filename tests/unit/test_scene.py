@@ -1,10 +1,6 @@
-"""A scene shows the world at each frame's instant, whichever way it computes it, and
-whatever its frame rate; it holds its mobjects as its methods say, and runs their updaters
-as they stand when their turns come.
+"""A scene shows the world at each frame's instant, whatever its frame rate; it holds its
+mobjects as its methods say, and runs their updaters as they stand when their turns come.
 
-- A play the scene computes ahead of time (a pure play: tweens only) shows exactly what the
-  same play computed frame by frame shows, for any story, rate functions that overshoot
-  included.
 - The world at an instant does not depend on the frame rate, for any story: a part begins
   and finishes at its window, an instant the scene computes whether a frame falls there or
   not, and takes the world as it is then, all else brought there first.
@@ -23,6 +19,7 @@ as they stand when their turns come.
   to it, last ran or was added; a recorder runs after everything else, if it is still there.
 """
 
+import dataclasses
 import math
 import sys
 from collections.abc import Callable
@@ -36,8 +33,6 @@ from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 from tests.scenes import (
     ANY_RATE,
-    Leaf,
-    Node,
     Recorder,
     Story,
     assert_same_frames,
@@ -51,47 +46,11 @@ from tests.scenes import (
 
 import manimgx as m
 from manimgx import mobject as core
+from manimgx.mobject import flow
+from manimgx.settings import config
 
 # a story renders twice: two fifths of the profile's examples
 stories_settings = settings(max_examples=max(10, settings().max_examples * 2 // 5))
-RESTRUCTURED = (
-    Story(  # a later part restructures its mobject (a circle into three dots)
-        stage=["square", "circle"],
-        added=[True, True],
-        plays=[
-            [
-                Node(
-                    "lagged",
-                    [Leaf("fade_in", 0), Leaf("transform", 1, shape="dots")],
-                    0.5,
-                )
-            ]
-        ],
-    )
-)
-TURNED = Story(  # a later `.animate` turn turns rigidly, not along the chord
-    stage=["dots", "square"],
-    added=[True, True],
-    plays=[
-        [
-            Node(
-                "succession",
-                [Leaf("shift", 0), Leaf("turn", 1, angle=np.pi, rate="linear")],
-            )
-        ]
-    ],
-)
-
-
-class TestComputedAhead:
-    @stories_settings
-    @given(story=stories(rates=ANY_RATE))
-    @example(story=RESTRUCTURED)
-    @example(story=TURNED)
-    def test_a_play_computed_ahead_is_the_play_computed_frame_by_frame(
-        self, story: Story
-    ) -> None:
-        assert_same_outcome(outcome(story, fast=True), outcome(story, fast=False))
 
 
 class TestFrameRates:
@@ -156,11 +115,8 @@ def test_an_absolute_target_subtraction_does_not_add_a_frame() -> None:
     assert film.frame_count == 306
 
 
-@pytest.mark.parametrize("fast", [False, True])
 @pytest.mark.parametrize("introduced", [False, True])
-def test_observed_event_boundaries_compose_without_rewinding(
-    fast: bool, introduced: bool
-) -> None:
+def test_observed_event_boundaries_compose_without_rewinding(introduced: bool) -> None:
     def story(s: Recorder, nested: bool) -> None:
         dot = m.Dot()
         first, tiny = m.Wait(0.1), m.Wait(1e-18)
@@ -176,8 +132,8 @@ def test_observed_event_boundaries_compose_without_rewinding(
             s.play(tiny)
             s.play(move)
 
-    nested = record(lambda s: story(s, True), fps=10, fast=fast)
-    separate = record(lambda s: story(s, False), fps=10, fast=fast)
+    nested = record(lambda s: story(s, True), fps=10)
+    separate = record(lambda s: story(s, False), fps=10)
     assert nested.clock == separate.clock > Fraction(1, 5)
     assert float(nested.clock) == 0.2
     assert nested.frame == separate.frame == 3
@@ -204,7 +160,7 @@ def test_a_sub_ulp_event_never_rewinds_a_simulated_updater() -> None:
 def test_the_scene_and_film_keep_the_same_fractional_frame_rate() -> None:
     made = scene(lambda s: s.wait(1001 / 30000))
     film = made.render()
-    assert film.fps == made._fps() == Fraction(30000, 1001)
+    assert film.fps == Fraction(30000, 1001)
     assert made.clock == Fraction(1001, 30000)
     assert film.frame_count == 2
 
@@ -366,6 +322,21 @@ def test_scene_membership_handles_groups_deeper_than_the_call_stack() -> None:
     assert scene.mobjects == []
 
 
+@pytest.mark.parametrize("present", [False, True])
+def test_a_play_does_not_readd_a_group_split_by_an_earlier_subject(
+    present: bool,
+) -> None:
+    first, second, third = m.Dot(), m.Dot(), m.Dot()
+    initial, incoming = m.Group(first, second), m.Group(first, third)
+    scene = m.Scene()
+    if present:
+        scene.add(initial)
+    scene.play(
+        m.Animation(initial), m.Animation(incoming), m.Animation(initial), run_time=0.1
+    )
+    assert scene.display_list() == [second, first, third]
+
+
 # ── the updaters of an instant ─────────────────────────────────────────────────────────
 VERBS = (
     "nothing",
@@ -509,8 +480,7 @@ def told(
         scene.add_updater(other)
     # one instant, as the scene computes each: the private pass is the only way to make one
     # alone (a render makes many, each over updaters the instant before changed)
-    scene._records = scene._recording()
-    scene._pass(Fraction(1), None, stepping=True, framing=False)
+    scene._instant(Fraction(1), None, stepping=True, framing=False)
     return log, law(made, actions, scene_action is not None, fresh, donated)
 
 
@@ -622,6 +592,94 @@ def test_a_recorder_cleared_in_place_does_not_run() -> None:
 
     scene.add(host.add_updater(recorder))
     scene.add_updater(lambda dt: host.updaters.clear())  # (its list, edited in place)
-    scene._records = scene._recording()
-    scene._pass(Fraction(1), None, stepping=True, framing=False)
+    scene._instant(Fraction(1), None, stepping=True, framing=False)
     assert log == []
+
+
+# ── the film's clock ─────────────────────────────────────────────────────────────────────
+type Story = tuple[int, tuple[tuple[str, float], ...], tuple[tuple[int, int], ...]]
+"""A frame rate the film begins with; steps (a wait or a play, and how long); and frame rates
+the scene sets as it runs, each before a step (as many steps as there are: after the last;
+-1: in `setup`)."""
+
+
+@st.composite
+def stories(draw: st.DrawFn) -> Story:
+    steps = draw(
+        st.lists(
+            st.tuples(
+                st.sampled_from(["wait", "play"]), st.sampled_from([0.25, 0.5, 1.0])
+            ),
+            min_size=1,
+            max_size=3,
+        )
+    )
+    writes = draw(
+        st.lists(
+            st.tuples(
+                st.integers(-1, len(steps)), st.sampled_from([10, 12, 15, 24, 30, 60])
+            ),
+            min_size=1,
+            max_size=2,
+        )
+    )
+    return draw(st.sampled_from([10, 15, 30])), tuple(steps), tuple(writes)
+
+
+def filmed(story: Story, writing: bool) -> tuple[int, dict[int, bytes]]:
+    """A story's film: how many frames it has, and where its moving square is at each (a flow
+    moves it, so a frame's picture says its instant); with `writing`, the scene sets its frame
+    rates as it runs."""
+    base, steps, writes = story
+    seen: dict[int, bytes] = {}
+
+    def written(at: int) -> None:
+        for where, rate in writes:
+            if writing and where == at:
+                config.frame_rate = rate
+
+    class Told(m.Scene):
+        def setup(self) -> None:
+            written(-1)
+
+        def construct(self) -> None:
+            square = m.Square(0.5)
+            square.add_updater(flow(lambda mob, dt: mob.shift(dt * m.RIGHT)))
+            self.add(square)
+            for k, (kind, duration) in enumerate(steps):
+                written(k)
+                if kind == "wait":
+                    self.wait(duration)
+                else:
+                    self.play(square.animate.shift(m.UP), run_time=duration)
+            written(len(steps))
+
+        def _emit(self, repeat: int = 1) -> None:
+            picture = b"".join(
+                np.asarray(leaf.points).tobytes() for leaf in self.display_list()
+            )
+            for k in range(self.frame, self.frame + max(repeat, 0)):
+                seen[k] = picture
+            super()._emit(repeat)
+
+    saved = dataclasses.replace(config)
+    try:
+        config.frame_rate = base
+        frames = Told().render().frame_count
+    finally:
+        vars(config).update(vars(saved))
+    return frames, seen
+
+
+@given(story=stories())
+def test_setting_the_frame_rate_while_a_scene_runs_changes_nothing_in_its_film(
+    story: Story,
+) -> None:
+    """A film's clock is fixed when it begins (its video's rate is): a frame rate the scene sets
+    in `setup` or `construct` is for the films after, and this one has the frames, each at its
+    instant, that it has without it."""
+    count, frames = filmed(story, writing=True)
+    expected_count, expected = filmed(story, writing=False)
+    assert count == expected_count, f"{count} frames, not {expected_count}"
+    changed = [k for k in sorted(expected) if frames.get(k) != expected[k]]
+    assert not changed, f"frames {changed[:5]} show other instants"

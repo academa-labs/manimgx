@@ -9,7 +9,7 @@ from fractions import Fraction
 from html import escape
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 from urllib.parse import quote
 
 import typer
@@ -40,10 +40,6 @@ from manimgx.rendering.film import (
 )
 from manimgx.scene import Scene
 from manimgx.settings import config
-
-if TYPE_CHECKING:
-    from manimgx.animation.transform import Transform
-    from manimgx.drawing.geometry import Path as MotionPath
 
 
 def render(
@@ -189,13 +185,6 @@ def inspect(
                 when = Fraction(pending.pop()[0]) / fps
                 watch.see(self, when, known=known)
             super()._emit(repeat)
-
-        def _pure_tweens(
-            self, anim: Animation, alpha: list[float]
-        ) -> "tuple[list[tuple[Transform, MotionPath]], set[int]] | None":
-            if pending and pending[-1][0] < self.frame + len(alpha):
-                return None  # this play needs its mutable world at the selected frames
-            return super()._pure_tweens(anim, alpha)
 
     def ended(made: Scene, play: Play, animations: tuple[Animation, ...]) -> None:
         nonlocal known

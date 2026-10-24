@@ -6,6 +6,7 @@ subnormal, which no scene draws), curves as their four control points, colors as
 them. What a test checks for invalid input it writes out by hand."""
 
 from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 from typing import NamedTuple
 
@@ -526,3 +527,23 @@ ANIMATIONS: dict[str, Played] = {
     "Wiggle": Played(_group, lambda w: m.Wiggle(w[0])),
     "Write": Played(_word, lambda w: m.Write(w[0])),
 }
+
+
+@st.composite
+def placed(draw: st.DrawFn) -> tuple[Fraction, list[tuple[Fraction, np.ndarray]]]:
+    """A film's length, and clips that end within it, each a start (before the film's, too)
+    and its samples (mono or stereo, at 48000)."""
+    length = draw(st.fractions(Fraction(1, 10), 2, max_denominator=20))
+    total = round(length * 48000)
+    clips = []
+    for _ in range(draw(st.integers(1, 3))):
+        start = draw(st.fractions(-1, length, max_denominator=50))
+        at = round(start * 48000)
+        n = draw(st.integers(1, max(1, min(48000 // 2, total - at))))
+        channels = draw(st.sampled_from([1, 2]))
+        level = draw(st.floats(-1, 1, width=32).filter(lambda x: x != 0))
+        samples = np.full((n, channels), level, np.float32) * np.linspace(
+            1, 0.5, n, dtype=np.float32
+        ).reshape(-1, 1)
+        clips.append((start, samples))
+    return length, clips

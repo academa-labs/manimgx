@@ -5,7 +5,6 @@ import difflib
 import importlib.util
 import linecache
 import os
-import re
 import sys
 import traceback
 from collections.abc import Callable
@@ -38,9 +37,6 @@ class Size:
 
     width: int
     height: int
-
-    def __str__(self) -> str:
-        return f"{self.width}x{self.height}"
 
 
 def size(text: str) -> Size:
@@ -104,63 +100,26 @@ Fps = Annotated[
 
 PACKAGE = str(Path(manimgx.__file__).parent)
 
-# names from older Manim (CE before 0.x renames, manimgl) and what ManimGX has instead
-RENAMED = {
-    "ShowCreation": "Create",
-    "ShowCreationThenDestruction": "ShowPassingFlash",
-    "ShowCreationThenFadeOut": "ShowPassingFlash",
-    "CircleIndicate": "Circumscribe",
-    "WiggleOutThenIn": "Wiggle",
-    "TextMobject": "Text (plain text) or Tex (text with LaTeX)",
-    "TexText": "Tex",
-    "OldTexText": "Tex",
-    "TexMobject": "MathTex",
-    "OldTex": "MathTex",
-    "FadeInFrom": "FadeIn(mobject, shift=direction)",
-    "FadeInFromDown": "FadeIn(mobject, shift=UP)",
-    "FadeOutAndShift": "FadeOut(mobject, shift=direction)",
-    "FadeInFromLarge": "FadeIn(mobject, scale=factor)",
-    "GraphScene": "a Scene with Axes (axes.plot(f))",
-    "ParametricSurface": "Surface",
-    "ContinualAnimation": "mobject.add_updater(function)",
-}
-
-
-def _names() -> list[str]:
-    return [name for name in dir(manimgx) if not name.startswith("_")]
-
 
 def hints(error: BaseException) -> list[str]:
     """What to write instead, for the mistakes a scene's author makes in names."""
-    text = str(error)
-    if isinstance(error, AttributeError) and (
-        match := re.search(r"module 'manimgx' has no attribute '(\w+)'", text)
-    ):
-        return [_instead(match.group(1))]
     if isinstance(error, AttributeError) and error.obj is not None and error.name:
         close = difflib.get_close_matches(error.name, dir(error.obj), n=3, cutoff=0.6)
         if close:
             return [f"did you mean {' or '.join(close)}?"]
-    if isinstance(error, NameError) and error.name:
-        if error.name in _names():
-            return [
-                f"{error.name} is manimgx.{error.name}: `import manimgx as m`, then "
-                f"m.{error.name}"
-            ]
-        if error.name in RENAMED:
-            return [_instead(error.name)]
+    if (
+        isinstance(error, NameError)
+        and error.name
+        and not error.name.startswith("_")
+        and hasattr(manimgx, error.name)
+    ):
+        return [
+            f"{error.name} is manimgx.{error.name}: `import manimgx as m`, then "
+            f"m.{error.name}"
+        ]
     if isinstance(error, ModuleNotFoundError) and error.name in ("manim", "manimlib"):
         return ["manimgx is the module: `import manimgx as m` (its API is Manim CE's)"]
     return []
-
-
-def _instead(name: str) -> str:
-    if name in RENAMED:
-        return f"{name} is {RENAMED[name]} in ManimGX"
-    close = difflib.get_close_matches(name, _names(), n=3, cutoff=0.6)
-    if close:
-        return f"ManimGX has no {name}; did you mean {' or '.join(close)}?"
-    return f"ManimGX has no {name}"
 
 
 def report_error(error: BaseException) -> str:
@@ -179,9 +138,8 @@ def report_error(error: BaseException) -> str:
         lines.append(f"{Path(f.filename).name}:{f.lineno}: in {f.name}")
         if f.line:
             lines.append(f"    {f.line}")
-    inside = [f for f in frames if f.filename.startswith(PACKAGE)]
-    if inside and frames[-1].filename.startswith(PACKAGE):
-        last = inside[-1]
+    if frames and frames[-1].filename.startswith(PACKAGE):
+        last = frames[-1]
         where = Path(last.filename).relative_to(PACKAGE)
         lines.append(f"  (raised in manimgx/{where}:{last.lineno}, in {last.name})")
     lines.append(f"{type(error).__name__}: {error}")
@@ -202,20 +160,22 @@ class Source(SourceFileLoader):
 
 
 def load(path: Path) -> ModuleType:
-    """Run the file as a module named by its stem, with its directory first on the path (so it
-    imports its neighbours) — not as `__main__`, so its own `if __name__ == "__main__":` block
-    stays put."""
+    """Run the file under an unoccupied private module name, with its directory first on the
+    path for its neighbours. Its own `if __name__ == "__main__":` block stays put."""
     defaults = Config()
     for field in dataclasses.fields(Config):
         setattr(config, field.name, getattr(defaults, field.name))
     if not path.is_file():
         raise Mistake(f"{path}: no such file")
-    spec = importlib.util.spec_from_file_location(path.stem, path)
+    name = f"_manimgx_scene_{path.stem}"
+    while name in sys.modules:
+        name += "_"
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise Mistake(f"{path}: not a Python file")
-    spec.loader = Source(path.stem, str(path.resolve()))
+    spec.loader = Source(name, str(path.resolve()))
     module = importlib.util.module_from_spec(spec)
-    sys.modules[path.stem] = module  # dataclasses and pickles resolve names through it
+    sys.modules[name] = module  # dataclasses and pickles resolve names through it
     sys.path.insert(0, str(path.resolve().parent))
     spec.loader.exec_module(module)
     return module

@@ -4,8 +4,6 @@ one glyph per character, column advances are rounded to whole Pango units."""
 
 import math
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import ClassVar, Literal
@@ -41,66 +39,47 @@ _PSEUDO_BUILTINS = re.compile(r"(?<![.\w])(?:self|cls)\b")
 type CodeStyle = Literal["vim"]
 
 
-@dataclass(frozen=True, slots=True)
-class _Style:
-    """A pygments style for Typst: its background, text and line-number colors, and a theme
-    coloring each grammar scope as the style colors the token there."""
-
-    background: str
-    foreground: str
-    line_numbers: str
-    builtins: str  # pygments' pseudo-builtins (Python's self and cls)
-    theme: Mapping[str, str]  # scope selector: color
-
-
-_STYLES: dict[CodeStyle, _Style] = {
-    "vim": _Style(
-        background="#000000",
-        foreground="#cccccc",
-        line_numbers="#cccccc",  # the style's "inherit": the text's color
-        builtins="#cd00cd",
-        theme={
-            # Comment
-            "comment": "#000080",
-            # Keyword, Keyword.Constant, Operator.Word
-            "keyword": "#cdcd00",
-            "storage.modifier": "#cdcd00",
-            "constant.language": "#cdcd00",
-            "keyword.operator.logical": "#cdcd00",
-            "keyword.control.import.as": "#cdcd00",
-            # Keyword.Namespace
-            "keyword.control.import": "#cd00cd",
-            # Operator ("." and "->" among them, but for a module's path)
-            "keyword.operator": "#3399cc",
-            "punctuation.accessor": "#3399cc",
-            "punctuation.separator.annotation.return": "#3399cc",
-            "meta.statement.import punctuation.accessor": "#cccccc",
-            # Name.Class, Name.Variable.Magic
-            "entity.name.class": "#00cdcd",
-            "support.variable.magic": "#00cdcd",
-            # Name.Builtin, Name.Exception
-            "support.function.builtin": "#cd00cd",
-            "support.type": "#cd00cd",
-            "support.type.exception": "#666699",
-            # Name.Decorator: a decorator is plain text, builtin or not
-            "meta.annotation support.function.builtin": "#cccccc",
-            "meta.annotation support.type": "#cccccc",
-            # String: its prefix, escapes, placeholders, a regex's syntax, a docstring, and
-            # an f-string's braces, conversion and format
-            "string": "#cd0000",
-            "string keyword": "#cd0000",
-            "string keyword.operator": "#cd0000",
-            "string constant": "#cd0000",
-            "storage.type.string": "#cd0000",
-            "constant.character.escape": "#cd0000",
-            "comment.block.documentation": "#cd0000",
-            "punctuation.section.interpolation": "#cd0000",
-            "storage.modifier.conversion": "#cd0000",
-            "constant.other.format-spec": "#cd0000",
-            # Number
-            "constant.numeric": "#cd00cd",
-        },
-    ),
+_FOREGROUND = "#cccccc"
+_SCOPES = {
+    # Comment
+    "comment": "#000080",
+    # Keyword, Keyword.Constant, Operator.Word
+    "keyword": "#cdcd00",
+    "storage.modifier": "#cdcd00",
+    "constant.language": "#cdcd00",
+    "keyword.operator.logical": "#cdcd00",
+    "keyword.control.import.as": "#cdcd00",
+    # Keyword.Namespace
+    "keyword.control.import": "#cd00cd",
+    # Operator ("." and "->" among them, but for a module's path)
+    "keyword.operator": "#3399cc",
+    "punctuation.accessor": "#3399cc",
+    "punctuation.separator.annotation.return": "#3399cc",
+    "meta.statement.import punctuation.accessor": "#cccccc",
+    # Name.Class, Name.Variable.Magic
+    "entity.name.class": "#00cdcd",
+    "support.variable.magic": "#00cdcd",
+    # Name.Builtin, Name.Exception
+    "support.function.builtin": "#cd00cd",
+    "support.type": "#cd00cd",
+    "support.type.exception": "#666699",
+    # Name.Decorator: a decorator is plain text, builtin or not
+    "meta.annotation support.function.builtin": "#cccccc",
+    "meta.annotation support.type": "#cccccc",
+    # String: its prefix, escapes, placeholders, a regex's syntax, a docstring, and
+    # an f-string's braces, conversion and format
+    "string": "#cd0000",
+    "string keyword": "#cd0000",
+    "string keyword.operator": "#cd0000",
+    "string constant": "#cd0000",
+    "storage.type.string": "#cd0000",
+    "constant.character.escape": "#cd0000",
+    "comment.block.documentation": "#cd0000",
+    "punctuation.section.interpolation": "#cd0000",
+    "storage.modifier.conversion": "#cd0000",
+    "constant.other.format-spec": "#cd0000",
+    # Number
+    "constant.numeric": "#cd00cd",
 }
 
 
@@ -122,17 +101,17 @@ class CodeText(TypedDict, total=False):
     True)."""
 
 
-def _theme(style: _Style) -> str:
+def _theme() -> str:
     """The style as a TextMate theme (Typst takes only the scopes' colors from it)."""
     rules = "".join(
         f"<dict><key>scope</key><string>{scope}</string><key>settings</key><dict>"
         f"<key>foreground</key><string>{color}</string></dict></dict>"
-        for scope, color in style.theme.items()
+        for scope, color in _SCOPES.items()
     )
     return (
         '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
         "<key>settings</key><array><dict><key>settings</key><dict><key>foreground</key>"
-        f"<string>{style.foreground}</string></dict></dict>{rules}</array></dict></plist>"
+        f"<string>{_FOREGROUND}</string></dict></dict>{rules}</array></dict></plist>"
     )
 
 
@@ -147,14 +126,12 @@ def _advance(face: str) -> float:
 def _typeset(
     lines: list[str],
     text: CodeText,
-    color: str,
     *,
-    style: _Style | None = None,
     language: str | None = None,
     suffix: str = "",
 ) -> list[VGroup]:
     """Each line's glyphs, with fixed baseline spacing and adjusted monospaced columns,
-    highlighted in `style` if given; `suffix` closes the first and last lines.
+    highlighted by `language`; `suffix` closes the first and last lines.
     """
     size = text.get("font_size", 24)
     spacing = text.get("line_spacing", -1)
@@ -172,10 +149,10 @@ def _typeset(
     )
     highlighting = (
         f"lang: {typst_string(language) if language else 'none'},"
-        f" theme: {f'bytes({typst_string(_theme(style))})' if style else 'none'}"
+        f" theme: {f'bytes({typst_string(_theme())})' if language else 'none'}"
     )
     source = (
-        f'#set text({face}, fill: rgb("{color}"), ligatures: {ligatures},'
+        f'#set text({face}, fill: rgb("{_FOREGROUND}"), ligatures: {ligatures},'
         ' top-edge: "baseline", bottom-edge: "baseline")\n'
         f"#set par(leading: {pitch}pt)\n"
         f"#show raw: set text({face})\n"
@@ -184,7 +161,7 @@ def _typeset(
         f'#label("{_LINE}" + str(it.number))]\n'
         f"#raw({typst_string(chr(10).join(lines))}, block: true, {highlighting})"
     )
-    groups = Typst(source, font_size=_POINT, color=color).labels
+    groups = Typst(source, font_size=_POINT, color=_FOREGROUND).labels
     empty = VGroup()
     rows = [
         VGroup(*groups.get(f"{_LINE}{n}", empty).submobjects)
@@ -196,9 +173,8 @@ def _typeset(
     advance = _advance(face)
     step = math.floor(advance / _SCENE_PER_UNIT + 0.5) * _SCENE_PER_UNIT
     at: dict[int, list[Mobject]] = {}
-    plain = ManimColor(color)
+    plain = ManimColor(_FOREGROUND)
     python = language is not None and language.lower() in _PYTHON
-    builtins = style.builtins if style is not None and python else None
     last = len(lines) - 1
     for i, (line, row) in enumerate(zip(lines, rows)):
         closed = line + suffix if i in (0, last) else line
@@ -208,12 +184,12 @@ def _typeset(
         glyph_at = dict(zip(columns, row.submobjects))
         for column, glyph in glyph_at.items():
             at.setdefault(column, []).append(glyph)
-        if builtins is None:
+        if not python:
             continue
         for match in _PSEUDO_BUILTINS.finditer(line):
             word = VGroup(*(glyph_at[c] for c in range(*match.span())))
             if all(glyph.get_fill_color() == plain for glyph in word):
-                word.set_fill(builtins)  # not in a string or a comment
+                word.set_fill("#cd00cd")  # not in a string or a comment
     for column, placed in at.items():
         offset = RIGHT * column * (step - advance)
         for glyph in placed:
@@ -311,7 +287,6 @@ class Code(VMobject):
             language = language or Path(code_file).suffix.removeprefix(".") or None
         elif code_string is None:
             raise ValueError("Either a code file or a code string must be specified.")
-        style = _STYLES[formatter_style]
         text = self.default_paragraph_config | (paragraph_config or {})
         # tabs expanded, empty lines trimmed off
         code = (
@@ -325,16 +300,14 @@ class Code(VMobject):
         # number, so that a listing's height depends on its lines alone, then takes them away
         suffix = f" pA{line_numbers_from}"
         closing = len(suffix) - 1  # its glyphs: all but the space
-        rows = _typeset(
-            lines, text, style.foreground, style=style, language=language, suffix=suffix
-        )
+        rows = _typeset(lines, text, language=language, suffix=suffix)
         self.code_lines = VGroup(*rows).move_to(ORIGIN)
         """The lines, a part: its i-th part is the i-th line, a group of its glyphs."""
 
         if add_line_numbers:
             numbers = range(line_numbers_from, line_numbers_from + len(lines))
             self.line_numbers = VGroup(
-                *_typeset([str(n) for n in numbers], text, style.line_numbers)
+                *_typeset([str(n) for n in numbers], text)
             ).move_to(ORIGIN)
             """The line numbers, a part (if the lines are numbered): its i-th part is
             the i-th line's number, lined up on the right."""
@@ -372,7 +345,7 @@ class Code(VMobject):
 
         config = self.default_background_config | (background_config or {})
         if config.get("fill_color") is None:
-            config["fill_color"] = style.background
+            config["fill_color"] = "#000000"
         listing = VGroup(*self.submobjects, extent)
         if background == "rectangle":
             self.background = SurroundingRectangle(listing, **config)

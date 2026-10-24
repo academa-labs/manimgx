@@ -517,9 +517,7 @@ def cross2d(a: np.ndarray, b: np.ndarray) -> npt.NDArray[np.float64] | float:
     Returns:
         The number, or one per row.
     """
-    if len(a.shape) == 2:
-        return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
-    return a[0] * b[1] - b[0] * a[1]
+    return a[..., 0] * b[..., 1] - b[..., 0] * a[..., 1]
 
 
 @deprecated("use numpy: np.mean(points, axis=0)", category=None)
@@ -733,11 +731,7 @@ def rotation_matrix_transpose_from_quaternion(quat: np.ndarray) -> list[Vec]:
     Returns:
         The three rows.
     """
-    inverse = quaternion_conjugate(quat)
-    return [
-        np.array(quaternion_mult(quat, [0, *basis], inverse)[1:])
-        for basis in np.identity(3)
-    ]
+    return list(rotation_matrix_from_quaternion(quat).T)
 
 
 @deprecated("Manim CE's machinery: ManimGX calls it itself", category=None)
@@ -1173,35 +1167,28 @@ class QuickHull:
         assert self.unclaimed is not None
         assert self.internal is not None
 
-        while True:
-            updated = False
-            for facet in self.facets:
-                if facet in self.removed:
-                    continue
-                _outside, eye = self.outside[facet]
-                if eye is not None:
-                    updated = True
-                    horizon = self.compute_horizon(eye, facet)
-                    for f in horizon.facets:
-                        points_to_append = self.outside[f][0]
-                        # TODO: is this always true?
-                        assert points_to_append is not None
-                        self.unclaimed = np.vstack((self.unclaimed, points_to_append))
-                        self.removed.add(f)
-                        for sf in f.subfacets:
-                            self.neighbors[sf].discard(f)
-                            if self.neighbors[sf] == set():
-                                del self.neighbors[sf]
-                    for sf in horizon.boundary:
-                        nf = Facet(
-                            np.vstack((sf.coordinates, eye)), internal=self.internal
-                        )
-                        self.classify(nf)
-                        self.facets.append(nf)
-                        for nsf in nf.subfacets:
-                            self.neighbors.setdefault(nsf, set()).add(nf)
-            if not updated:
-                break
+        for facet in self.facets:
+            if facet in self.removed:
+                continue
+            _outside, eye = self.outside[facet]
+            if eye is not None:
+                horizon = self.compute_horizon(eye, facet)
+                for f in horizon.facets:
+                    points_to_append = self.outside[f][0]
+                    # TODO: is this always true?
+                    assert points_to_append is not None
+                    self.unclaimed = np.vstack((self.unclaimed, points_to_append))
+                    self.removed.add(f)
+                    for sf in f.subfacets:
+                        self.neighbors[sf].discard(f)
+                        if self.neighbors[sf] == set():
+                            del self.neighbors[sf]
+                for sf in horizon.boundary:
+                    nf = Facet(np.vstack((sf.coordinates, eye)), internal=self.internal)
+                    self.classify(nf)
+                    self.facets.append(nf)
+                    for nsf in nf.subfacets:
+                        self.neighbors.setdefault(nsf, set()).add(nf)
 
 
 @overload
@@ -1334,8 +1321,65 @@ def subpath_ranges(
     return [
         (a, b, bool(np.allclose(points[a, :dims], points[b - 1, :dims], atol=atol)))
         for a, b in itertools.pairwise(splits)
-        if b - a >= _NPPCC
     ]
+
+
+def _stroke_outline(points: np.ndarray, width: float) -> np.ndarray:
+    """A flat stroke of `width` along a path, as the outline of the shape it covers: butt
+    ends, mitered joins, each curve flattened to within a hundredth of the width first; a
+    closed path's two sides wound opposite ways (its stroke is a ring)."""
+    outlines: list[np.ndarray] = []
+
+    def flatten(curve: np.ndarray, depth: int = 0) -> list[np.ndarray]:
+        chord = np.linspace(curve[0], curve[-1], 4)
+        if depth == 12 or np.linalg.norm(curve - chord, axis=1).max() <= width / 100:
+            return [curve[0]]
+        return flatten(partial_bezier_points(curve, 0, 0.5), depth + 1) + flatten(
+            partial_bezier_points(curve, 0.5, 1), depth + 1
+        )
+
+    def polygon(vertices: np.ndarray) -> np.ndarray:
+        ends = np.roll(vertices, -1, axis=0)
+        return np.stack(
+            (vertices, (2 * vertices + ends) / 3, (vertices + 2 * ends) / 3, ends),
+            axis=1,
+        ).reshape(-1, 3)
+
+    for start, end, closed in subpath_ranges(points, 1e-9, dims=2):
+        vertices = np.array(
+            [p for curve in points[start:end].reshape(-1, 4, 3) for p in flatten(curve)]
+            + [points[end - 1]]
+        )
+        lengths = np.linalg.norm(np.diff(vertices, axis=0), axis=1)
+        vertices = vertices[np.r_[True, lengths > 1e-12]]
+        if len(vertices) < 2:
+            continue
+        directions = np.diff(vertices, axis=0)
+        normals = np.cross(directions, [0, 0, 1])
+        normals *= (width / 2 / np.linalg.norm(normals, axis=1))[:, None]
+        if closed:
+            vertices = vertices[:-1]
+            before, after = np.roll(normals, 1, axis=0), normals
+        else:
+            before = np.vstack((normals[0], normals))
+            after = np.vstack((normals, normals[-1]))
+        bisector = before + after
+        denominator = np.einsum("ij,ij->i", bisector, after)
+        offset = np.divide(
+            bisector * (width / 2) ** 2,
+            denominator[:, None],
+            out=after.copy(),
+            where=np.abs(denominator[:, None]) > 1e-20,
+        )
+        if closed:
+            outlines.extend(
+                (polygon(vertices + offset), polygon((vertices - offset)[::-1]))
+            )
+        else:
+            outlines.append(
+                polygon(np.vstack((vertices + offset, (vertices - offset)[::-1])))
+            )
+    return np.concatenate(outlines) if outlines else np.empty((0, 3))
 
 
 def _pathops() -> ModuleType:
@@ -1406,6 +1450,11 @@ def partial_bezier_points(
         arr = np.array(points)
         arr[:] = arr[0]
         return arr
+    return _bezier_matrix(a, b) @ np.asarray(points)
+
+
+def _bezier_matrix(a: float | np.ndarray, b: float | np.ndarray) -> np.ndarray:
+    """Cubic restriction coefficients for [a, b], with any interval axes last."""
     ma, mb = 1 - a, 1 - b
     a2, b2, ma2, mb2 = a * a, b * b, ma * ma, mb * mb
     a3, b3, ma3, mb3 = a2 * a, b2 * b, ma2 * ma, mb2 * mb
@@ -1417,44 +1466,14 @@ def partial_bezier_points(
             [mb3, 3 * mb2 * b, 3 * mb * b2, b3],
         ]
     )
-    return m @ np.asarray(points)
-
-
-_SUBDIVISION: Memo[int, np.ndarray] = Memo(1 << 10)
+    return m
 
 
 def _subdivision_matrix(n: int | np.integer) -> np.ndarray:
-    m = _SUBDIVISION.get(n)
-    if m is not None:
-        return m
     n = int(n)
-    m = np.empty((4 * n, 4))
-    for i in range(n):
-        i2, i3 = i * i, i * i * i
-        ip1 = i + 1
-        ip12, ip13 = ip1 * ip1, ip1 * ip1 * ip1
-        nmi = n - i
-        nmi2, nmi3 = nmi * nmi, nmi * nmi * nmi
-        nmim1 = nmi - 1
-        nmim12, nmim13 = nmim1 * nmim1, nmim1 * nmim1 * nmim1
-        m[4 * i : 4 * (i + 1)] = [
-            [nmi3, 3 * nmi2 * i, 3 * nmi * i2, i3],
-            [
-                nmi2 * nmim1,
-                2 * nmi * nmim1 * i + nmi2 * ip1,
-                nmim1 * i2 + 2 * nmi * i * ip1,
-                i2 * ip1,
-            ],
-            [
-                nmi * nmim12,
-                nmim12 * i + 2 * nmi * nmim1 * ip1,
-                2 * nmim1 * i * ip1 + nmi * ip12,
-                i * ip12,
-            ],
-            [nmim13, 3 * nmim12 * ip1, 3 * nmim1 * ip12, ip13],
-        ]
-    m /= n**3
-    return _SUBDIVISION.keep(n, m)
+    starts = np.arange(n, dtype=float)
+    intervals = _bezier_matrix(starts / n, (starts + 1) / n)
+    return np.moveaxis(intervals, -1, 0).reshape(4 * n, 4)
 
 
 def subdivide_bezier(
@@ -1612,6 +1631,8 @@ type Floats = npt.NDArray[np.float64]
 type Coefficients = tuple[Floats, Floats, Floats]  # Lₛ, Lₑ, k
 """A path's rule at one moment: the 3×3 matrices Lₛ and Lₑ and the vector k that take
 each point to Lₛ·start + Lₑ·end + k."""
+
+
 type Step = tuple[float, Floats, Floats] | Floats | Callable[[float], Floats]
 """A step of a motion: a turn (an angle, an axis and a pivot, a point of the object as
 it began), a move by a vector, or a move along a curve (a function of α giving where the
@@ -1632,7 +1653,7 @@ def _cross(axis: Floats) -> Floats:
     return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
 
 
-@dataclass(frozen=True, slots=True, eq=False)
+@dataclass(frozen=True, slots=True, eq=False, weakref_slot=True)
 class Path:
     """How the points of a shape travel in a transform, from where they start to where
     they end, as a value.
@@ -1662,6 +1683,21 @@ class Path:
     axis: Floats = field(default_factory=lambda: _PATH_AXIS.copy())
     steps: tuple[Step, ...] = ()
     _end: list[Floats] = field(default_factory=list, init=False, repr=False)  # G(1)
+    # the rule at the last α asked: a tween asks it for each of its leaves at once
+    _at: list[tuple[float, Coefficients]] = field(
+        default_factory=list, init=False, repr=False
+    )
+
+    @property
+    def fixes(self) -> bool:
+        """Whether agreeing endpoints stay fixed, including throughout the journey."""
+        return self.kind != "motion" or not self.steps
+
+    def mix(self, a: Blend, b: Blend, alpha: float) -> Blend:
+        """Mix geometries along this path, keeping a fixed value and its derived data."""
+        if self.fixes and a.same_as(b):
+            return a
+        return Blend.mix(a, b, self.coefficients(alpha))
 
     @deprecated("ManimGX's machinery: a transform calls it", category=None)
     def coefficients(self, alpha: float) -> Coefficients:
@@ -1671,14 +1707,24 @@ class Path:
             alpha: The animation's progress, from 0 to 1.
 
         Returns:
-            The 3×3 matrices Lₛ and Lₑ, and the vector k.
+            The 3×3 matrices Lₛ and Lₑ, and the vector k (read-only).
         """
+        if self._at and self._at[0][0] == alpha:
+            return self._at[0][1]
+        rule = self._rule(alpha)
+        for array in rule:
+            array.flags.writeable = False
+        self._at[:] = [(alpha, rule)]
+        return rule
+
+    def _rule(self, alpha: float) -> Coefficients:
         if self.kind == "motion":
             if not self.steps:
                 return (1 - alpha) * _EYE, alpha * _EYE, _ZERO
             if not self._end:
-                self._end.append(self.motion(1.0))
-            g, end = self.motion(alpha), self._end[0]
+                self._end.append(carried((step, 1.0) for step in self.steps))
+            g = carried((step, alpha) for step in self.steps)
+            end = self._end[0]
             le = alpha * g[:3, :3] @ end[:3, :3].T
             return (
                 (1 - alpha) * g[:3, :3],
@@ -1698,18 +1744,6 @@ class Path:
             k = _cross(self.axis) / (2 * np.tan(self.angle / 2))
             cs, ce = 0.5 * _EYE - k, 0.5 * _EYE + k
         return (_EYE - rot) @ cs + rot - along, (_EYE - rot) @ ce + along, _ZERO
-
-    @deprecated("ManimGX's machinery: a transform calls it", category=None)
-    def motion(self, alpha: float) -> Floats:
-        """The motion the path's steps have carried the shape by at a moment.
-
-        Args:
-            alpha: The animation's progress, from 0 to 1.
-
-        Returns:
-            The 4×4 affine matrix G(α).
-        """
-        return carried((step, alpha) for step in self.steps)
 
     def __call__(
         self, start: Point3D_Array, end: Point3D_Array, alpha: float
@@ -1856,7 +1890,7 @@ _BERNSTEIN: Final = np.hstack(
 class Shape:
     """Immutable control points (n × 3). Content-addressed, so equal shapes share GPU memory."""
 
-    __slots__ = ("_affine", "_boxes", "_key", "array", "log")
+    __slots__ = ("_affine", "_boxes", "_key", "_lengths", "array", "log")
 
     def __init__(self, array: Floats, log: Log | None = None) -> None:
         array.flags.writeable = False
@@ -1866,6 +1900,13 @@ class Shape:
         self._key: int | None = None
         self._affine: tuple[int, Floats, Matrix] | None = None
         self._boxes: dict[bool, Floats] | None = None
+        self._lengths: Lengths | None = None
+
+    def lengths(self) -> Lengths:
+        """The shape's length measure, shared by all its similarity placements."""
+        if self._lengths is None:
+            self._lengths = Lengths.of(self.array)
+        return self._lengths
 
     def box(self, curves: bool) -> Floats:
         """(2, 3): the box of what the points make — for a path (`curves`), its curves' tight box
@@ -2081,23 +2122,67 @@ def segment(start: Floats, end: Floats) -> Blend:
     return Blend(((m, SEGMENT),), 4)
 
 
-def _compose(linear: Floats, matrix: Matrix) -> Matrix:
-    """linear ∘ matrix, where `linear` is 3×3 (no translation of its own): one product, as the
-    translation column transforms like any other."""
-    return linear @ matrix
+def similarity_scale(linear: Floats) -> float | None:
+    """The scale of a similarity (0: the map collapsing everything to a point), recognized by
+    the Gram matrix of the map over its largest entry, so that no scale underflows."""
+    peak = float(np.max(np.abs(linear)))
+    if peak == 0:
+        return 0.0
+    unit = linear / peak
+    gram = unit.T @ unit
+    s2 = float(gram[0, 0])
+    if np.max(np.abs(gram - s2 * _EYE)) <= 1e-12 * s2:
+        return peak * float(np.sqrt(s2))
+    return None
+
+
+class Lengths:
+    """A path's sampled lengths and normalized pace, independent of its placement."""
+
+    __slots__ = ("_pace", "pieces")
+
+    def __init__(
+        self, pieces: Floats, pace: tuple[Floats, Floats] | None = None
+    ) -> None:
+        self.pieces = _frozen(pieces)
+        self._pace = pace
+
+    @staticmethod
+    def of(points: Floats) -> Lengths:
+        """Measure the nine chords through ten samples of each cubic curve."""
+        curves = points[: len(points) // 4 * 4].reshape(-1, 4, 3)
+        samples = np.einsum("tk,ckd->ctd", _BERNSTEIN, curves)
+        return Lengths(np.linalg.norm(np.diff(samples, axis=1), axis=2))
+
+    def scaled(self, factor: float) -> Lengths:
+        """Scale lengths, sharing their fractions unless the path collapses."""
+        if factor == 1.0:
+            return self
+        return Lengths(self.pieces * factor, self.pace() if factor else None)
+
+    def pace(self) -> tuple[Floats, Floats]:
+        """The fraction of total length at each sampled curve parameter."""
+        if self._pace is None:
+            curves = len(self.pieces)
+            u = np.concatenate(
+                [[0.0], (np.arange(curves)[:, None] + np.arange(1, 10) / 9).ravel()]
+            )
+            s = np.concatenate([[0.0], np.cumsum(self.pieces.ravel())])
+            s = s / s[-1] if s[-1] > 0 else u / max(curves, 1)
+            self._pace = _frozen(s), _frozen(u)
+        return self._pace
 
 
 class Blend:
     """points = Σ M·S over `terms`. Immutable: every edit returns a new blend."""
 
-    __slots__ = ("_boxes", "_pace", "_pieces", "_points", "n", "terms")
+    __slots__ = ("_boxes", "_lengths", "_points", "n", "terms")
 
     def __init__(self, terms: tuple[Term, ...], n: int) -> None:
         self.terms = terms
         self.n = n  # number of points, known without materializing
         self._points: Floats | None = None
-        self._pieces: Floats | None = None
-        self._pace: tuple[Floats, Floats] | None = None
+        self._lengths: Lengths | None = None
         self._boxes: dict[bool, Floats] | None = None
 
     def box(self, curves: bool) -> Floats:
@@ -2151,9 +2236,20 @@ class Blend:
             out += shape.array[k] @ m[:, :3].T + m[:, 3]
         return out
 
+    def same_as(self, other: Blend) -> bool:
+        """Does it hold the value `other` holds: the same shapes, placed alike?"""
+        return self is other or (
+            self.n == other.n
+            and len(self.terms) == len(other.terms)
+            and all(
+                s is t and np.array_equal(m, k)
+                for (m, s), (k, t) in zip(self.terms, other.terms, strict=True)
+            )
+        )
+
     def translated(self, vector: Floats) -> Blend:
         """The blend moved by `vector`: one term's offset, no product (a move is the commonest
-        edit of all) — and its boxes moved with it, when known."""
+        edit of all), and its boxes moved with it, when known."""
         if not self.terms:
             return self
         (first, shape), *rest = self.terms
@@ -2183,7 +2279,7 @@ class Blend:
         """The blend after the affine map `m` (its boxes follow a map along the axes)."""
         if not self.terms:
             return self
-        terms = [(_compose(m[:, :3], a), shape) for a, shape in self.terms]
+        terms = [(m[:, :3] @ a, shape) for a, shape in self.terms]
         terms[0][0][:, 3] += m[:, 3]
         blend = Blend(tuple(terms), self.n)
         if self._boxes:
@@ -2203,13 +2299,13 @@ class Blend:
         of one shape stays one matrix."""
         ls, le, offset = coefficients
         if len(a.terms) == 1 and len(b.terms) == 1 and a.terms[0][1] is b.terms[0][1]:
-            mixed = _compose(ls, a.terms[0][0]) + _compose(le, b.terms[0][0])
+            mixed = ls @ a.terms[0][0] + le @ b.terms[0][0]
             mixed[:, 3] += offset
             return Blend(((mixed, a.terms[0][1]),), a.n)
         merged: dict[int, Term] = {}
         for linear, blend in ((ls, a), (le, b)):
             for m, shape in blend.terms:
-                term = _compose(linear, m)
+                term = linear @ m
                 if shape.key in merged:
                     term = merged[shape.key][0] + term
                 merged[shape.key] = (term, shape)
@@ -2219,18 +2315,21 @@ class Blend:
         terms[0][0][:, 3] += offset
         return Blend(tuple(terms), a.n)
 
+    def lengths(self) -> Lengths:
+        """The path's measure, taken on its shape when its placement is a similarity."""
+        if self._lengths is None:
+            if len(self.terms) == 1:
+                matrix, shape = self.terms[0]
+                scale = similarity_scale(matrix[:, :3])
+                if scale is not None:
+                    self._lengths = shape.lengths().scaled(scale)
+            if self._lengths is None:
+                self._lengths = Lengths.of(self.points())
+        return self._lengths
+
     def piece_lengths(self) -> Floats:
-        """(curves, 9): lengths of each curve's polyline through 10 points — the path's own
-        measure of length, which its reveals, proportions and lengths all go by."""
-        pieces = self._pieces
-        if pieces is None:
-            pts = self.points()
-            curves = pts[: len(pts) // 4 * 4].reshape(-1, 4, 3)
-            samples = np.einsum("tk,ckd->ctd", _BERNSTEIN, curves)
-            pieces = np.linalg.norm(np.diff(samples, axis=1), axis=2)
-            pieces.flags.writeable = False
-            self._pieces = pieces
-        return pieces
+        """(curves, 9): chord lengths through ten samples of each cubic curve."""
+        return self.lengths().pieces
 
     def curve_lengths(self) -> Floats:
         """Length of each cubic curve."""
@@ -2239,30 +2338,17 @@ class Blend:
     def pace(self) -> tuple[Floats, Floats]:
         """(s, u): the fraction s of the length reached at curve parameter u. A reveal reads it once:
         constant pen speed, and the drawn part stays put under later transforms."""
-        pieces = self.piece_lengths()
-        curves = len(pieces)
-        u = np.concatenate(
-            [
-                [0.0],
-                (np.arange(curves)[:, None] + np.arange(1, 10)[None, :] / 9).ravel(),
-            ]
-        )
-        s = np.concatenate([[0.0], np.cumsum(pieces.ravel())])
-        return (s / s[-1] if s[-1] > 0 else u / max(curves, 1)), u
+        return self.lengths().pace()
 
     def parameter_at(self, fraction: float) -> float:
         """The curve parameter u ∈ [0, curves] a fraction of the length along the path:
         the inverse of `fraction_at`, through the pace."""
-        if self._pace is None:
-            self._pace = self.pace()
-        s, u = self._pace
+        s, u = self.pace()
         return float(np.interp(fraction, s, u))
 
     def fraction_at(self, parameter: float) -> float:
         """The fraction of the path's length reached at curve parameter u ∈ [0, curves]."""
-        if self._pace is None:
-            self._pace = self.pace()
-        s, u = self._pace
+        s, u = self.pace()
         return float(np.interp(parameter, u, s))
 
     def __deepcopy__(self, memo: dict[int, object]) -> Blend:

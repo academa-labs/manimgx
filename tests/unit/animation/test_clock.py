@@ -92,6 +92,14 @@ def test_without_warps_it_is_scene_time(t: float) -> None:
     assert Clock().at(t) == t
 
 
+@given(t=times, start=times, span=st.floats(0, 3))
+@example(t=math.nextafter(1.0, math.inf), start=2**-53, span=3.0)
+def test_a_zero_duration_warp_changes_no_elapsed_time(
+    t: float, start: float, span: float
+) -> None:
+    assert abs(clock((start, 0, span, rf.linear)).at(t) - t) <= math.ulp(t)
+
+
 @given(w=warps, t=times)
 def test_over_a_warp_it_covers_the_warps_span(w: Warp, t: float) -> None:
     start, duration, span, progress = w

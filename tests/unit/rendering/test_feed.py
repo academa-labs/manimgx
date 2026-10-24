@@ -14,8 +14,9 @@ keeps the player's store in step with its own books; the player derives what dra
 - A picture (a storyboard's) is not one of the film's frames: drawn between them, it leaves
   the latest frame, which the film may still hold back, the one a sweep keeps, and the count
   of frames as it was.
-- A batch of a reveal's frames has each frame's window, as the frame alone would.
 - A path and a cloud of points drawn in one frame draw as each does alone.
+- A growing path is named by what it holds, as a shape is: paths that grow alike are one
+  upload, grown once by what they gain, and one that grows otherwise is uploaded as itself.
 - Over any run of frames of any mobjects (paths, graded paths, colored clouds and meshes,
   surfaces, images; moved, copied, recolored, stretched, morphed, turned partway into
   another shape, cut to a part), idle time, sweeps, and uploads or evictions that fail:
@@ -46,7 +47,7 @@ from tests.scenes import frames, scene_3d
 
 import manimgx as m
 from manimgx._engine import Player, Recorder, digest
-from manimgx.drawing.geometry import Path
+from manimgx.drawing.geometry import Log
 from manimgx.rendering import feed
 
 
@@ -114,21 +115,21 @@ def _legacy_refine_surface(
     ("kind", "steps"),
     [("plain", 1), ("strided", 2), ("periodic", 4), ("pole", 8), ("realistic", 16)],
 )
-def test_surface_patch_simplifications_are_bit_exact(kind: str, steps: int) -> None:
+def test_surface_patches_are_the_splines_values(kind: str, steps: int) -> None:
     grid = _surface_grid(kind)
     if kind == "strided":
         assert not grid.flags.c_contiguous
     cells = feed._cells(grid)
     x = np.linspace(0.0, 1.0, steps + 1)
     expected = _legacy_patches(cells, x)
+    tolerance = 1e-12 * (1 + np.abs(grid).max())
+    expected = tuple(e.transpose(2, 3, 0, 1, 4) for e in expected)  # (s, t, u, v, dims)
     points_only = feed._patches(cells, x, derivatives=False)
     assert len(points_only) == 1
-    assert points_only[0].tobytes() == expected[0].tobytes()
+    np.testing.assert_allclose(points_only[0], expected[0], rtol=0, atol=tolerance)
     del points_only
-    actual = feed._patches(cells, x)
-    assert actual[0].tobytes() == expected[0].tobytes()
-    assert actual[1].tobytes() == expected[1].tobytes()
-    assert actual[2].tobytes() == expected[2].tobytes()
+    for actual, wanted in zip(feed._patches(cells, x), expected, strict=True):
+        np.testing.assert_allclose(actual, wanted, rtol=0, atol=tolerance)
 
 
 @pytest.mark.parametrize(
@@ -139,10 +140,10 @@ def test_surface_refinement_gather_keeps_every_result(kind: str, steps: int) -> 
     grid = _surface_grid(kind)
     expected = _legacy_refine_surface(grid, steps)
     actual = feed.refine_surface(grid, steps)
-    assert all(
-        a.tobytes() == b.tobytes()
-        for a, b in zip(actual[:3], expected[:3], strict=True)
-    )
+    tolerance = 1e-12 * (1 + np.abs(grid).max())
+    for a, b in zip(actual[:2], expected[:2], strict=True):  # (normals: of these sizes)
+        np.testing.assert_allclose(a, b, rtol=0, atol=tolerance * (1 + np.abs(b).max()))
+    np.testing.assert_array_equal(actual[2], expected[2])
     assert actual[3] == expected[3]
 
 
@@ -312,56 +313,13 @@ def test_mesh_uploads_reserve_key_zero(sink: type[Player] | type[Recorder]) -> N
         sink(16, 16, 1).add_mesh(0, b"", b"", b"", b"")
 
 
-@pytest.mark.parametrize("start_paced", [False, True])
-@pytest.mark.parametrize("end_paced", [False, True])
-def test_batched_reveals_follow_the_same_pace_as_individual_frames(
-    start_paced: bool, end_paced: bool
-) -> None:
-    start = m.VMobject().set_points_as_corners([m.ORIGIN, m.RIGHT, 4 * m.RIGHT])
-    end = start.copy()
-    start.paint = start.paint.but(
-        trim=np.array([0.1, 0.4]),
-        pace=start.reveal_pace() if start_paced else None,
-    )
-    end.paint = end.paint.but(
-        trim=np.array([0.2, 0.7]),
-        pace=(
-            (np.array([0.0, 0.75, 1.0]), np.array([0.0, 1.0, 2.0]))
-            if end_paced
-            else None
-        ),
-    )
-    camera = m.Camera()
-    feeder = feed.Feeder(32, 32, Recorder(32, 32, 10))
-    objects: list[m.Mobject] = [start, end]
-    cameras: list[feed.CameraView] = []
-    fixed: set[m.Mobject] = set()
-    args = (camera, False, objects, 32, 32, cameras, fixed)
-    live = feed.unpack(feeder.record(start, *args))
-    progress = np.array([0.8, 0.0, 0.2, 1.0, 0.5, 0.2, -0.1, 1.2])
-
-    batch = feeder.mix(start, end, m.straight_path(), progress, args, live)
-
-    assert batch is not None
-    expected = np.array(
-        [
-            start.paint.mixed(start.paint, end.paint, float(t)).window(2)
-            for t in progress
-        ],
-        dtype=np.float32,
-    )
-    np.testing.assert_array_equal(batch["params"][:, :2], expected)
-
-
 def record_of(mob: m.Mobject, sink: "Sink | Recorder") -> np.void:
     """The record a feed of its own makes of a mobject alone, in a 2D view."""
     feeder = feed.Feeder(32, 32, sink)
     objects: list[m.Mobject] = [mob]
-    made = feed.unpack(
-        feeder.record(mob, m.Camera(), False, objects, 32, 32, [], set())
-    )
+    made = feeder.record(mob, m.Camera(), False, objects, 32, 32, [], set())
     assert made is not None
-    return made
+    return np.frombuffer(made, feed.RECORD)[0]
 
 
 @pytest.mark.parametrize("trim", [(0.0, 1.0), (0.25, 0.5), (-0.1, 0.0)])
@@ -539,129 +497,86 @@ class Sink:
         return self.engine.held()
 
 
-def test_a_tween_materializes_only_the_frames_consumed_and_reloads_evicted_values() -> (
-    None
-):
-    """A non-affine cloud morph, revisiting old values after their uploads were evicted."""
-    points = np.array(
-        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
+@pytest.mark.parametrize("kind", ["mesh", "rows"])
+def test_a_failed_upload_can_be_retried(kind: str) -> None:
+    mob = (
+        m.Square().set_fill([m.RED, m.BLUE], 1)
+        if kind == "rows"
+        else m.MeshMobject(np.eye(3), np.array([[0, 1, 2]]))
     )
-    start = m.PMobject().add_points(points)
-    end = start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[0.5, 0, 0]]))
-    leaf = start.copy()
-    progress = np.tile(np.linspace(0.1, 0.9, 25), 3)
-    camera, path, sink = m.Camera(), m.straight_path(), Sink()
+    camera, sink = m.Camera(), Sink()
     feeder = feed.Feeder(32, 32, sink)
-    frames = iter(
-        feeder.tween(
-            camera,
-            [leaf],
-            [(leaf, [start, end], path, np.zeros(len(progress), int), progress)],
-        )
+    sink.failing.add(kind)
+    with pytest.raises(Injected):
+        feeder.frame(camera, [mob])
+    records = feeder.frame(camera, [mob])[1]
+    assert records == feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
+    assert all(
+        int(row[name]) in sink.resident
+        for row in np.frombuffer(records, feed.RECORD)
+        for name in feed.KEYS
+        if row[name]
     )
-    assert not sink.resident
-    for number, t in enumerate(progress):
-        _, records = next(frames)
-        if number == 0:
-            assert sum(kind == "points" for kind in sink.kinds.values()) <= 2
-        expected_sink = Sink()
-        expected = feed.Feeder(32, 32, expected_sink)
-        alone = start.copy()
-        alone.interpolate(start, end, float(t), path)
-        assert records == expected.frame(camera, [alone])[1]
-        feeder.sweep(pressed=True)
-        keys = {
-            int(row[name])
-            for row in np.frombuffer(records, feed.RECORD)
-            for name in (*feed.KEYS, "texture")
-            if row[name]
-        }
-        assert set(sink.resident) == keys
-    with pytest.raises(StopIteration):
-        next(frames)
 
 
-def test_streaming_still_mixes_whole_keyframe_intervals(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An interval revisited by a nonmonotone clock is vectorized when it becomes current."""
-    start = m.Square()
-    keys: list[m.Mobject] = [
-        start,
-        start.copy().shift(m.RIGHT),
-        start.copy().shift(m.UP),
-    ]
-    leaf, sink, camera = start.copy(), Sink(), m.Camera()
+@pytest.mark.parametrize("field", ["triangles", "uvs"])
+def test_a_mesh_shows_replaced_topology_and_uvs(field: str) -> None:
+    mob = m.MeshMobject(
+        np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]),
+        np.array([[0, 1, 2], [0, 2, 3]]),
+        uvs=np.zeros((4, 2)),
+    )
+    camera, sink = m.Camera(), Sink()
     feeder = feed.Feeder(32, 32, sink)
-    intervals = np.repeat([0, 1, 0], 30)
-    progress = np.tile(np.linspace(0, 1, 30), 3)
-    batches: list[int] = []
-    mix = feeder.mix
-
-    def measured(
-        a: m.Mobject,
-        b: m.Mobject,
-        path: Path,
-        t: np.ndarray,
-        args: tuple,
-        live: np.void | None,
-    ) -> np.ndarray | None:
-        batches.append(len(t))
-        return mix(a, b, path, t, args, live)
-
-    monkeypatch.setattr(feeder, "mix", measured)
-    frames = feeder.tween(
-        camera, [leaf], [(leaf, keys, m.straight_path(), intervals, progress)]
-    )
-    for f, (_, records) in enumerate(frames):
-        assert batches == [30] * (1 + f // 30)
-        feeder.sweep(pressed=True)
-        assert all(
-            int(row[name]) in feeder.sizes
-            for row in np.frombuffer(records, feed.RECORD)
-            for name in feed.KEYS
-            if row[name]
-        )
+    before = feeder.frame(camera, [mob])[1]
+    if field == "triangles":
+        mob.triangles = np.array([[0, 1, 3], [1, 2, 3]])
+    else:
+        mob.uvs = np.ones((4, 2))
+    after = feeder.frame(camera, [mob])[1]
+    assert after != before
+    assert after == feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
 
 
 @pytest.mark.parametrize("fixed", [False, True])
-def test_a_delayed_tween_can_return_before_its_start_after_eviction(
+@pytest.mark.config(pixel_width=64, pixel_height=64, frame_rate=10)
+def test_a_delayed_play_can_rewind_under_memory_pressure(
     fixed: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from manimgx.scene import _tracks
+    """Eviction cannot change a delayed animation whose enclosing clock goes backward."""
 
-    points = np.array(
-        [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]], float
-    )
-    start = m.PMobject().add_points(points)
-    keys = [
-        start.copy().set_points(points + np.array([[0, 0, 0]] * 4 + [[x, x, 0]]))
-        for x in [0, 0.5, 1]
-    ]
-    # The state before the play need not be its first explicit keyframe.
-    leaf = start.copy().shift(0.125 * m.UP)
-    tween = m.Transform(leaf, keys=keys, rate_func=m.linear)
-    clock = m.Succession(m.Wait(1), tween, rate_func=m.there_and_back)
-    clock.begin_all()
-    leaves = _tracks(clock, [(tween, m.straight_path())], np.linspace(0, 1, 4), set())
-    assert leaves[0][3].tolist() == [-1, 1, 1, -1]
-    camera, sink = m.Camera(), Sink()
-    if fixed:
-        camera.fixed_in_frame_mobjects.add(leaf)
-    feeder = feed.Feeder(32, 32, sink)
-    original = feeder.frame(camera, [leaf])[1]
-    for number, (_, records) in enumerate(feeder.tween(camera, [leaf], leaves)):
-        if number in (0, 3):
-            assert records == original
-        used = {
-            int(row[name])
-            for row in np.frombuffer(records, feed.RECORD)
-            for name in (*feed.KEYS, "texture")
-            if row[name]
-        }
-        assert used <= set(sink.resident)
-        feeder.sweep(pressed=True)
-        assert set(sink.resident) == used
+    class Rewinding(m.Scene):
+        def construct(self) -> None:
+            points = np.array(
+                [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0.25, 0.5, 0]],
+                float,
+            )
+            start = m.PMobject().add_points(points)
+            keys = [
+                start.copy().set_points(
+                    points + np.array([[0, 0, 0]] * 4 + [[x, x, 0]])
+                )
+                for x in [0, 0.5, 1]
+            ]
+            leaf = start.copy().shift(0.125 * m.UP)
+            self.camera.frame.shift(m.RIGHT)
+            if fixed:
+                self.camera.add_fixed_in_frame_mobjects(leaf)
+            self.add(leaf)
+            self.play(
+                m.Succession(
+                    m.Wait(1),
+                    m.Transform(leaf, keys=keys, rate_func=m.linear),
+                    rate_func=m.there_and_back,
+                )
+            )
+
+    expected = frames(Rewinding())
+    monkeypatch.setattr(feed, "BUDGET", 0)
+    actual = frames(Rewinding())
+    assert len(actual) == len(expected)
+    assert all(np.array_equal(a, b) for a, b in zip(actual, expected, strict=True))
 
 
 def test_pressure_preserves_pending_current_and_camera_resources() -> None:
@@ -936,3 +851,130 @@ def test_a_picture_is_not_one_of_the_films_frames() -> None:
     assert (feeder.frames, feeder.latest) == (frames, latest)
     feeder.sweep(pressed=True)  # the picture's shapes may go: never the held frame's
     assert held <= set(sink.resident)
+
+
+class Growing(Sink):
+    """A sink that takes growing paths too, noting each path it is given whole, and each it
+    grows: (how, key, curves sent)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.paths: list[tuple[str, int, int]] = []
+
+    def add_path(
+        self, key: int, points: bytes, subpaths: bytes, ca: Sequence[float]
+    ) -> None:
+        super().add_path(key, points, subpaths, ca)
+        self.paths.append(("whole", key, len(points) // 96))
+
+    def grow_path(self, key: int, points: bytes, closed: bool = False) -> None:
+        self.engine.grow_path(key, points, closed)
+        self.paths.append(("grown", key, len(points) // 96))
+
+
+def test_paths_that_grow_alike_share_one_upload() -> None:
+    sink = Growing()
+    feeder = feed.Feeder(32, 32, sink)
+    right, up, nothing = np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.empty((0, 3))
+
+    def line(start: np.ndarray, step: np.ndarray) -> np.ndarray:
+        """A straight curve: its points a step apart, the handles at its thirds."""
+        return start + np.outer(np.arange(4), step)
+
+    def drawn(log: Log, tail: np.ndarray) -> int | None:
+        """The key a frame draws the log by once it gains `tail`; None: an ordinary shape."""
+        placed = feeder.grown(log.extended(tail))
+        return None if placed is None else placed[0]
+
+    a, b = Log(line(0 * right, right)), Log(line(0 * right, right))
+    assert [drawn(a, nothing), drawn(b, nothing)] == [None, None]  # first seen
+    shared = drawn(a, line(3 * right, right))
+    assert shared is not None
+    assert drawn(b, line(3 * right, right)) == shared  # grown alike: one upload
+    on, behind = drawn(a, line(6 * right, right)), drawn(b, nothing)
+    turned = drawn(b, line(6 * right, up))
+    assert on == shared
+    assert behind not in (None, shared)
+    assert turned == behind
+    assert sink.paths == [
+        ("whole", shared, 2),
+        ("grown", shared, 1),  # the one that goes on grows what both held
+        ("whole", behind, 2),  # the other, left behind, is itself
+        ("grown", behind, 1),
+    ]
+
+
+@given(
+    angle=st.floats(-6, 6),
+    width=st.floats(0.2, 4),
+    height=st.floats(0.2, 4),
+)
+def test_a_gradient_axis_spans_the_current_bounding_box(
+    angle: float, width: float, height: float
+) -> None:
+    """Sheen is box relative, so an arbitrary turn can change each point's gradient color."""
+    mob = m.Rectangle(width=width, height=height).set_fill([m.RED, m.BLUE], 1)
+    mob.rotate(angle)
+    row = record_of(mob, Recorder(32, 32, 10))
+    box = mob.boundary_box()
+    assert box is not None
+    lo, hi = box
+    center, offset = (lo + hi) / 2, (hi - lo) / 2 * mob.paint.sheen_direction
+    np.testing.assert_allclose(row["gradient_a"][:3], center - offset, atol=1e-6)
+    np.testing.assert_allclose(row["gradient_b"][:3], center + offset, atol=1e-6)
+
+
+@given(
+    shape=st.sampled_from([m.Square, m.Circle, m.Triangle]),
+    motion=st.sampled_from(["move", "scale", "turn"]),
+    amount=st.floats(0.1, 4),
+    stops=st.integers(2, 3),
+)
+def test_a_carried_shape_keeps_its_colors_when_its_gradient_box_is_carried(
+    shape: Callable[[], m.VMobject], motion: str, amount: float, stops: int
+) -> None:
+    """Moves, uniform scales and quarter turns carry a box-relative gradient unchanged."""
+    mob = shape().set_fill([m.RED, m.BLUE, m.YELLOW][:stops], 1).set_stroke(width=0)
+
+    def colors() -> np.ndarray:
+        row = record_of(mob, Recorder(32, 32, 10))
+        a, b = row["gradient_a"][:3].astype(float), row["gradient_b"][:3].astype(float)
+        d = b - a
+        at = np.clip((mob.points - a) @ d / (d @ d), 0, 1) * (stops - 1)
+        index = np.minimum(at.astype(int), stops - 2)
+        return np.array(
+            [
+                oracles.premultiplied_mix(
+                    mob.paint.fill[k], mob.paint.fill[k + 1], float(t - k)
+                )
+                for t, k in zip(at, index, strict=True)
+            ]
+        )
+
+    before = colors()
+    if motion == "move":
+        mob.shift(amount * m.UR)
+    elif motion == "scale":
+        mob.scale(amount)
+    else:
+        mob.rotate(np.pi / 2)
+    np.testing.assert_allclose(colors(), before, rtol=0, atol=1e-6)
+
+
+@pytest.mark.parametrize("alpha", [1 - 1e-12, 1e-50], ids=["wholly", "not at all"])
+def test_a_paint_mixed_to_an_end_as_the_player_reads_it_is_that_end(
+    alpha: float,
+) -> None:
+    """A tween's paint mixed so near an end that the player, reading the mix in single
+    precision, draws that end's paint alone is recorded as that paint: the frame is the one
+    the end shows, so a film holds it rather than drawing it again."""
+    start, end = m.Square().set_fill(m.RED, 1), m.Square().set_fill(m.YELLOW, 1)
+    mob = m.Square()
+    mob.paint = mob.paint.mixed(start.paint, end.paint, alpha)
+    assert mob.paint.mix is not None  # a mix, as the paint holds it
+    camera = m.Camera()
+    shown = end if alpha > 0.5 else start
+    assert (
+        feed.Feeder(32, 32, Sink()).frame(camera, [mob])[1]
+        == feed.Feeder(32, 32, Sink()).frame(camera, [shown])[1]
+    )

@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
     from manimgx.animation.timeline import Animation
     from manimgx.audio.sound import Clip
-    from manimgx.drawing.geometry import Path
     from manimgx.mobject import Mobject
     from manimgx.scene import Camera
 
@@ -325,7 +324,6 @@ class Film:
         self._pending: tuple[bytes, bytes, list[CameraView], int] | None = (
             None  # sent once it ends
         )
-        self._first = 0  # the index of the pending frame
         self._key = False  # the next frame begins a section: a keyframe of its own
         self._pending_key = False  # the pending frame is one
 
@@ -376,14 +374,19 @@ class Film:
             ms = round(t * 1000)
             return f"{ms // 3_600_000:02d}:{ms // 60_000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
-        return "".join(
-            f"{i}\n{stamp(c.start)} --> {stamp(c.end)}\n{c.text}\n\n"
-            for i, c in enumerate(self.captions(), 1)
-        )
+        cues = []
+        for c in self.captions():
+            text = "\n".join(line for line in c.text.splitlines() if line.strip())
+            if text:
+                cues.append(
+                    f"{len(cues) + 1}\n{stamp(c.start)} --> {stamp(c.end)}\n{text}\n\n"
+                )
+        return "".join(cues)
 
     def captions(self) -> list[Caption]:
         """The film's captions, in order of their start: those the scene added, and its
-        speech's, a line of a few words at a time as they are said."""
+        speech's, a line of a few words at a time as they are said. Each interval is
+        clipped to the film; intervals outside it are omitted."""
         from manimgx.audio.sound import Speech, lines
 
         spoken = [
@@ -392,7 +395,15 @@ class Film:
             if isinstance(clip.sound, Speech)
             for a, b, text in lines(clip.sound)
         ]
-        return sorted(self.subcaptions + spoken, key=lambda c: c.start)
+        end = float(self.frame_count / self.fps)
+        return sorted(
+            (
+                Caption(max(0.0, c.start), min(end, c.end), c.text)
+                for c in self.subcaptions + spoken
+                if min(end, c.end) > max(0.0, c.start)
+            ),
+            key=lambda c: c.start,
+        )
 
     @deprecated("ManimGX's machinery: the scene calls it", category=None)
     def played(self, play: Play, animations: "tuple[Animation, ...]") -> None:
@@ -445,26 +456,6 @@ class Film:
         view, records, cameras = self.feeder.frame(camera, mobjects)
         self._add(view, records, cameras, repeat)
 
-    @deprecated("ManimGX's machinery: the scene calls it", category=None)
-    def tween(
-        self,
-        camera: "Camera",
-        mobjects: "list[Mobject]",
-        leaves: "list[tuple[Mobject, list[Mobject], Path, np.ndarray, np.ndarray]]",
-    ) -> None:
-        """Record, at once, the frames of a play that only carries its leaves between
-        keyframes: the scene calls it for such a play.
-
-        Args:
-            camera: The camera the frames are seen through.
-            mobjects: The mobjects drawn, in the order they are drawn.
-            leaves: For each moving leaf: the leaf, its keyframes, its path, and per
-                frame the interval it is in and the time along it (-1 marking the frames
-                the entry does not claim).
-        """
-        for view, records in self.feeder.tween(camera, mobjects, leaves):
-            self._add(view, records, [], 1)
-
     def _add(
         self, view: bytes, records: bytes, cameras: list[CameraView], repeat: int
     ) -> None:
@@ -478,7 +469,6 @@ class Film:
         else:
             self._send()
             self._pending = (view, records, cameras, repeat)
-            self._first = self.frame_count
             self._pending_key, self._key = self._key, False
         self.frame_count += repeat
 
@@ -519,7 +509,7 @@ class Film:
             return pixels
 
         try:
-            self.frames(Frame(self._first, repeat, draw, key))
+            self.frames(Frame(self.frame_count - repeat, repeat, draw, key))
         except Cut:
             push()  # the frame that cuts a film still belongs to its video
             raise
