@@ -5,7 +5,7 @@
   "name": "manimgx-coverage",
   "compatibility_date": "2026-09-25",
   "assets": { "directory": "../../htmlcov" },
-  // Academa's internal/manimgx-hosting Terraform unit owns the domain and Worker identity.
+  // Academa's products/manimgx.academa.ai Terraform unit owns the domain and Worker identity.
   "workers_dev": false,
   // each commit's report is a deployment in the preview "main" or "pr-<number>", at
   // <preview>-manimgx-coverage.<account subdomain>.workers.dev; Cloudflare retains their

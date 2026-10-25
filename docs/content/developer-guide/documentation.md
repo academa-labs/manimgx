@@ -498,7 +498,7 @@ configures it:
   never served): security headers for every page, long caching for the theme's bundles
   (their names change with their content), and `noindex` on `workers.dev` hosts.
 
-Academa's `internal/manimgx-hosting` Terraform unit provisions the Worker identity,
+Academa's `products/manimgx.academa.ai` Terraform unit provisions the Worker identity,
 custom domain and deployment credential. It also provisions the coverage report's
 Worker and domain. Wrangler publishes assets and previews; it leaves domain ownership
 to Terraform. The account ID is a GitHub repository variable, and each site's deployment

@@ -276,7 +276,7 @@ base commit's deployment files and the static artifacts:
   get Cloudflare's API token run a pinned Wrangler on the built files (and `gh`, to set
   the coverage status). Cleanup uses the trusted base commit's `cleanup.py`. Neither
   deployment configuration nor executable code is taken from a build artifact.
-- Academa's `internal/manimgx-hosting` Terraform unit owns the Worker identities,
+- Academa's `products/manimgx.academa.ai` Terraform unit owns the Worker identities,
   custom domains, GitHub environments and credentials. Each site's
   `CLOUDFLARE_API_TOKEN` can edit only that Worker; the account ID is the repository
   variable `CLOUDFLARE_ACCOUNT_ID`. Production environments allow `main`; preview
