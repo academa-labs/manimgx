@@ -27,6 +27,17 @@ The video is named after the scene. It is 1920 × 1080 pixels, at 60 frames each
 with the scene's sound. `-o` gives it a different name. For a quick draft, make it
 smaller: `-r 1280x720 --fps 30`.
 
+A frame that the scene shows unchanged is not written again: the one before it is held for
+longer. That makes the file shorter than its duration suggests — a 40 s scene at 30 fps with
+about two seconds of still moments is 1146 frames, not 1216 — and spaces its frames
+unevenly. A player holds the frame across the gap and plays the scene rightly; a tool that
+reads a constant frame rate does not, and takes the video for a slower one. To give one of
+them every frame, repeat the held ones with FFmpeg:
+
+```console
+$ ffmpeg -i SquareToCircle.mp4 -fps_mode cfr -r 60 SquareToCircle-cfr.mp4
+```
+
 `render` also writes a storyboard, with the picture at the end of each play that
 changes it, and the captions of a voice, as subtitles (`.srt`).
 
