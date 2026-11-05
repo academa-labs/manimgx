@@ -30,6 +30,48 @@ smaller: `-r 1280x720 --fps 30`.
 `render` also writes a storyboard, with the picture at the end of each play that
 changes it, and the captions of a voice, as subtitles (`.srt`).
 
+### A window of the scene
+
+While working on one moment of a long scene, render only that moment: `--from` and `--to`,
+in seconds.
+
+```sh
+manimgx render scene.py Scene --from 9 --to 14 -o draft.mp4
+```
+
+The video holds the frames from `--from` up to, but not including, `--to`. Either option
+alone is enough: `--from` runs to the scene's end, `--to` from its start.
+
+A window can be named by play instead, as the storyboard numbers them (`#3` under its
+picture), with both ends included. Plays and waits are numbered together, from 0.
+
+```sh
+manimgx render scene.py Scene --plays 3-6 -o draft.mp4
+```
+
+`--plays 3` is play 3 alone and `--plays 3-` runs from it to the scene's end. It is the
+same window as the plays' own times, so `--plays` goes with neither `--from` nor `--to`.
+
+The scene itself runs from its start, since what the window shows depends on what came
+before it: its mobjects, its camera, what `add_fixed_in_frame_mobjects` fixed in the frame
+and every updater's state are what a full render would have there. Only the window's
+frames are drawn and encoded, which is where rendering spends its time, so a window is far
+quicker than the whole video; and the scene stops at `--to`, so nothing after it runs at
+all. What the scene's own Python computes along the way, it still computes: a scene whose
+time goes on its own work, rather than on drawing, saves less.
+
+A window sounds as the film does there. Its soundtrack is the whole film's, cut to the
+window: a sound still playing at `--from` is heard from its middle, as a sound carries on
+over a cut, and between the window's edges what sounds together, loops or ducks does so
+exactly as a full render has it. One still playing at `--to` fades out there, as it would
+at the film's own end. Its subtitles are the captions the window shows, timed from its own
+start.
+
+What a window does not write is the storyboard. Its first section is the one the scene is
+in at `--from`, and a section that begins inside the window begins one of the video too;
+each keeps the time it has in the scene, and the sections before the window are not in the
+video. Render the scene whole for the film itself.
+
 ### Settings
 
 Set the video's settings on `m.config`, after the import: its size in pixels,

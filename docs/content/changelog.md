@@ -25,6 +25,8 @@ The notable changes to ManimGX, release by release. The format follows
 - Add Manim CE's `partial_bezier_points`, `subdivide_bezier`, `bezier_remap`, `integer_interpolate`, `is_closed` and `get_smooth_cubic_bezier_handle_points` to the package.
 - Add `remove_fixed_in_frame_mobjects` to `ThreeDScene` and `Camera`, Manim CE's undo of `add_fixed_in_frame_mobjects`: the camera moves the mobjects again.
 - Add `get_height()`, deprecated in favor of `height`, as `get_width()` is in favor of `width`: Manim CE scenes call both.
+- Add `--plays` to `manimgx render`: write only the plays it names, both ends included, as the storyboard numbers them (`--plays 3-6`, `--plays 3`, or `--plays 3-` to the end). It is the window those plays' own times are.
+- Add `--from` and `--to` to `manimgx render`: write only a window of the scene, so an edit to one moment of a long film no longer costs a whole render. The scene runs from its start, since what the window shows depends on what came before it, but stops at `--to`; only the window's frames are drawn and encoded. A window sounds and reads as the film does there — its soundtrack is the whole film's, cut to the window, and its subtitles are the captions it shows — but it writes no storyboard.
 
 ### Changed
 

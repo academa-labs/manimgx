@@ -5,6 +5,7 @@ import os
 import re
 import time
 import webbrowser
+from dataclasses import replace
 from fractions import Fraction
 from html import escape
 from importlib.resources import files
@@ -14,6 +15,7 @@ from urllib.parse import quote
 
 import typer
 from PIL import Image
+from rich.console import Console
 
 from manimgx.animation import clock
 from manimgx.animation.timeline import Animation
@@ -25,6 +27,7 @@ from manimgx.cli.scenes import (
     Resolution,
     SceneName,
     fail,
+    report_error,
     scene,
     take,
 )
@@ -32,6 +35,7 @@ from manimgx.cli.storyboard import Sheets, Watch, line
 from manimgx.rendering.film import (
     DEFAULT_ENCODER_CRF,
     DEFAULT_ENCODER_PRESET,
+    Caption,
     Cut,
     Film,
     Frame,
@@ -42,6 +46,8 @@ from manimgx.scene import Scene
 from manimgx.settings import config
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from manimgx.animation.transform import Transform
     from manimgx.drawing.geometry import Path as MotionPath
 
@@ -59,6 +65,34 @@ def render(
     ] = None,
     resolution: Resolution = None,
     fps: Fps = None,
+    from_: Annotated[
+        float | None,
+        typer.Option(
+            "--from",
+            min=0,
+            show_default=False,
+            help="Only from this time, in seconds. [default: the start]",
+        ),
+    ] = None,
+    to_: Annotated[
+        float | None,
+        typer.Option(
+            "--to",
+            min=0,
+            show_default=False,
+            help="Only up to (not including) this time, in seconds. [default: the end]",
+        ),
+    ] = None,
+    plays: Annotated[
+        str | None,
+        typer.Option(
+            "--plays",
+            show_default=False,
+            metavar="A[-B]",
+            help="Only these plays, as the storyboard numbers them, both ends included:"
+            " '3-6', '3' alone, or '3-' to the end. Not with --from or --to.",
+        ),
+    ] = None,
     preset: Annotated[
         X264Preset,
         typer.Option(
@@ -78,12 +112,42 @@ def render(
 
     Also writes a storyboard beside the video (the frame at each play's end, layout problems
     outlined and numbered) and lists those problems — see `manimgx inspect` — and, if the
-    scene speaks or has subcaptions, its subtitles (.srt)."""
+    scene speaks or has subcaptions, its subtitles (.srt).
+
+    With --from or --to, writes only that window of time; with --plays, the plays it names,
+    both ends included, as the storyboard numbers them. The scene runs from its start, since
+    what the window shows depends on what came before, but stops at the window's end, so
+    nothing after it runs either. It sounds and reads as the whole film does there — a sound still playing at --from
+    is heard from its middle, and the captions are the ones the window shows — but it has no
+    storyboard. Its first section is the one the scene is in at --from, and a section begun
+    inside it begins one of the video too; the sections before the window are not in it."""
     kind = scene(file, name)
     video = output or file.with_name(f"{kind.__name__}.mp4")
     if video.suffix.lower() != ".mp4":
         raise fail(f"error: {video}: ManimGX writes MP4 video; name the output *.mp4")
     look = Format.own(resolution, fps)
+    if plays is not None and (from_ is not None or to_ is not None):
+        raise fail("error: --plays names a window of its own; not with --from or --to")
+    if plays is not None or from_ is not None or to_ is not None:
+        fps_exact = clock.rational(look.fps)
+        start = clock.frame_at(from_ or 0.0, fps_exact)
+        end = None if to_ is None else clock.frame_at(to_, fps_exact)
+        if end is not None and end <= start:
+            raise fail("error: --to must be after --from")
+        span = None if plays is None else numbered(plays)
+        started = time.perf_counter()
+        made = windowed(kind, look, video, start, end, span, preset, crf)
+        took = time.perf_counter() - started
+        megabytes = video.stat().st_size / 1e6
+        typer.echo(
+            f"{video}  {look}, {megabytes:.1f} MB (rendered in {took:.1f} s):"
+            " no storyboard"
+        )
+        if subtitles := made.film.subtitles():
+            srt = video.with_suffix(".srt")
+            srt.write_text(subtitles, encoding="utf-8")
+            typer.echo(f"subtitles: {srt}")
+        return
     watch = Watch(Sheets(video.with_name(f"{video.stem}.storyboard.png")))
     started = time.perf_counter()
     try:
@@ -103,6 +167,229 @@ def render(
         srt.write_text(subtitles, encoding="utf-8")
         typer.echo(f"subtitles: {srt}")
     typer.echo(watch.report(timeline=False, film=made.film))
+
+
+class WindowFilm(Film):
+    """A window's film: it hears and captions what the whole film has between `since`, the
+    scene time its first frame shows, and its own end.
+
+    Its clips are the scene's, timed from the scene's start, as the window's picture is the
+    scene's picture there. Its sound is the film's own soundtrack, mixed over the whole
+    timeline and cut to the window, so overlaps, loops, ducking and the fades of a sound cut
+    short are what a full render gives; only the cut itself is new, and it is ramped so that
+    a wave sliced through the middle does not click.
+    """
+
+    def __init__(
+        self,
+        video: str | os.PathLike[str],
+        since: Fraction,
+        *,
+        preset: X264Preset = DEFAULT_ENCODER_PRESET,
+        crf: float = DEFAULT_ENCODER_CRF,
+    ) -> None:
+        """
+        Args:
+            video: The MP4 file the window is encoded into.
+            since: The scene time its first frame shows.
+            preset: The x264 preset it is encoded with.
+            crf: Its quality, as x264's constant rate factor.
+        """
+        super().__init__(video, preset=preset, crf=crf)
+        self.since = since
+        """The scene time this film's first frame shows."""
+
+    def soundtrack(self) -> "np.ndarray | None":
+        """The whole film's sound over the window: its clips mixed from the scene's start
+        and cut to the window, its head faded in over [`CUT`][manimgx.audio.sound.CUT] so
+        that a wave cut through the middle does not click. A sound still playing at the
+        window's end fades out there, as one the film's own end cuts short does."""
+        # the mixer's own ramp: the cut fades as a sound cut short does
+        from manimgx.audio.sound import CUT, RATE, _ramp, mix
+
+        whole = mix(self.clips, self.since + self.frame_count / self.fps)
+        if whole is None:
+            return None
+        sound = whole[round(self.since * RATE) :].copy()
+        # its end needs no fade: the mix fades a sound its own end cuts short
+        _ramp(sound, CUT if self.since else 0.0, 0.0)
+        return sound
+
+    def captions(self) -> list[Caption]:
+        """The whole film's captions over the window, timed from its first frame: those it
+        shows, each clipped to it."""
+        since, length = float(self.since), float(self.frame_count / self.fps)
+        shown = []
+        for caption in super().captions():
+            start, end = caption.start - since, caption.end - since
+            if end > 0 and start < length:
+                shown.append(
+                    replace(caption, start=max(start, 0.0), end=min(end, length))
+                )
+        return shown
+
+
+def windowed(
+    kind: type[Scene],
+    look: Format,
+    video: Path,
+    start: int,
+    end: int | None,
+    span: tuple[int, int | None] | None,
+    preset: X264Preset,
+    crf: float,
+) -> Scene:
+    """Run `kind` at `look`, writing `video` only for the window: frames `start` up to (not
+    including) `end`, or, with a `span`, the plays it names, both included.
+
+    The scene runs from its start, as what a frame in the window shows depends on what came
+    before it, but stops at the window's end: nothing after it runs. Only the window is drawn
+    and encoded; its sound and captions are the whole film's over the window (see
+    `WindowFilm`).
+
+    Args:
+        kind: The scene.
+        look: The size and frame rate it is rendered at.
+        video: The MP4 the window is written to.
+        start: Its first frame, when it is a span of time.
+        end: One past its last frame, when it is a span of time; None, the scene's end.
+        span: The first and last play it holds, both included (None as the last: to the
+            scene's end); None, the window is the span of time instead.
+        preset: The x264 preset it is encoded with.
+        crf: Its quality, as x264's constant rate factor.
+
+    Returns:
+        The scene, run.
+    """
+    config.pixel_width, config.pixel_height = look.width, look.height
+    config.frame_rate = look.fps
+    fps_exact = clock.rational(look.fps)
+    opened = False
+    empty = False  # the span's plays all fell between two frames
+
+    class Windowed(Scene):
+        """Run frame by frame, or at once between its own keyframes, through `kind`'s own
+        evaluation methods; only the window is drawn and encoded."""
+
+        def _open(self) -> None:
+            nonlocal opened
+            held = self.film.sections[-1]  # the section in force where the window opens
+            # the sounds and captions placed so far: both timed from the scene's start
+            clips, said = self.film.clips, self.film.subcaptions
+            since = Fraction(self.frame) / fps_exact  # this first frame's time
+            self.film = WindowFilm(os.fspath(video), since, preset=preset, crf=crf)
+            self.film.sections[0] = replace(held, frame=0)
+            self.film.clips[:] = clips
+            self.film.subcaptions[:] = said
+            opened = True
+
+        def _boundary(self) -> None:
+            """Open the window at its first frame, and cut the film past its last.
+
+            The play being run is `num_plays - 1`: the scene counts a play as it begins
+            it. A span of plays needs no frame of its own, as a play begins and ends
+            between two frames: the window's edges fall where `_emit` is entered, never
+            inside it.
+            """
+            if not opened:
+                begun = self.num_plays > span[0] if span else self.frame >= start
+                if begun:
+                    self._open()
+            if opened:
+                over = (
+                    span[1] is not None and self.num_plays - 1 > span[1]
+                    if span
+                    else end is not None and self.frame >= end
+                )
+                if over:
+                    nonlocal empty
+                    empty = not self.film.frame_count
+                    raise Cut
+
+        def _pure_tweens(
+            self, anim: Animation, alpha: list[float]
+        ) -> "tuple[list[tuple[Transform, MotionPath]], set[int]] | None":
+            self._boundary()
+            if span is not None:
+                return super()._pure_tweens(anim, alpha)  # its edges are plays' own
+            lo, hi = self.frame, self.frame + len(alpha)
+            if lo < start < hi or (end is not None and lo < end < hi):
+                return None  # the window splits this play: every frame computed
+            return super()._pure_tweens(anim, alpha)
+
+        def _advance_tweens(
+            self,
+            anim: Animation,
+            tweens: "list[tuple[Transform, MotionPath]]",
+            alpha: list[float],
+            introduced: set[int],
+        ) -> None:
+            if opened:
+                super()._advance_tweens(anim, tweens, alpha, introduced)
+            else:  # before the window: its frames are never drawn, so never made
+                self.frame += len(alpha)
+
+        def _emit(self, repeat: int = 1) -> None:
+            while repeat > 0:
+                self._boundary()
+                if opened:
+                    chunk = (
+                        repeat
+                        if span is not None or end is None
+                        else min(repeat, end - self.frame)
+                    )
+                    super()._emit(chunk)
+                else:  # before the window: its frames are never drawn, so never made
+                    chunk = (
+                        repeat if span is not None else min(repeat, start - self.frame)
+                    )
+                    self.frame += chunk
+                repeat -= chunk
+
+    combined = type(kind.__name__, (kind, Windowed), {"__module__": kind.__module__})
+    shown = Console(stderr=True)
+    try:
+        with shown.status(f"{kind.__name__}…", spinner="dots"):
+            made = combined()
+            made.render()
+    except Exception as error:
+        raise fail(report_error(error), 1) from None
+    if empty and span is not None:
+        video.unlink(missing_ok=True)
+        raise fail(
+            f"error: play {span[0]} has no frame of its own: it begins and ends between"
+            " two frames",
+            1,
+        )
+    if not opened:
+        if span is not None:
+            raise fail(
+                f"error: the scene has {made.num_plays} plays, numbered 0 to"
+                f" {made.num_plays - 1}; --plays is past its end",
+                1,
+            )
+        raise fail(
+            f"error: the scene ends at {float(made.clock):.2f} s; --from is past it", 1
+        )
+    return made
+
+
+def numbered(given: str) -> tuple[int, int | None]:
+    """The first and last play `--plays` names, both included; None as the last means the
+    scene's end. `3-6` is 3 to 6, `3` is play 3 alone, and `3-` is 3 to the end."""
+    first, dash, last = given.strip().partition("-")
+    try:
+        a = int(first)
+        b = None if dash and not last else int(last or first)
+    except ValueError:
+        raise fail(
+            f"error: {given!r} is not a span of plays: 'A', 'A-B' or 'A-'"
+        ) from None
+    if a < 0 or (b is not None and b < a):
+        raise fail(
+            "error: --plays counts from 0, and its last play is not before its first"
+        )
+    return a, b
 
 
 def moments(given: list[str]) -> set[Fraction | None]:
